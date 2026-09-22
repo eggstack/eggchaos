@@ -118,7 +118,10 @@ impl Toxic {
             "slow_close" => FaultKind::SlowClose(SlowCloseConfig {
                 delay: Duration::from_millis(self.attributes.delay.unwrap_or(0)),
             }),
-            "reset_peer" => FaultKind::Disconnect(DisconnectConfig { hard_reset: true }),
+            "reset_peer" => FaultKind::Disconnect(DisconnectConfig {
+                after: Duration::from_millis(self.attributes.timeout.unwrap_or(0)),
+                hard_reset: true,
+            }),
             "slicer" => FaultKind::Slice(SliceConfig {
                 average_size: NonZeroU64::new(self.attributes.average_size.unwrap_or(1))
                     .ok_or_else(|| {

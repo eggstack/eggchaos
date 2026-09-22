@@ -276,6 +276,7 @@ impl FaultFileConfig {
                 delay: duration(&self.delay, "fault.delay")?,
             }),
             "disconnect" | "reset_peer" => FaultKind::Disconnect(DisconnectConfig {
+                after: duration(&self.delay, "fault.delay")?,
                 hard_reset: self.hard_reset,
             }),
             other => {

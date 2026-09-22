@@ -7,7 +7,9 @@ mod policy;
 mod rng;
 mod stream;
 
-pub use engine::{DirectionEngine, TerminationRequest};
+pub use engine::{
+    DirectionEngine, EngineEvidence, TerminationHandle, TerminationInfo, TerminationRequest,
+};
 pub use plan::{
     BandwidthConfig, BlackholeConfig, DisconnectConfig, FaultId, FaultKind, FaultPlan, FaultSpec,
     LatencyConfig, LimitDataConfig, Probability, RngVersion, SliceConfig, SlowCloseConfig,

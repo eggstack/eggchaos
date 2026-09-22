@@ -7,7 +7,10 @@ use std::{
 
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
-use crate::{Direction, DirectionEngine, FaultPlan, LivePolicy};
+use crate::{
+    Direction, DirectionEngine, FaultPlan, LivePolicy, RngVersion, TerminationHandle,
+    TerminationInfo, TerminationRequest,
+};
 
 /// Serializable counters for one wrapped stream direction.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -20,8 +23,20 @@ pub struct DirectionSummary {
     pub bytes_discarded: u64,
     /// Accepted logical segments.
     pub segments: u64,
-    /// Cumulative configured delay.
+    /// Slicer-produced slices accepted.
+    pub slices: u64,
+    /// Bytes currently owned in the bounded queue.
+    pub buffered_bytes: u64,
+    /// High-water mark of owned queued bytes.
+    pub high_water_bytes: u64,
+    /// Cumulative configured latency delay.
     pub injected_delay_ms: u64,
+    /// Cumulative bandwidth-throttle delay.
+    pub throttled_delay_ms: u64,
+    /// Latest termination request, if any.
+    pub termination: Option<TerminationRequest>,
+    /// Deterministic RNG contract version.
+    pub rng_version: RngVersion,
 }
 
 /// Error returned when a stream engine cannot be constructed.
@@ -33,6 +48,11 @@ pub enum EngineError {
 }
 
 /// A Tokio stream whose writes are passed through one directional fault plan.
+///
+/// Bounded ownership contract: `poll_write` may report a write accepted as
+/// soon as the engine owns the bytes inside its bounded queue, before they
+/// reach the inner transport. `poll_flush` is the barrier guaranteeing every
+/// preserving accepted byte has reached the inner writer.
 pub struct ChaosStream<T> {
     inner: T,
     engine: DirectionEngine,
@@ -42,7 +62,6 @@ pub struct ChaosStream<T> {
     proxy: String,
     connection_key: u64,
     observed_generation: u64,
-    pending_accept: Option<usize>,
 }
 
 impl<T> ChaosStream<T> {
@@ -70,7 +89,6 @@ impl<T> ChaosStream<T> {
             proxy: proxy.as_ref().to_owned(),
             connection_key,
             observed_generation: 0,
-            pending_accept: None,
         })
     }
     /// Wrap a stream with an empty plan.
@@ -84,7 +102,6 @@ impl<T> ChaosStream<T> {
             proxy: String::new(),
             connection_key: 0,
             observed_generation: 0,
-            pending_accept: None,
         }
     }
     /// Wrap a stream with a generation-published live policy.
@@ -113,12 +130,41 @@ impl<T> ChaosStream<T> {
             proxy,
             connection_key,
             observed_generation: generation,
-            pending_accept: None,
         })
     }
     /// Return the configured direction.
     pub const fn direction(&self) -> Direction {
         self.direction
+    }
+    /// Generation this stream compiled its engine from.
+    pub const fn observed_generation(&self) -> u64 {
+        self.observed_generation
+    }
+    /// Live generation the stream has not yet transitioned to, if any.
+    pub fn pending_generation(&self) -> Option<u64> {
+        self.live_policy.as_ref().and_then(|policy| {
+            let generation = policy.generation();
+            (generation != self.observed_generation).then_some(generation)
+        })
+    }
+    /// Durable termination handle shared with the embedding runtime.
+    pub fn termination_handle(&self) -> TerminationHandle {
+        self.engine.termination_handle()
+    }
+    /// Latest termination evidence, if any.
+    pub fn termination_info(&self) -> Option<TerminationInfo> {
+        self.engine.termination_info()
+    }
+    /// Observe termination, arming deadline timers so a finite blackhole or
+    /// delayed disconnect fires even with no further application write.
+    pub fn poll_termination(&mut self, cx: &mut Context<'_>) -> Poll<Option<TerminationInfo>> {
+        if self.engine.is_empty() {
+            return Poll::Pending;
+        }
+        match self.engine.poll_due_termination(cx) {
+            Poll::Ready(info) => Poll::Ready(Some(info)),
+            Poll::Pending => Poll::Pending,
+        }
     }
     /// Access the current direction summary.
     pub fn summary(&self) -> DirectionSummary {
@@ -128,7 +174,13 @@ impl<T> ChaosStream<T> {
             bytes_forwarded: e.bytes_forwarded,
             bytes_discarded: e.bytes_discarded,
             segments: e.segments,
+            slices: e.slices,
+            buffered_bytes: e.buffered_bytes,
+            high_water_bytes: e.high_water_bytes,
             injected_delay_ms: e.injected_delay_ms,
+            throttled_delay_ms: e.throttled_delay_ms,
+            termination: e.termination,
+            rng_version: e.rng_version,
         }
     }
     /// Return the wrapped transport.
@@ -165,35 +217,32 @@ impl<T: AsyncWrite + Unpin> AsyncWrite for ChaosStream<T> {
         if this.engine.is_empty() {
             return Pin::new(&mut this.inner).poll_write(cx, bytes);
         }
-        if let Some(accepted) = this.pending_accept {
-            match this.engine.poll_flush(cx, &mut this.inner) {
-                Poll::Ready(Ok(())) => {
-                    this.pending_accept = None;
-                    return Poll::Ready(Ok(accepted));
-                }
-                Poll::Ready(Err(error)) => return Poll::Ready(Err(error)),
-                Poll::Pending => return Poll::Pending,
-            }
-        }
         if this.update_live(cx).is_pending() {
             return Poll::Pending;
         }
-        if !this.engine.queue_is_empty() && this.engine.poll_flush(cx, &mut this.inner).is_pending()
-        {
-            return Poll::Pending;
+        // Opportunistically drive releasable bytes to free bounded capacity.
+        // This arms release timers but never blocks acceptance: ownership
+        // can complete before physical delivery.
+        if let Poll::Ready(Err(error)) = this.engine.poll_flush(cx, &mut this.inner) {
+            return Poll::Ready(Err(error));
+        }
+        if bytes.is_empty() {
+            return Poll::Ready(Ok(0));
+        }
+        if this.engine.termination_request().is_some() && this.engine.queue_is_empty() {
+            return Poll::Ready(Err(terminated_error(this.engine.termination_info())));
         }
         let accepted = this.engine.accept(bytes);
-        if accepted == 0 {
-            return Poll::Pending;
+        if accepted > 0 {
+            return Poll::Ready(Ok(accepted));
         }
-        match this.engine.poll_flush(cx, &mut this.inner) {
-            Poll::Ready(Ok(())) => Poll::Ready(Ok(accepted)),
-            Poll::Ready(Err(error)) => Poll::Ready(Err(error)),
-            Poll::Pending => {
-                this.pending_accept = Some(accepted);
-                Poll::Pending
-            }
+        // Nothing accepted: either bounded capacity is full (the drive above
+        // armed the release timer, so retry after wakeup) or a termination
+        // is due while the accepted prefix still drains.
+        if this.engine.termination_request().is_some() && this.engine.queue_is_empty() {
+            return Poll::Ready(Err(terminated_error(this.engine.termination_info())));
         }
+        Poll::Pending
     }
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
@@ -238,16 +287,23 @@ impl<T: AsyncWrite + Unpin> ChaosStream<T> {
         if policy.generation() == self.observed_generation {
             return Poll::Ready(());
         }
+        // Barrier transition: already accepted preserving bytes drain before
+        // the engine is replaced, so a policy update never silently forgets
+        // owned bytes. Already discarded blackhole bytes stay discarded.
         if !self.engine.queue_is_empty() && self.engine.poll_flush(cx, &mut self.inner).is_pending()
         {
             return Poll::Pending;
         }
-        self.engine = DirectionEngine::new(
+        // The termination handle is shared across the swap, so a due
+        // termination request survives the transition (first wins).
+        let handle = self.engine.termination_handle();
+        self.engine = DirectionEngine::new_with_termination(
             policy.snapshot(),
             self.run_seed,
             &self.proxy,
             self.connection_key,
             self.direction,
+            handle,
         )
         .expect("published policies are validated");
         self.observed_generation = policy.generation();
@@ -255,12 +311,23 @@ impl<T: AsyncWrite + Unpin> ChaosStream<T> {
     }
 }
 
-impl DirectionEngine {
-    pub(crate) fn queue_is_empty(&self) -> bool {
-        self.is_empty()
-            || self.evidence().bytes_accepted
-                == self.evidence().bytes_forwarded + self.evidence().bytes_discarded
-    }
+/// Write error surfacing a durable engine termination request.
+fn terminated_error(info: Option<TerminationInfo>) -> io::Error {
+    let detail = match info {
+        Some(TerminationInfo {
+            fault_id: Some(id),
+            direction,
+            ..
+        }) => format!("terminated by fault {id} ({})", direction.as_str()),
+        Some(TerminationInfo { direction, .. }) => {
+            format!("terminated ({})", direction.as_str())
+        }
+        None => "terminated".to_owned(),
+    };
+    io::Error::new(
+        io::ErrorKind::ConnectionAborted,
+        format!("eggchaos stream {detail}"),
+    )
 }
 
 /// A physical stream with independent write/upstream and read/downstream
@@ -270,7 +337,6 @@ pub struct BidirectionalChaosStream<T> {
     inner: T,
     upstream: DirectionEngine,
     downstream: DirectionEngine,
-    pending_accept: Option<usize>,
     output: VecDeque<u8>,
     upstream_policy: Option<LivePolicy>,
     downstream_policy: Option<LivePolicy>,
@@ -310,7 +376,6 @@ impl<T: AsyncRead + AsyncWrite + Unpin> BidirectionalChaosStream<T> {
                 connection_key,
                 Direction::Downstream,
             )?,
-            pending_accept: None,
             output: VecDeque::new(),
             upstream_policy: Some(upstream),
             downstream_policy: Some(downstream),
@@ -322,18 +387,32 @@ impl<T: AsyncRead + AsyncWrite + Unpin> BidirectionalChaosStream<T> {
         })
     }
 
+    /// Latest upstream termination evidence, if any.
+    pub fn upstream_termination(&self) -> Option<TerminationInfo> {
+        self.upstream.termination_info()
+    }
+
+    /// Latest downstream termination evidence, if any.
+    pub fn downstream_termination(&self) -> Option<TerminationInfo> {
+        self.downstream.termination_info()
+    }
+
     fn update_policies(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         if let Some(policy) = self.upstream_policy.clone() {
             if policy.generation() != self.observed_upstream {
-                if self.upstream.poll_flush(cx, &mut self.inner).is_pending() {
+                if !self.upstream.queue_is_empty()
+                    && self.upstream.poll_flush(cx, &mut self.inner).is_pending()
+                {
                     return Poll::Pending;
                 }
-                self.upstream = DirectionEngine::new(
+                let handle = self.upstream.termination_handle();
+                self.upstream = DirectionEngine::new_with_termination(
                     policy.snapshot(),
                     self.run_seed,
                     &self.proxy,
                     self.connection_key,
                     Direction::Upstream,
+                    handle,
                 )
                 .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
                 self.observed_upstream = policy.generation();
@@ -352,12 +431,14 @@ impl<T: AsyncRead + AsyncWrite + Unpin> BidirectionalChaosStream<T> {
                 {
                     return Poll::Pending;
                 }
-                self.downstream = DirectionEngine::new(
+                let handle = self.downstream.termination_handle();
+                self.downstream = DirectionEngine::new_with_termination(
                     policy.snapshot(),
                     self.run_seed,
                     &self.proxy,
                     self.connection_key,
                     Direction::Downstream,
+                    handle,
                 )
                 .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
                 self.observed_downstream = policy.generation();
@@ -430,30 +511,23 @@ impl<T: AsyncRead + AsyncWrite + Unpin> AsyncWrite for BidirectionalChaosStream<
         if this.upstream.is_empty() {
             return Pin::new(&mut this.inner).poll_write(cx, bytes);
         }
-        if let Some(accepted) = this.pending_accept {
-            if this.upstream.poll_flush(cx, &mut this.inner).is_pending() {
-                return Poll::Pending;
-            }
-            this.pending_accept = None;
-            return Poll::Ready(Ok(accepted));
+        if let Poll::Ready(Err(error)) = this.upstream.poll_flush(cx, &mut this.inner) {
+            return Poll::Ready(Err(error));
         }
-        if !this.upstream.queue_is_empty()
-            && this.upstream.poll_flush(cx, &mut this.inner).is_pending()
-        {
-            return Poll::Pending;
+        if bytes.is_empty() {
+            return Poll::Ready(Ok(0));
+        }
+        if this.upstream.termination_request().is_some() && this.upstream.queue_is_empty() {
+            return Poll::Ready(Err(terminated_error(this.upstream.termination_info())));
         }
         let accepted = this.upstream.accept(bytes);
-        if accepted == 0 {
-            return Poll::Pending;
+        if accepted > 0 {
+            return Poll::Ready(Ok(accepted));
         }
-        match this.upstream.poll_flush(cx, &mut this.inner) {
-            Poll::Ready(Ok(())) => Poll::Ready(Ok(accepted)),
-            Poll::Ready(Err(error)) => Poll::Ready(Err(error)),
-            Poll::Pending => {
-                this.pending_accept = Some(accepted);
-                Poll::Pending
-            }
+        if this.upstream.termination_request().is_some() && this.upstream.queue_is_empty() {
+            return Poll::Ready(Err(terminated_error(this.upstream.termination_info())));
         }
+        Poll::Pending
     }
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         let this = self.as_mut().get_mut();
@@ -510,7 +584,7 @@ impl AsyncWrite for CaptureWriter<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{num::NonZeroU64, time::Duration};
+    use std::{future::poll_fn, num::NonZeroU64, time::Duration};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     fn fault(id: &str, kind: crate::FaultKind) -> crate::FaultSpec {
@@ -519,6 +593,18 @@ mod tests {
             probability: crate::Probability::new(1.0).unwrap(),
             kind,
         }
+    }
+
+    fn latency_plan(delay_ms: u64, buffer: u64) -> crate::FaultPlan {
+        crate::FaultPlan::new(vec![fault(
+            "latency",
+            crate::FaultKind::Latency(crate::LatencyConfig {
+                delay: Duration::from_millis(delay_ms),
+                jitter: Duration::ZERO,
+                max_buffer_bytes: NonZeroU64::new(buffer).unwrap(),
+            }),
+        )])
+        .unwrap()
     }
 
     #[tokio::test]
@@ -541,7 +627,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn limit_data_stops_at_exact_boundary() {
+    async fn limit_data_reports_only_accepted_prefix_then_terminates() {
         let plan = crate::FaultPlan::new(vec![fault(
             "limit",
             crate::FaultKind::LimitData(crate::LimitDataConfig {
@@ -551,25 +637,59 @@ mod tests {
         .unwrap();
         let (mut peer, right) = tokio::io::duplex(32);
         let mut wrapped = ChaosStream::new(right, plan, 7, "p", 1, Direction::Upstream).unwrap();
-        assert_eq!(wrapped.write(b"abcdef").await.unwrap(), 6);
+        // The suffix beyond the limit is never reported as accepted.
+        assert_eq!(wrapped.write(b"abcdef").await.unwrap(), 3);
         wrapped.flush().await.unwrap();
         let mut out = [0; 3];
         peer.read_exact(&mut out).await.unwrap();
         assert_eq!(&out, b"abc");
         assert_eq!(wrapped.summary().bytes_forwarded, 3);
+        assert_eq!(
+            wrapped.summary().termination,
+            Some(crate::TerminationRequest::Graceful)
+        );
+        // Once the accepted prefix drains, further writes fail
+        // deterministically instead of vanishing.
+        let error = wrapped.write(b"d").await.unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::ConnectionAborted);
+    }
+
+    #[tokio::test]
+    async fn limit_data_boundaries_are_exact() {
+        for (limit, writes, expected) in [
+            (1_u64, vec![b"ab".as_slice()], vec![1_usize]),
+            (
+                4_u64,
+                vec![b"ab".as_slice(), b"cdef".as_slice()],
+                vec![2, 2],
+            ),
+            (5_u64, vec![b"abcde".as_slice()], vec![5]),
+        ] {
+            let plan = crate::FaultPlan::new(vec![fault(
+                "limit",
+                crate::FaultKind::LimitData(crate::LimitDataConfig {
+                    bytes: NonZeroU64::new(limit).unwrap(),
+                }),
+            )])
+            .unwrap();
+            let (_peer, right) = tokio::io::duplex(64);
+            let mut wrapped =
+                ChaosStream::new(right, plan, 7, "p", 1, Direction::Upstream).unwrap();
+            let mut total = 0;
+            for (write, expect) in writes.iter().zip(expected.iter()) {
+                let accepted = wrapped.write(write).await.unwrap();
+                assert_eq!(accepted, *expect, "limit {limit}");
+                total += accepted;
+            }
+            assert_eq!(total as u64, limit.min(6));
+            wrapped.flush().await.unwrap();
+            assert_eq!(wrapped.summary().bytes_forwarded, total as u64);
+        }
     }
 
     #[tokio::test(start_paused = true)]
     async fn latency_is_bounded_and_flushable() {
-        let plan = crate::FaultPlan::new(vec![fault(
-            "latency",
-            crate::FaultKind::Latency(crate::LatencyConfig {
-                delay: Duration::from_millis(100),
-                jitter: Duration::ZERO,
-                max_buffer_bytes: NonZeroU64::new(32).unwrap(),
-            }),
-        )])
-        .unwrap();
+        let plan = latency_plan(100, 32);
         let (mut peer, right) = tokio::io::duplex(32);
         let mut wrapped = ChaosStream::new(right, plan, 7, "p", 1, Direction::Upstream).unwrap();
         wrapped.write_all(b"abc").await.unwrap();
@@ -586,6 +706,155 @@ mod tests {
         assert!(wrapped.summary().injected_delay_ms >= 100);
     }
 
+    #[tokio::test(start_paused = true)]
+    async fn latency_does_not_multiply_across_fragmented_writes() {
+        let plan = latency_plan(100, 64);
+        let (mut peer, right) = tokio::io::duplex(64);
+        let mut wrapped = ChaosStream::new(right, plan, 7, "p", 1, Direction::Upstream).unwrap();
+        // Both segments are accepted before either deadline expires.
+        wrapped.write_all(b"abcd").await.unwrap();
+        wrapped.write_all(b"efgh").await.unwrap();
+        assert_eq!(wrapped.summary().buffered_bytes, 8);
+        let start = tokio::time::Instant::now();
+        let flush = tokio::spawn(async move {
+            wrapped.flush().await.unwrap();
+            wrapped
+        });
+        tokio::task::yield_now().await;
+        tokio::time::advance(Duration::from_millis(100)).await;
+        let wrapped = flush.await.unwrap();
+        // One base delay releases the burst, not one delay per write.
+        assert!(start.elapsed() < Duration::from_millis(200));
+        let mut out = [0; 8];
+        peer.read_exact(&mut out).await.unwrap();
+        assert_eq!(&out, b"abcdefgh");
+        assert_eq!(wrapped.summary().bytes_forwarded, 8);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn latency_queue_backpressures_at_capacity_and_wakes() {
+        let plan = latency_plan(100, 4);
+        let (mut peer, right) = tokio::io::duplex(64);
+        let mut wrapped = ChaosStream::new(right, plan, 7, "p", 1, Direction::Upstream).unwrap();
+        wrapped.write_all(b"abcd").await.unwrap();
+        // The bound is full and the head release is 100ms out: the next
+        // write cannot complete within 10ms instead of allocating beyond it.
+        let timeout = tokio::time::timeout(Duration::from_millis(10), wrapped.write(b"e")).await;
+        assert!(timeout.is_err());
+        tokio::time::advance(Duration::from_millis(100)).await;
+        wrapped.flush().await.unwrap();
+        // Capacity freed by the drain; the retry succeeds.
+        assert_eq!(wrapped.write(b"e").await.unwrap(), 1);
+        wrapped.flush().await.unwrap();
+        let mut out = [0; 5];
+        peer.read_exact(&mut out).await.unwrap();
+        assert_eq!(&out, b"abcde");
+        assert_eq!(wrapped.summary().high_water_bytes, 4);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn bandwidth_burst_then_sustained_rate() {
+        let plan = crate::FaultPlan::new(vec![fault(
+            "throttle",
+            crate::FaultKind::Bandwidth(crate::BandwidthConfig {
+                bytes_per_second: NonZeroU64::new(100).unwrap(),
+                burst_bytes: NonZeroU64::new(100).unwrap(),
+            }),
+        )])
+        .unwrap();
+        let (mut peer, right) = tokio::io::duplex(512);
+        let mut wrapped = ChaosStream::new(right, plan, 7, "p", 1, Direction::Upstream).unwrap();
+        // Initial burst passes without waiting.
+        wrapped.write_all(&[1; 100]).await.unwrap();
+        wrapped.flush().await.unwrap();
+        let mut out = [0; 100];
+        peer.read_exact(&mut out).await.unwrap();
+        // The next 100 bytes need a full second at 100 B/s.
+        wrapped.write_all(&[2; 100]).await.unwrap();
+        let start = tokio::time::Instant::now();
+        let flush = tokio::spawn(async move {
+            wrapped.flush().await.unwrap();
+            wrapped
+        });
+        tokio::task::yield_now().await;
+        tokio::time::advance(Duration::from_secs(1)).await;
+        let wrapped = flush.await.unwrap();
+        assert!(start.elapsed() >= Duration::from_secs(1));
+        let mut out = [0; 100];
+        peer.read_exact(&mut out).await.unwrap();
+        assert!(out.iter().all(|b| *b == 2));
+        assert!(wrapped.summary().throttled_delay_ms >= 1000);
+    }
+
+    #[tokio::test]
+    async fn slicer_preserves_bytes_with_deterministic_variation() {
+        // Golden sequence for seed 7 / proxy "p" / key 1 / upstream / "slice"
+        // with average 8 and variation 3, from the SplitMix64-v1 contract.
+        let plan = crate::FaultPlan::new(vec![fault(
+            "slice",
+            crate::FaultKind::Slice(crate::SliceConfig {
+                average_size: NonZeroU64::new(8).unwrap(),
+                variation: 3,
+                delay: Duration::ZERO,
+            }),
+        )])
+        .unwrap();
+        let (mut peer, right) = tokio::io::duplex(128);
+        let mut wrapped = ChaosStream::new(right, plan, 7, "p", 1, Direction::Upstream).unwrap();
+        let payload: Vec<u8> = (0..40).collect();
+        wrapped.write_all(&payload).await.unwrap();
+        // Every slice stays inside [average - variation, average + variation]
+        // and the segmentation is deterministic for the fixed seed.
+        let first = wrapped.summary();
+        assert_eq!(first.bytes_accepted, 40);
+        assert!(first.slices >= 4 && first.slices <= 8);
+        wrapped.flush().await.unwrap();
+        let mut out = [0; 40];
+        peer.read_exact(&mut out).await.unwrap();
+        assert_eq!(out.to_vec(), payload);
+        // Same identity reproduces the same segmentation under scheduling noise.
+        let plan2 = crate::FaultPlan::new(vec![fault(
+            "slice",
+            crate::FaultKind::Slice(crate::SliceConfig {
+                average_size: NonZeroU64::new(8).unwrap(),
+                variation: 3,
+                delay: Duration::ZERO,
+            }),
+        )])
+        .unwrap();
+        let (_peer2, right2) = tokio::io::duplex(128);
+        let mut noisy = ChaosStream::new(right2, plan2, 7, "p", 1, Direction::Upstream).unwrap();
+        tokio::task::yield_now().await;
+        tokio::spawn(async {}).await.unwrap();
+        noisy.write_all(&payload).await.unwrap();
+        assert_eq!(noisy.summary().slices, first.slices);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn slicer_inter_slice_delay_staggers_delivery() {
+        let plan = crate::FaultPlan::new(vec![fault(
+            "slice",
+            crate::FaultKind::Slice(crate::SliceConfig {
+                average_size: NonZeroU64::new(4).unwrap(),
+                variation: 0,
+                delay: Duration::from_millis(50),
+            }),
+        )])
+        .unwrap();
+        let (mut peer, right) = tokio::io::duplex(64);
+        let mut wrapped = ChaosStream::new(right, plan, 7, "p", 1, Direction::Upstream).unwrap();
+        wrapped.write_all(b"abcdefghijkl").await.unwrap();
+        assert_eq!(wrapped.summary().slices, 3);
+        // Three slices with a 50ms inter-slice delay drain at +0/+50/+100:
+        // a once-per-write delay would finish at +50 instead of +100.
+        let start = tokio::time::Instant::now();
+        wrapped.flush().await.unwrap();
+        assert_eq!(start.elapsed(), Duration::from_millis(100));
+        let mut out = [0; 12];
+        peer.read_exact(&mut out).await.unwrap();
+        assert_eq!(&out, b"abcdefghijkl");
+    }
+
     #[tokio::test]
     async fn blackhole_counts_discarded_bytes() {
         let plan = crate::FaultPlan::new(vec![fault(
@@ -597,19 +866,139 @@ mod tests {
         let mut wrapped = ChaosStream::new(right, plan, 7, "p", 1, Direction::Upstream).unwrap();
         assert_eq!(wrapped.write(b"abcdef").await.unwrap(), 6);
         assert_eq!(wrapped.summary().bytes_discarded, 6);
+        // Indefinite blackhole never terminates on its own.
+        assert_eq!(wrapped.summary().termination, None);
+        assert_eq!(wrapped.write(b"gh").await.unwrap(), 2);
+    }
+
+    #[tokio::test]
+    async fn finite_blackhole_terminates_at_deadline_without_further_writes() {
+        tokio::time::pause();
+        let plan = crate::FaultPlan::new(vec![fault(
+            "hole",
+            crate::FaultKind::Blackhole(crate::BlackholeConfig {
+                close_after: Some(Duration::from_millis(100)),
+            }),
+        )])
+        .unwrap();
+        let (_peer, right) = tokio::io::duplex(32);
+        let mut wrapped = ChaosStream::new(right, plan, 7, "p", 1, Direction::Upstream).unwrap();
+        assert_eq!(wrapped.write(b"hello").await.unwrap(), 5);
+        assert_eq!(wrapped.summary().bytes_discarded, 5);
+        assert_eq!(wrapped.summary().termination, None);
+        // No further write arrives; a driver polling the termination future
+        // arms the deadline timer and the deadline still fires termination.
+        let handle = wrapped.termination_handle();
+        let driver = tokio::spawn(async move {
+            poll_fn(|cx| wrapped.poll_termination(cx)).await;
+        });
+        tokio::task::yield_now().await;
+        tokio::time::advance(Duration::from_millis(100)).await;
+        tokio::time::timeout(Duration::from_secs(5), driver)
+            .await
+            .unwrap()
+            .unwrap();
+        let info = handle.terminated().await;
+        assert_eq!(info.request, crate::TerminationRequest::Graceful);
+        assert_eq!(info.fault_id.as_deref(), Some("hole"));
+    }
+
+    #[tokio::test]
+    async fn disconnect_signals_are_durable_and_typed() {
+        // Graceful, zero delay.
+        let plan = crate::FaultPlan::new(vec![fault(
+            "bye",
+            crate::FaultKind::Disconnect(crate::DisconnectConfig {
+                after: Duration::ZERO,
+                hard_reset: false,
+            }),
+        )])
+        .unwrap();
+        let (mut peer, right) = tokio::io::duplex(32);
+        let mut wrapped = ChaosStream::new(right, plan, 7, "p", 1, Direction::Upstream).unwrap();
+        wrapped.write_all(b"hi").await.unwrap();
+        assert_eq!(
+            wrapped.summary().termination,
+            Some(crate::TerminationRequest::Graceful)
+        );
+        // Accepted bytes still drain before termination resolves.
+        wrapped.flush().await.unwrap();
+        let mut out = [0; 2];
+        peer.read_exact(&mut out).await.unwrap();
+        assert_eq!(&out, b"hi");
+        // A late waiter still observes the request (level-triggered).
+        let info = wrapped.termination_handle().terminated().await;
+        assert_eq!(info.request, crate::TerminationRequest::Graceful);
+
+        // Hard reset request.
+        let plan = crate::FaultPlan::new(vec![fault(
+            "rst",
+            crate::FaultKind::Disconnect(crate::DisconnectConfig {
+                after: Duration::ZERO,
+                hard_reset: true,
+            }),
+        )])
+        .unwrap();
+        let (_peer, right) = tokio::io::duplex(32);
+        let mut wrapped = ChaosStream::new(right, plan, 7, "p", 1, Direction::Upstream).unwrap();
+        wrapped.write_all(b"x").await.unwrap();
+        assert_eq!(
+            wrapped.summary().termination,
+            Some(crate::TerminationRequest::HardReset)
+        );
+    }
+
+    #[tokio::test]
+    async fn delayed_disconnect_fires_without_further_writes() {
+        tokio::time::pause();
+        let plan = crate::FaultPlan::new(vec![fault(
+            "later",
+            crate::FaultKind::Disconnect(crate::DisconnectConfig {
+                after: Duration::from_millis(75),
+                hard_reset: true,
+            }),
+        )])
+        .unwrap();
+        let (_peer, right) = tokio::io::duplex(32);
+        let mut wrapped = ChaosStream::new(right, plan, 7, "p", 1, Direction::Upstream).unwrap();
+        assert_eq!(wrapped.summary().termination, None);
+        let handle = wrapped.termination_handle();
+        let driver = tokio::spawn(async move {
+            poll_fn(|cx| wrapped.poll_termination(cx)).await;
+        });
+        // The deadline timer is armed by the first termination poll, then
+        // fires past the deadline with no application writes.
+        tokio::task::yield_now().await;
+        tokio::time::advance(Duration::from_millis(75)).await;
+        tokio::time::timeout(Duration::from_secs(5), driver)
+            .await
+            .unwrap()
+            .unwrap();
+        let info = handle.terminated().await;
+        assert_eq!(info.request, crate::TerminationRequest::HardReset);
+        assert_eq!(info.fault_id.as_deref(), Some("later"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn shutdown_delivers_pending_latency_queue() {
+        let plan = latency_plan(100, 32);
+        let (mut peer, right) = tokio::io::duplex(32);
+        let mut wrapped = ChaosStream::new(right, plan, 7, "p", 1, Direction::Upstream).unwrap();
+        wrapped.write_all(b"abc").await.unwrap();
+        let shutdown = tokio::spawn(async move {
+            wrapped.shutdown().await.unwrap();
+        });
+        tokio::task::yield_now().await;
+        tokio::time::advance(Duration::from_millis(100)).await;
+        shutdown.await.unwrap();
+        let mut out = [0; 3];
+        peer.read_exact(&mut out).await.unwrap();
+        assert_eq!(&out, b"abc");
     }
 
     #[tokio::test]
     async fn live_policy_publishes_after_existing_queue_drains() {
-        let initial = crate::FaultPlan::new(vec![fault(
-            "latency",
-            crate::FaultKind::Latency(crate::LatencyConfig {
-                delay: Duration::from_millis(10),
-                jitter: Duration::ZERO,
-                max_buffer_bytes: NonZeroU64::new(32).unwrap(),
-            }),
-        )])
-        .unwrap();
+        let initial = latency_plan(10, 32);
         let policy = crate::LivePolicy::new(initial);
         let (mut peer, right) = tokio::io::duplex(32);
         let mut wrapped =
@@ -622,6 +1011,86 @@ mod tests {
         peer.read_exact(&mut out).await.unwrap();
         assert_eq!(&out, b"ab");
         assert_eq!(policy.generation(), 2);
+    }
+
+    #[tokio::test]
+    async fn live_transition_preserves_due_termination() {
+        let limited = crate::FaultPlan::new(vec![fault(
+            "limit",
+            crate::FaultKind::LimitData(crate::LimitDataConfig {
+                bytes: NonZeroU64::new(2).unwrap(),
+            }),
+        )])
+        .unwrap();
+        let policy = crate::LivePolicy::new(limited);
+        let (mut peer, right) = tokio::io::duplex(32);
+        let mut wrapped =
+            ChaosStream::new_live(right, policy.clone(), 7, "p", 1, Direction::Upstream).unwrap();
+        assert_eq!(wrapped.write(b"ab").await.unwrap(), 2);
+        assert!(wrapped.pending_generation().is_none());
+        // Publish an empty plan while termination from the old generation is
+        // already due: the swap must not erase it.
+        policy.publish(crate::FaultPlan::empty()).unwrap();
+        assert_eq!(wrapped.pending_generation(), Some(2));
+        wrapped.flush().await.unwrap();
+        let mut out = [0; 2];
+        peer.read_exact(&mut out).await.unwrap();
+        assert_eq!(&out, b"ab");
+        assert_eq!(wrapped.observed_generation(), 2);
+        assert_eq!(
+            wrapped.termination_info().map(|info| info.request),
+            Some(crate::TerminationRequest::Graceful)
+        );
+    }
+
+    #[tokio::test]
+    async fn preserving_combination_conserves_bytes_under_fragmentation() {
+        let plan = crate::FaultPlan::new(vec![
+            fault(
+                "latency",
+                crate::FaultKind::Latency(crate::LatencyConfig {
+                    delay: Duration::from_millis(5),
+                    jitter: Duration::from_millis(2),
+                    max_buffer_bytes: NonZeroU64::new(256).unwrap(),
+                }),
+            ),
+            fault(
+                "throttle",
+                crate::FaultKind::Bandwidth(crate::BandwidthConfig {
+                    bytes_per_second: NonZeroU64::new(4096).unwrap(),
+                    burst_bytes: NonZeroU64::new(128).unwrap(),
+                }),
+            ),
+            fault(
+                "slice",
+                crate::FaultKind::Slice(crate::SliceConfig {
+                    average_size: NonZeroU64::new(7).unwrap(),
+                    variation: 2,
+                    delay: Duration::ZERO,
+                }),
+            ),
+        ])
+        .unwrap();
+        let (mut peer, right) = tokio::io::duplex(512);
+        let mut wrapped = ChaosStream::new(right, plan, 7, "p", 1, Direction::Upstream).unwrap();
+        let payload: Vec<u8> = (0..200).map(|i| (i % 251) as u8).collect();
+        // Arbitrary fragmentation: 1..=9 byte writes.
+        let mut offset = 0;
+        let mut size = 1;
+        while offset < payload.len() {
+            let end = (offset + size).min(payload.len());
+            wrapped.write_all(&payload[offset..end]).await.unwrap();
+            offset = end;
+            size = size % 9 + 1;
+        }
+        wrapped.flush().await.unwrap();
+        let summary = wrapped.summary();
+        assert_eq!(summary.bytes_accepted, 200);
+        assert_eq!(summary.bytes_forwarded, 200);
+        assert_eq!(summary.bytes_discarded, 0);
+        let mut out = vec![0; 200];
+        peer.read_exact(&mut out).await.unwrap();
+        assert_eq!(out, payload);
     }
 
     #[tokio::test]
@@ -668,5 +1137,25 @@ mod tests {
             }),
         );
         assert!(crate::FaultPlan::new(vec![bad]).is_err());
+    }
+
+    #[test]
+    fn evidence_serializes_without_payloads() {
+        let summary = DirectionSummary {
+            bytes_accepted: 3,
+            bytes_forwarded: 3,
+            bytes_discarded: 0,
+            segments: 1,
+            slices: 0,
+            buffered_bytes: 0,
+            high_water_bytes: 3,
+            injected_delay_ms: 10,
+            throttled_delay_ms: 0,
+            termination: Some(crate::TerminationRequest::Graceful),
+            rng_version: crate::RngVersion::V1,
+        };
+        let value = serde_json::to_value(summary).unwrap();
+        assert_eq!(value["bytes_forwarded"], 3);
+        assert!(value.get("payload").is_none());
     }
 }

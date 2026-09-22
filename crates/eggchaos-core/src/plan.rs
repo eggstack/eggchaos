@@ -4,9 +4,10 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 /// The deterministic RNG contract used by eggchaos.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum RngVersion {
     /// SplitMix64 with the eggchaos v1 domain-separation encoding.
+    #[default]
     V1,
 }
 
@@ -114,8 +115,18 @@ pub struct SliceConfig {
 }
 
 /// Request a graceful or hard termination after the current contract boundary.
+///
+/// M009 corrective note: `after` was added pre-1.0 because the previous
+/// type could not express Toxiproxy's delayed `reset_peer` behavior.
+/// `after == ZERO` means terminate at the first defined contract boundary
+/// (the first write/flush poll after the fault becomes active). A positive
+/// value defers termination until that monotonic deadline has passed while
+/// preserving bytes accepted before the deadline.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DisconnectConfig {
+    /// Monotonic delay before the termination request becomes due.
+    #[serde(default)]
+    pub after: Duration,
     /// Prefer hard reset if the embedding transport can apply it.
     pub hard_reset: bool,
 }

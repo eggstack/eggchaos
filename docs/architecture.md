@@ -27,3 +27,50 @@ RST.
 
 The initial contracts were recorded in [ADR 001](../plans/adrs/001-stream-fault-engine-boundary.md)
 and [ADR 002](../plans/adrs/002-determinism-and-live-mutation.md).
+
+## Fault semantics (M009 corrective baseline)
+
+`poll_write` may report a write accepted as soon as the direction engine owns
+the bytes inside its bounded queue; physical delivery is not required first.
+`poll_flush` is the barrier guaranteeing every preserving accepted byte has
+reached the inner writer. When the bound is full, `poll_write` returns
+`Pending` after arming the release timer. It never reports zero-length
+success for a full queue and never allocates beyond the configured limit.
+
+Release-baseline execution:
+
+- latency: each accepted segment gets an independent
+  `accept_time + base_delay + deterministic_jitter` deadline. Segments
+  accepted together drain as a burst; the base delay is not serialized once
+  per write. Jitter is symmetric around the base delay with total delay
+  floored at zero. Byte order is preserved.
+- bandwidth: integer fixed-point token bucket. Sustained rate is
+  `bytes_per_second`, capacity is `burst_bytes`, and the bucket starts full.
+  Excess bytes stay queued and release as tokens refill from monotonic
+  (Tokio-clock) elapsed time. A long idle period grants at most one burst.
+- blackhole/timeout: `close_after = None` discards indefinitely until a
+  policy transition or runtime cancellation. `close_after = Some(d)`
+  discards until the deadline, then publishes a graceful termination request
+  that fires even with no further application write.
+- limit_data: accepts and forwards at most the remaining byte count and
+  returns only the accepted prefix length. When the limit reaches zero, a
+  graceful termination is published after the accepted prefix resolves; the
+  caller suffix is never reported as accepted. Later writes fail
+  deterministically with `ConnectionAborted` once the prefix drains.
+- slicer: deterministic symmetric sizes in
+  `[average - variation, average + variation]` (lower bound one) drawn from
+  the fault-local SplitMix64-v1 stream, with the configured delay applied
+  between logical slices rather than once per caller write.
+- disconnect: publishes a termination request at `now + after`
+  (`after == ZERO` means the first contract boundary). `hard_reset = true`
+  requests a hard reset; otherwise graceful. Bytes accepted before the
+  deadline still drain.
+- slow_close: delays shutdown only, never ordinary writes.
+
+Termination is a durable level-triggered `TerminationHandle` shared with the
+embedding runtime: the first published request wins, late waiters still
+observe it, and a live-policy transition can never erase it. `eggchaos-core`
+never applies TCP-specific behavior; the runtime edge maps the signal to
+shutdown or reset. A generation transition drains old-generation preserving
+bytes before swapping engines; byte-limit and RNG state restart per
+generation while a due termination survives the swap.
