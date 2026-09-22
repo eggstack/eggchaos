@@ -1,6 +1,6 @@
 # M007 — Eggfetch In-Process Integration
 
-Status: blocked  
+Status: active  
 Depends on: M005  
 Parallel with: M006  
 Successor gate: M008

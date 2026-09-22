@@ -152,4 +152,31 @@ mod tests {
         assert_eq!(&bytes, b"ok");
         task.await.unwrap();
     }
+
+    #[tokio::test]
+    async fn eggfetch_owns_http_over_the_physical_chaos_stream() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let task = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = [0; 256];
+            let _ = tokio::io::AsyncReadExt::read(&mut stream, &mut request)
+                .await
+                .unwrap();
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+                .await
+                .unwrap();
+        });
+        let dialer = ChaosDialer::new(42, "test");
+        let client = eggfetch_core::Client::builder().dialer(dialer).build();
+        let mut response = client
+            .get(&format!("http://127.0.0.1:{}/", address.port()))
+            .unwrap()
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.bytes().await.unwrap().as_ref(), b"ok");
+        task.await.unwrap();
+    }
 }
