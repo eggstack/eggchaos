@@ -1,6 +1,6 @@
 # M004 — Native Control Plane, CLI, and Configuration
 
-Status: blocked  
+Status: closed  
 Depends on: M003  
 Successor: M005
 
