@@ -358,6 +358,19 @@ Update architecture/config/API docs with:
 
 Document which changes are truly live and which restart connections.
 
+## Ordered work packages
+
+Execute in this order:
+
+1. **WP1 — Live policy publication:** implement immutable compiled generations and a low-contention shared policy handle without yet allowing unsafe structural swaps.
+2. **WP2 — Connection-local transition machine:** implement parameter-live, barrier-transition, and restart-class semantics so old generations retain ownership of accepted bytes.
+3. **WP3 — Active connection control:** expose bounded connection inspection, generation/transition state, and explicit operator termination through native service/API/CLI.
+4. **WP4 — Observability authority:** add low-cardinality Prometheus metrics and bounded payload-free connection evidence with accounting reconciliation.
+5. **WP5 — Scenario v1:** add bounded monotonic-time scenario scheduling, deterministic seed resolution, cancellation, and replay metadata—no loops/shell/code execution.
+6. **WP6 — Concurrency/property qualification:** stress concurrent mutations and transition barriers under queued data; prove byte conservation for preserving faults.
+7. **WP7 — Hot-path/performance check:** verify ordinary traffic does not acquire a global admin mutex and record unchanged-generation/transition overhead.
+8. **WP8 — Documentation/closure:** reconcile mutation classes/evidence/scenarios, close M005, and mark M006 and M007 ready in parallel.
+
 ## Acceptance criteria
 
 M005 closes only when:
