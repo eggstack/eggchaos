@@ -330,6 +330,19 @@ Create/update:
 
 Do not claim implemented fault support yet.
 
+## Ordered work packages
+
+Execute in this order unless a stop condition fires:
+
+1. **WP1 — Workspace authority:** create root manifest/toolchain/license/README/lint policy and the five initial crate manifests with one-way dependency direction.
+2. **WP2 — Canonical core domain model:** implement identity, direction, ordered fault definitions, validated newtypes/configs, RNG-version placeholder, capabilities, and typed validation errors.
+3. **WP3 — Empty transport seam:** implement the no-fault `ChaosStream<T>` / direction-engine skeleton and prove Tokio read/write/flush/shutdown correctness without timers or queues.
+4. **WP4 — Adapter/runtime skeletons:** make server, CLI, Toxiproxy, and Eggfetch crates compile while containing no duplicate network/fault authority.
+5. **WP5 — Dependency/feature qualification:** run and document Cargo feature trees; reduce accidental umbrella/default dependencies.
+6. **WP6 — CI and topology gates:** add routine checks, MSRV/supported-platform jobs as practical, and dependency-direction/topology checks.
+7. **WP7 — Documentation reconciliation:** write root/architecture/config docs that describe only implemented M001 behavior.
+8. **WP8 — Closure pass:** rerun the full M001 command set on one candidate commit, write closure evidence, and only then activate M002.
+
 ## Acceptance criteria
 
 M001 closes only when:
