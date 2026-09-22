@@ -14,7 +14,7 @@ This file is the compact source of truth for active milestone state. Detailed sc
 | M005 | `005-live-mutation-observability-and-scenarios.md` | closed | M004 | Closed in `plans/closure/M005-live-mutation-observability-and-scenarios-closure.md` at `250494fc7d408c3f86933f44437d454864519984`. |
 | M006 | `006-toxiproxy-v2-12-compatibility.md` | closed | M005 | Closed in `plans/closure/M006-toxiproxy-v2-12-compatibility-closure.md` at `e3d1d1faaf390f7d2b8b134f8650dc5a385a0110`. |
 | M007 | `007-eggfetch-inprocess-integration.md` | closed | M005 | Closed in `plans/closure/M007-eggfetch-inprocess-integration-closure.md` at `eb52ecd2a2a28e06171bbdf96c3ef4947b8d3eb8`; release-gate evidence gaps are carried explicitly into M008. |
-| M008 | `008-qualification-release-and-distribution.md` | blocked | M006, M007 | Blocked by the named evidence gaps in `plans/closure/M008-qualification-release-and-distribution-blocked.md`: unpublished package dependencies, unavailable audit tooling, unexecuted release target matrix, and incomplete performance/differential/consumer evidence. |
+| M008 | `008-qualification-release-and-distribution.md` | blocked | M006, M007 | Blocked by the named evidence gaps in `plans/closure/M008-qualification-release-and-distribution-blocked.md`: unpublished package dependencies, incomplete local target-matrix execution, and incomplete repeated performance/differential/consumer evidence. Audit and license tooling now pass. |
 
 ## Future roadmap items not yet activated
 
@@ -32,7 +32,7 @@ These are deliberately not assigned executable milestone files yet. They require
 
 ## Dependency-ready view
 
-M008 is blocked by the named release evidence gaps; no later milestone is activated until those gaps are resolved.
+M008 remains blocked by the named release evidence gaps; no later milestone is activated until those gaps are resolved. The audit/license gate is unblocked, but package publication/staging and the remaining qualification evidence are not.
 
 When M001 closes, update this registry so M002 becomes `ready`; do not pre-mark later plans ready. The same rule applies transitively.
 
