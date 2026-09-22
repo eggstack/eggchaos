@@ -323,6 +323,19 @@ Future roadmap items remain future; do not create fake closure for them.
 
 Archive only truly superseded documents.
 
+## Ordered work packages
+
+Execute in this order:
+
+1. **WP1 — State census:** reconcile M000–M007 implementation, registry, ADRs, docs, supported features, and unresolved findings; create corrective plans first if the state is materially inconsistent.
+2. **WP2 — Full correctness/security matrix:** run workspace/MSRV/cross-platform/property/fuzz/security gates and repair only narrow qualification defects.
+3. **WP3 — External qualification:** rerun pinned Toxiproxy v2.12 corpus/client smokes and exact Eggfetch H1/HTTPS/H2 integration evidence on the release candidate.
+4. **WP4 — Performance characterization:** measure direct/Eggress/empty-chaos/fault/adapter baselines and freeze a future no-fault regression budget from repeated evidence.
+5. **WP5 — Public API/documentation freeze:** review exposed Rust/API/config/CLI surface, semver posture, support matrix, examples, limitations, and generated docs.
+6. **WP6 — Packaging graph:** run package-content/dry-run/external-consumer fixtures for each publishable crate in dependency order.
+7. **WP7 — Binary distribution:** build verified target artifacts, checksums, installer path if justified, and per-artifact smoke tests.
+8. **WP8 — Release closure:** produce the M000–M008 evidence census, verify the exact candidate commit/tag, publish only after all gates pass, and then close M008.
+
 ## Acceptance criteria
 
 M008 closes only when:
