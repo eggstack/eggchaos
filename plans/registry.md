@@ -18,8 +18,8 @@ This file is the compact source of truth for active milestone state. Detailed sc
 | M009 | `009-core-fault-semantics-corrective.md` | closed | M002 historical implementation | Closed in `plans/closure/M009-core-fault-semantics-corrective-closure.md` at `8c1373e90129e68e96379fc3277fade8ce087abd`. |
 | M010 | `010-runtime-control-authority-corrective.md` | closed | M003/M004 historical implementation | Closed in `plans/closure/M010-runtime-control-authority-corrective-closure.md` at `3961e968e98948cfab1d0c99d3503ba1624e2e6`. |
 | M011 | `011-live-state-scenario-observability-corrective.md` | closed | M009, M010 | Closed in `plans/closure/M011-live-state-scenario-observability-corrective-closure.md`. |
-| M012 | `012-toxiproxy-v2-12-parity-corrective.md` | active | M009, M010, M011 | M009, M010, M011 closed; implementation in progress, starting with oracle capture. |
-| M013 | `013-corrective-requalification-gate.md` | blocked | M009, M010, M011, M012 | Cross-layer corrective qualification gate. Only a clean M013 verdict may reactivate M008. |
+| M012 | `012-toxiproxy-v2-12-parity-corrective.md` | closed | M009, M010, M011 | Closed at `a040ed7`; evidence in `plans/closure/M012-toxiproxy-v2-12-parity-corrective-closure.md` (47/47 differential vs pinned v2.12.0 oracle, Go + Python client smokes). |
+| M013 | `013-corrective-requalification-gate.md` | ready | M009, M010, M011, M012 | M009–M012 closed; gate may be handed to an implementer. Only a clean M013 verdict may reactivate M008. |
 
 ## Corrective execution order
 
