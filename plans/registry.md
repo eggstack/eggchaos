@@ -14,7 +14,7 @@ This file is the compact source of truth for active milestone state. Detailed sc
 | M005 | `005-live-mutation-observability-and-scenarios.md` | closed | M004 | Historical closure at `250494fc7d408c3f86933f44437d454864519984`; state/generation/scenario evidence corrections are assigned to M011. |
 | M006 | `006-toxiproxy-v2-12-compatibility.md` | closed | M005 | Historical closure at `e3d1d1faaf390f7d2b8b134f8650dc5a385a0110`; route/semantic parity completion is assigned to M012. |
 | M007 | `007-eggfetch-inprocess-integration.md` | closed | M005 | Closed at `eb52ecd2a2a28e06171bbdf96c3ef4947b8d3eb8`; M013 will requalify it after core/live-policy corrections. |
-| M008 | `008-qualification-release-and-distribution.md` | ready | — | Implementation correctness requalified by M013 (clean verdict at `9904490`); remaining work is release/package/target/performance evidence. Earlier blocked assumptions about correctness are superseded; package/target/consumer evidence remains open. |
+| M008 | `008-qualification-release-and-distribution.md` | active | — | Release qualification in progress. Implementation correctness requalified by M013 (clean verdict at `9904490`); remaining work is release/package/target/performance evidence. |
 | M009 | `009-core-fault-semantics-corrective.md` | closed | M002 historical implementation | Closed in `plans/closure/M009-core-fault-semantics-corrective-closure.md` at `8c1373e90129e68e96379fc3277fade8ce087abd`. |
 | M010 | `010-runtime-control-authority-corrective.md` | closed | M003/M004 historical implementation | Closed in `plans/closure/M010-runtime-control-authority-corrective-closure.md` at `3961e968e98948cfab1d0c99d3503ba1624e2e6`. |
 | M011 | `011-live-state-scenario-observability-corrective.md` | closed | M009, M010 | Closed in `plans/closure/M011-live-state-scenario-observability-corrective-closure.md`. |
@@ -47,19 +47,8 @@ These remain post-release or separately planned work and must not be pulled into
 
 ## Dependency-ready view
 
-Ready now:
-
-- M009 — core fault semantics corrective.
-- M010 — runtime/control authority corrective.
-
-Blocked:
-
-- M011 on M009 + M010.
-- M012 on M009 + M010 + M011.
-- M013 on M009–M012.
-- M008 on M013, after which its remaining release/package/target/performance evidence can resume.
-
-Do not hand M008 to an implementation/release agent while M013 is open.
+Completed corrective chain: M009, M010, M011, M012, M013 are closed.
+M008 is active (release qualification).
 
 ## Closure requirements
 

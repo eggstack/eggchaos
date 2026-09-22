@@ -1,0 +1,112 @@
+{
+  "candidate": "CANDIDATE_M008",
+  "host": {
+    "os": "Darwin 26.6.2",
+    "model": "Mac16,8",
+    "cpu": "Apple M4 Pro",
+    "architecture": "arm64",
+    "logical_cpus": 14,
+    "memory_bytes": 25769803776,
+    "rustc": "1.89.0 (29483883e 2025-08-04)",
+    "profile": "release"
+  },
+  "method": {
+    "payload_bytes": 67108864,
+    "rounds": 5,
+    "relay_buffer_bytes": 65536,
+    "cases": [
+      "bare_eggress_relay",
+      "eggchaos_empty_plan",
+      "eggchaos_latency_1ms",
+      "eggchaos_bandwidth_16mib_s",
+      "eggchaos_slice_16k",
+      "eggchaos_combined_latency_slice",
+      "eggfetch_adapter_empty_policy"
+    ],
+    "caveat": "single host run; scheduler and thermal variance are not controlled; one earlier session showed a 2x outlier on eggchaos_empty_plan while bare relay stayed stable, attributed to host noise after a same-binary repeat measured 0.94x with tight samples"
+  },
+  "results": {
+    "bare_eggress_relay": {
+      "mean_seconds": 0.028624,
+      "throughput_mib_s": 2235.907,
+      "samples_seconds": [
+        0.043637625,
+        0.02582225,
+        0.023460458,
+        0.023075,
+        0.027123291
+      ]
+    },
+    "eggchaos_empty_plan": {
+      "mean_seconds": 0.026525,
+      "throughput_mib_s": 2412.822,
+      "samples_seconds": [
+        0.030344584,
+        0.02104875,
+        0.026112416,
+        0.026153167,
+        0.028965875
+      ]
+    },
+    "eggchaos_latency_1ms": {
+      "mean_seconds": 0.038517,
+      "throughput_mib_s": 1661.6,
+      "samples_seconds": [
+        0.03781075,
+        0.035419042,
+        0.042484042,
+        0.032041791,
+        0.044829834
+      ]
+    },
+    "eggchaos_bandwidth_16mib_s": {
+      "mean_seconds": 0.033088,
+      "throughput_mib_s": 1934.208,
+      "samples_seconds": [
+        0.064287,
+        0.025655625,
+        0.024000458,
+        0.026883458,
+        0.024615833
+      ]
+    },
+    "eggchaos_slice_16k": {
+      "mean_seconds": 0.026969,
+      "throughput_mib_s": 2373.126,
+      "samples_seconds": [
+        0.023015708,
+        0.037065458,
+        0.023417916,
+        0.024587958,
+        0.026756208
+      ]
+    },
+    "eggchaos_combined_latency_slice": {
+      "mean_seconds": 0.038465,
+      "throughput_mib_s": 1663.866,
+      "samples_seconds": [
+        0.029759792,
+        0.048015542,
+        0.067460458,
+        0.026606167,
+        0.02048125
+      ]
+    },
+    "eggfetch_adapter_empty_policy": {
+      "mean_seconds": 0.016283,
+      "throughput_mib_s": 3930.369,
+      "samples_seconds": [
+        0.015874416,
+        0.015231417,
+        0.012843083,
+        0.016561958,
+        0.020906416
+      ]
+    }
+  },
+  "budget": {
+    "rule": "eggchaos_empty_plan mean throughput >= 70% of same-session bare_eggress_relay mean, harness 64MiB/5 rounds, quiet host; deliberate-fault delay excluded from overhead",
+    "basis": "same-session ratios observed 0.78/0.52(noise outlier)/0.97/0.94; prior baseline 1.39 at 5f46825",
+    "relative_to": "bare Eggress relay on the same machine and session (absolute numbers are host-specific)"
+  }
+}

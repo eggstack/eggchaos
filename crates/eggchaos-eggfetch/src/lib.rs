@@ -3,6 +3,7 @@
 //! Eggfetch remains the authority for HTTP framing, pooling, TLS, SNI, and
 //! certificate verification. This adapter owns only raw direct TCP dialing
 //! and the physical connection's deterministic fault policy.
+#![forbid(unsafe_code)]
 
 use std::{
     io,
