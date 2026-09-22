@@ -1,7 +1,7 @@
 # M011 closure — Live State, Scenario, and Observability Corrective
 
 Milestone: M011 (`011-live-state-scenario-observability-corrective.md`)
-Candidate commit: (code commit hash — filled at commit time)
+Candidate commit: `acd0883`
 Implementation commits: code commit + this closure record
 Commands executed: see Verification
 Platforms: macOS arm64 (developer host)
