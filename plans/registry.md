@@ -14,7 +14,7 @@ This file is the compact source of truth for active milestone state. Detailed sc
 | M005 | `005-live-mutation-observability-and-scenarios.md` | closed | M004 | Closed in `plans/closure/M005-live-mutation-observability-and-scenarios-closure.md` at `250494fc7d408c3f86933f44437d454864519984`. |
 | M006 | `006-toxiproxy-v2-12-compatibility.md` | closed | M005 | Closed in `plans/closure/M006-toxiproxy-v2-12-compatibility-closure.md` at `e3d1d1faaf390f7d2b8b134f8650dc5a385a0110`. |
 | M007 | `007-eggfetch-inprocess-integration.md` | closed | M005 | Closed in `plans/closure/M007-eggfetch-inprocess-integration-closure.md` at `eb52ecd2a2a28e06171bbdf96c3ef4947b8d3eb8`; release-gate evidence gaps are carried explicitly into M008. |
-| M008 | `008-qualification-release-and-distribution.md` | active | M006, M007 | M006 and M007 are closed; release qualification, cross-platform, performance, security, packaging, and distribution evidence are in progress. |
+| M008 | `008-qualification-release-and-distribution.md` | blocked | M006, M007 | Blocked by the named evidence gaps in `plans/closure/M008-qualification-release-and-distribution-blocked.md`: unpublished package dependencies, unavailable audit tooling, unexecuted release target matrix, and incomplete performance/differential/consumer evidence. |
 
 ## Future roadmap items not yet activated
 
@@ -32,7 +32,7 @@ These are deliberately not assigned executable milestone files yet. They require
 
 ## Dependency-ready view
 
-M008 is active; no later milestone is activated until its release gate closes.
+M008 is blocked by the named release evidence gaps; no later milestone is activated until those gaps are resolved.
 
 When M001 closes, update this registry so M002 becomes `ready`; do not pre-mark later plans ready. The same rule applies transitively.
 
