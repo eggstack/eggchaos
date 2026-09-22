@@ -1,6 +1,6 @@
 # M001 — Workspace Bootstrap and Core Contracts
 
-Status: implemented-awaiting-evidence  
+Status: closed  
 Depends on: M000  
 Successor: M002
 

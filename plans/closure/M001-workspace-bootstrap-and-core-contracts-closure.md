@@ -1,6 +1,6 @@
 # M001 closure — workspace bootstrap and core contracts
 
-Candidate verification commit: recorded immediately before this closure commit.
+Candidate verification commit: `309aeff8da9b1d91b36aecd55c190e12d56e537d`.
 
 ## Evidence
 
