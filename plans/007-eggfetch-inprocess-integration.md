@@ -262,6 +262,19 @@ Provide:
 - timeout/retry caveats;
 - security/redaction model.
 
+## Ordered work packages
+
+Execute in this order:
+
+1. **WP1 — Requalify Eggfetch seam:** pin/record the current `eggfetch-core` version/features and compile an external-style minimal `Dialer` fixture before adapter implementation.
+2. **WP2 — Direct dial authority:** implement the narrow raw TCP dialing path with safe `DialErrorKind` mapping and no HTTP/TLS ownership.
+3. **WP3 — ChaosDialer:** return `ChaosStream`-wrapped physical connections carrying deterministic connection keys and the M005 live policy handle.
+4. **WP4 — H1/HTTPS qualification:** prove keep-alive, destination TLS/SNI/cert ownership, timeout, bandwidth, blackhole, disconnect, retry, and redaction behavior.
+5. **WP5 — Pooled live updates:** prove an already pooled H1 physical stream observes supported policy changes without a new `dial()`.
+6. **WP6 — H2 qualification:** prove shared-physical-connection semantics for concurrent streams, live updates, and connection-level termination under the supported Eggfetch H2 profile.
+7. **WP7 — Dependency/docs pass:** minimize feature graph and document physical-stream rather than per-request semantics.
+8. **WP8 — Closure pass:** record exact Eggfetch/version/profile evidence and close M007; activate M008 only if M006 is also closed.
+
 ## Acceptance criteria
 
 M007 closes only when:
