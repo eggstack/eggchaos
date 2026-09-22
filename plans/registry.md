@@ -14,12 +14,12 @@ This file is the compact source of truth for active milestone state. Detailed sc
 | M005 | `005-live-mutation-observability-and-scenarios.md` | closed | M004 | Historical closure at `250494fc7d408c3f86933f44437d454864519984`; state/generation/scenario evidence corrections are assigned to M011. |
 | M006 | `006-toxiproxy-v2-12-compatibility.md` | closed | M005 | Historical closure at `e3d1d1faaf390f7d2b8b134f8650dc5a385a0110`; route/semantic parity completion is assigned to M012. |
 | M007 | `007-eggfetch-inprocess-integration.md` | closed | M005 | Closed at `eb52ecd2a2a28e06171bbdf96c3ef4947b8d3eb8`; M013 will requalify it after core/live-policy corrections. |
-| M008 | `008-qualification-release-and-distribution.md` | blocked | M006, M007, M013 | Release qualification is paused until M013 requalifies the corrective implementation. The earlier blocked record also names package/target/performance/consumer evidence that remains M008 work after correctness is restored. |
+| M008 | `008-qualification-release-and-distribution.md` | ready | — | Implementation correctness requalified by M013 (clean verdict at `9904490`); remaining work is release/package/target/performance evidence. Earlier blocked assumptions about correctness are superseded; package/target/consumer evidence remains open. |
 | M009 | `009-core-fault-semantics-corrective.md` | closed | M002 historical implementation | Closed in `plans/closure/M009-core-fault-semantics-corrective-closure.md` at `8c1373e90129e68e96379fc3277fade8ce087abd`. |
 | M010 | `010-runtime-control-authority-corrective.md` | closed | M003/M004 historical implementation | Closed in `plans/closure/M010-runtime-control-authority-corrective-closure.md` at `3961e968e98948cfab1d0c99d3503ba1624e2e6`. |
 | M011 | `011-live-state-scenario-observability-corrective.md` | closed | M009, M010 | Closed in `plans/closure/M011-live-state-scenario-observability-corrective-closure.md`. |
 | M012 | `012-toxiproxy-v2-12-parity-corrective.md` | closed | M009, M010, M011 | Closed at `a040ed7`; evidence in `plans/closure/M012-toxiproxy-v2-12-parity-corrective-closure.md` (47/47 differential vs pinned v2.12.0 oracle, Go + Python client smokes). |
-| M013 | `013-corrective-requalification-gate.md` | ready | M009, M010, M011, M012 | M009–M012 closed; gate may be handed to an implementer. Only a clean M013 verdict may reactivate M008. |
+| M013 | `013-corrective-requalification-gate.md` | closed | M009, M010, M011, M012 | Clean verdict at `9904490`; evidence in `plans/closure/M013-corrective-requalification-gate-closure.md`. M008 reactivated for release work. |
 
 ## Corrective execution order
 
