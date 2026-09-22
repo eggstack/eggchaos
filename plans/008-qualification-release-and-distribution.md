@@ -1,7 +1,7 @@
 # M008 — Qualification, Release, and Distribution
 
 Status: blocked
-Depends on: M006, M007  
+Depends on: M006, M007, M013  
 Role: first release gate
 
 ## Objective
@@ -26,9 +26,9 @@ Eggchaos has a first tagged release candidate, expected initially as `v0.1.0` un
 
 ## Preconditions
 
-M006 and M007 are both closed.
+M006 and M007 are historically closed, and M013 must be closed on the corrected implementation before M008 resumes.
 
-Before beginning M008, perform a planning/documentation census. If implementation diverged materially from roadmap/ADRs, write corrective plans first rather than forcing a release around stale documentation.
+Before beginning or resuming M008, verify M013 closure and then perform a planning/documentation census. If implementation diverged materially from roadmap/ADRs, write corrective plans first rather than forcing a release around stale documentation.
 
 ## Scope
 
