@@ -1,0 +1,47 @@
+{
+  "candidate": "working tree descended from 3a1c8d1ead1cdfc514e745067d280a0914e027cd",
+  "host": {
+    "os": "Darwin 25.6.0",
+    "model": "Mac16,8",
+    "architecture": "arm64",
+    "logical_cpus": 14,
+    "memory_bytes": 25769803776,
+    "rustc": "1.89.0 (29483883e 2025-08-04)",
+    "profile": "release"
+  },
+  "method": {
+    "payload_bytes": 67108864,
+    "rounds": 5,
+    "relay_buffer_bytes": 65536,
+    "cases": [
+      "bare_eggress_relay",
+      "eggchaos_empty_plan",
+      "eggchaos_latency_1ms",
+      "eggfetch_adapter_empty_policy"
+    ],
+    "caveat": "single host run; scheduler and thermal variance are not controlled"
+  },
+  "results": {
+    "bare_eggress_relay": {
+      "mean_seconds": 0.013588,
+      "throughput_mib_s": 4710.009,
+      "samples_seconds": [0.0184645, 0.0121905, 0.010187666, 0.012594417, 0.014503333]
+    },
+    "eggchaos_empty_plan": {
+      "mean_seconds": 0.011918,
+      "throughput_mib_s": 5369.815,
+      "samples_seconds": [0.008679625, 0.01109875, 0.0119165, 0.014659916, 0.013237583]
+    },
+    "eggchaos_latency_1ms": {
+      "mean_seconds": 0.012051,
+      "throughput_mib_s": 5310.957,
+      "samples_seconds": [0.011168625, 0.013354834, 0.011780084, 0.011341208, 0.012608042]
+    },
+    "eggfetch_adapter_empty_policy": {
+      "mean_seconds": 0.009473,
+      "throughput_mib_s": 6755.954,
+      "samples_seconds": [0.011615083, 0.012709291, 0.012099333, 0.005181042, 0.005760875]
+    }
+  },
+  "budget": "provisional only; repeated cross-platform runs are required before freezing a release regression threshold"
+}

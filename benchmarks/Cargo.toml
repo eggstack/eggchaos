@@ -1,0 +1,15 @@
+[workspace]
+
+[package]
+name = "eggchaos-benchmarks"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.89"
+publish = false
+
+[dependencies]
+eggress-relay = { package = "eggress-relay", version = "1.0.7" }
+eggchaos-core = { path = "../crates/eggchaos-core", version = "0.1.0" }
+eggchaos-eggfetch = { path = "../crates/eggchaos-eggfetch", version = "0.1.0" }
+eggfetch-core = { version = "0.2.0", default-features = false, features = ["native-http1", "high-level-url", "json", "tls-rustls", "tls-native-roots"] }
+tokio = { version = "1", features = ["io-util", "macros", "rt-multi-thread", "time"] }

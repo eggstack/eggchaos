@@ -360,17 +360,25 @@ async fn compatibility_request(
         .read_all()
         .await
         .map_err(|e| eggserve_server::ServiceError::rejected(413, e.to_string()))?;
-    let status = eggserve_primitives::StatusCode::OK;
-    let value = match (method.as_str(), path.as_str()) {
-        ("GET", "/version") => serde_json::json!({"version": ToxiproxyAdapter::version()}),
-        ("GET", "/proxies") => serde_json::to_value(adapter.proxy_json().await).unwrap(),
+    let (status, value) = match (method.as_str(), path.as_str()) {
+        ("GET", "/version") => (
+            eggserve_primitives::StatusCode::OK,
+            serde_json::json!({"version": ToxiproxyAdapter::version()}),
+        ),
+        ("GET", "/proxies") => (
+            eggserve_primitives::StatusCode::OK,
+            serde_json::to_value(adapter.proxy_json().await).unwrap(),
+        ),
         ("POST", "/proxies") => match serde_json::from_slice::<Proxy>(&bytes) {
             Ok(proxy) => {
                 adapter
                     .create(proxy.clone())
                     .await
                     .map_err(|e| eggserve_server::ServiceError::rejected(409, e.to_string()))?;
-                serde_json::to_value(proxy).unwrap()
+                (
+                    eggserve_primitives::StatusCode::CREATED,
+                    serde_json::to_value(proxy).unwrap(),
+                )
             }
             Err(e) => {
                 return Ok(compat_json(
@@ -379,14 +387,21 @@ async fn compatibility_request(
                 ))
             }
         },
-        ("POST", "/reset") => serde_json::json!({"reset": true}),
+        ("POST", "/reset") => (
+            eggserve_primitives::StatusCode::OK,
+            serde_json::json!({"reset": true}),
+        ),
         ("GET", _) if path.starts_with("/proxies/") => {
             let parts: Vec<&str> = path.trim_start_matches("/proxies/").split('/').collect();
             match adapter.proxy(parts[0]).await {
-                Some(proxy) if parts.len() == 1 => serde_json::to_value(proxy).unwrap(),
-                Some(proxy) if parts.len() == 2 && parts[1] == "toxics" => {
-                    serde_json::to_value(proxy.toxics).unwrap()
-                }
+                Some(proxy) if parts.len() == 1 => (
+                    eggserve_primitives::StatusCode::OK,
+                    serde_json::to_value(proxy).unwrap(),
+                ),
+                Some(proxy) if parts.len() == 2 && parts[1] == "toxics" => (
+                    eggserve_primitives::StatusCode::OK,
+                    serde_json::to_value(proxy.toxics).unwrap(),
+                ),
                 _ => {
                     return Ok(compat_json(
                         eggserve_primitives::StatusCode::NOT_FOUND,
@@ -398,7 +413,10 @@ async fn compatibility_request(
         ("DELETE", _) if path.starts_with("/proxies/") => {
             let name = path.trim_start_matches("/proxies/").trim_end_matches('/');
             if adapter.delete(name).await {
-                serde_json::json!({"deleted": true})
+                (
+                    eggserve_primitives::StatusCode::NO_CONTENT,
+                    serde_json::json!({"deleted": true}),
+                )
             } else {
                 return Ok(compat_json(
                     eggserve_primitives::StatusCode::NOT_FOUND,
@@ -417,7 +435,10 @@ async fn compatibility_request(
                 .add_toxic(proxy, toxic.clone())
                 .await
                 .map_err(|e| eggserve_server::ServiceError::rejected(400, e.to_string()))?;
-            serde_json::to_value(toxic).unwrap()
+            (
+                eggserve_primitives::StatusCode::OK,
+                serde_json::to_value(toxic).unwrap(),
+            )
         }
         _ => {
             return Ok(compat_json(
@@ -533,7 +554,7 @@ mod tests {
             .send()
             .await
             .unwrap();
-        assert!(created.status().is_success());
+        assert_eq!(created.status().as_u16(), 201);
         let toxic = serde_json::json!({"name":"delay","type":"latency","stream":"downstream","toxicity":1.0,"attributes":{"latency":10}});
         let added = client
             .post(&format!(
@@ -546,7 +567,7 @@ mod tests {
             .send()
             .await
             .unwrap();
-        assert!(added.status().is_success());
+        assert_eq!(added.status().as_u16(), 200);
         let mut listed = client
             .get(&format!(
                 "http://{}/proxies/echo/toxics",

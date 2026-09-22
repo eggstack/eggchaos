@@ -14,6 +14,57 @@ jobs:
         with:
           toolchain: 1.89.0
           components: rustfmt, clippy
+      - run: cargo install cargo-audit --locked --version 0.22.2
+      - run: cargo install cargo-deny --locked --version 0.20.2
       - run: ./scripts/release-smoke.sh
       - run: ./scripts/qualify_toxiproxy_v2_12.sh
       - run: ./scripts/qualify_eggfetch.sh
+      - run: ./scripts/release-artifact-smoke.sh
+
+  artifacts:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-22.04
+            target: aarch64-unknown-linux-gnu
+          - os: macos-13
+            target: x86_64-apple-darwin
+          - os: macos-14
+            target: aarch64-apple-darwin
+          - os: windows-2022
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.89.0
+          targets: ${{ matrix.target }}
+      - name: Install Linux ARM linker
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: sudo apt-get update && sudo apt-get install --yes gcc-aarch64-linux-gnu
+      - name: Build release binary
+        shell: bash
+        run: cargo build --release --locked --package eggchaos-cli --target "${{ matrix.target }}"
+      - name: Package and checksum artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          suffix=""
+          if [[ "${{ matrix.os }}" == windows-* ]]; then suffix=".exe"; fi
+          source="target/${{ matrix.target }}/release/eggchaos${suffix}"
+          artifact="eggchaos-v${GITHUB_REF_NAME#v}-${{ matrix.target }}${suffix}"
+          cp "$source" "$artifact"
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum "$artifact" > "$artifact.sha256"
+          else
+            shasum -a 256 "$artifact" > "$artifact.sha256"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: eggchaos-${{ matrix.target }}
+          path: |
+            eggchaos-*

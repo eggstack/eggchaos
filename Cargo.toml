@@ -15,6 +15,7 @@ rust-version = "1.89"
 license = "MIT"
 repository = "https://github.com/eggstack/eggchaos"
 homepage = "https://github.com/eggstack/eggchaos"
+readme = "README.md"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

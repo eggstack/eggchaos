@@ -91,6 +91,11 @@ impl ProxySpec {
             seed: 0,
         }
     }
+    /// Set an optional per-proxy active connection limit.
+    pub fn with_max_connections(mut self, limit: usize) -> Self {
+        self.max_connections = Some(limit);
+        self
+    }
     fn validate(&self) -> Result<(), EggchaosError> {
         if self.name.is_empty() || self.name.len() > 128 {
             return Err(EggchaosError::InvalidProxy(
@@ -174,6 +179,7 @@ struct RuntimeState {
     cancellations: Arc<RwLock<HashMap<u64, Arc<Notify>>>>,
     metrics: Arc<crate::admin::MetricsCounters>,
     limits: AdmissionLimits,
+    proxy_active: Arc<HashMap<String, Arc<AtomicUsize>>>,
 }
 
 type ListenerTask = JoinHandle<Result<(), EggchaosError>>;
@@ -309,6 +315,12 @@ impl EggchaosService {
             cancellations: Arc::new(RwLock::new(HashMap::new())),
             metrics: control.metrics(),
             limits: self.limits,
+            proxy_active: Arc::new(
+                self.proxies
+                    .iter()
+                    .map(|proxy| (proxy.name.clone(), Arc::new(AtomicUsize::new(0))))
+                    .collect(),
+            ),
         };
         let mut addresses = HashMap::new();
         let mut tasks = Vec::new();
@@ -408,8 +420,15 @@ async fn listen_loop(
             accepted = listener.accept() => {
                 let (client, peer) = accepted.map_err(|source| EggchaosError::Io { context: format!("accept proxy {}", proxy.name), source })?;
                 let current = state.active.fetch_add(1, Ordering::AcqRel) + 1;
-                if current > state.limits.global_connections || proxy.max_connections.is_some_and(|limit| current > limit) {
+                let proxy_active = state
+                    .proxy_active
+                    .get(&proxy.name)
+                    .expect("every listener has a proxy admission counter")
+                    .clone();
+                let current_proxy = proxy_active.fetch_add(1, Ordering::AcqRel) + 1;
+                if current > state.limits.global_connections || proxy.max_connections.is_some_and(|limit| current_proxy > limit) {
                     state.active.fetch_sub(1, Ordering::AcqRel);
+                    proxy_active.fetch_sub(1, Ordering::AcqRel);
                     drop(client);
                     continue;
                 }
@@ -443,7 +462,7 @@ async fn run_connection(
 ) {
     let result = timeout(proxy.connect_timeout, TcpStream::connect(proxy.upstream)).await;
     let Ok(Ok(upstream)) = result else {
-        finish(&state, id);
+        finish(&state, id, &proxy.name);
         return;
     };
     if let Some(snapshot) = state.connections.write().await.get_mut(&id) {
@@ -459,7 +478,7 @@ async fn run_connection(
     ) {
         Ok(stream) => stream,
         Err(_) => {
-            finish(&state, id);
+            finish(&state, id, &proxy.name);
             return;
         }
     };
@@ -473,7 +492,7 @@ async fn run_connection(
     ) {
         Ok(stream) => stream,
         Err(_) => {
-            finish(&state, id);
+            finish(&state, id, &proxy.name);
             return;
         }
     };
@@ -484,11 +503,14 @@ async fn run_connection(
     let relay = egress_relay::relay_with_options(client, upstream, options);
     tokio::pin!(relay);
     tokio::select! { _ = &mut relay => {}, _ = cancellation.notified() => {} }
-    finish(&state, id);
+    finish(&state, id, &proxy.name);
 }
 
-fn finish(state: &RuntimeState, id: u64) {
+fn finish(state: &RuntimeState, id: u64, proxy_name: &str) {
     state.active.fetch_sub(1, Ordering::AcqRel);
+    if let Some(active) = state.proxy_active.get(proxy_name) {
+        active.fetch_sub(1, Ordering::AcqRel);
+    }
     state.metrics.completed.fetch_add(1, Ordering::Relaxed);
     if let Ok(mut map) = state.connections.try_write() {
         map.remove(&id);
@@ -535,5 +557,58 @@ mod tests {
         origin_task.await.unwrap();
         handle.shutdown();
         handle.wait().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn per_proxy_connection_limit_is_not_global() {
+        let first_origin = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let first_address = first_origin.local_addr().unwrap();
+        let first_task = tokio::spawn(async move {
+            let (_stream, _) = first_origin.accept().await.unwrap();
+            tokio::time::sleep(Duration::from_secs(30)).await;
+        });
+        let second_origin = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let second_address = second_origin.local_addr().unwrap();
+        let second_task = tokio::spawn(async move {
+            let (mut stream, _) = second_origin.accept().await.unwrap();
+            let mut bytes = [0; 5];
+            stream.read_exact(&mut bytes).await.unwrap();
+            stream.write_all(&bytes).await.unwrap();
+        });
+        let service = ServiceBuilder::new(1)
+            .proxy(
+                ProxySpec::new("first", "127.0.0.1:0".parse().unwrap(), first_address)
+                    .with_max_connections(1),
+            )
+            .proxy(
+                ProxySpec::new("second", "127.0.0.1:0".parse().unwrap(), second_address)
+                    .with_max_connections(1),
+            )
+            .build()
+            .unwrap();
+        let handle = service.start().await.unwrap();
+        let first_client = TcpStream::connect(handle.bound_proxies()["first"])
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        let mut second_client = TcpStream::connect(handle.bound_proxies()["second"])
+            .await
+            .unwrap();
+        second_client.write_all(b"hello").await.unwrap();
+        let mut response = [0; 5];
+        tokio::time::timeout(
+            Duration::from_secs(2),
+            second_client.read_exact(&mut response),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(&response, b"hello");
+        drop(first_client);
+        drop(second_client);
+        handle.shutdown();
+        handle.wait().await.unwrap();
+        first_task.abort();
+        second_task.await.unwrap();
     }
 }

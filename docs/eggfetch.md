@@ -9,9 +9,8 @@ used in fault seed derivation.
 Fault policy is physical-connection scoped. A pooled HTTP/2 connection can
 therefore expose one policy to multiple logical streams; per-request chaos is
 not claimed. The adapter never parses HTTP, inspects bodies, or performs TLS
-interception. The current core write-side engine applies upstream faults; the
-downstream policy handle is retained for the read-side qualification extension
-and is intentionally not described as per-request behavior.
+interception. Both directional policy handles are attached to the physical
+stream and are intentionally not described as per-request behavior.
 
 The default crate feature keeps Eggfetch on its native HTTP/1.1 profile. Enable
 `eggchaos-eggfetch/http2` for the qualification profile; this adds Eggfetch's
