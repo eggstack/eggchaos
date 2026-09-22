@@ -1,6 +1,6 @@
 # Eggchaos Long-Term Roadmap
 
-Status: planning baseline complete; M001 ready for implementation.
+Status: corrective implementation active; M009 and M010 ready, M008 release qualification paused behind M013.
 
 ## 1. Mission
 
@@ -255,6 +255,39 @@ Exit: H1 and H2 resilience tests can inject faults without a standalone listener
 Cross-platform CI, fuzz/property suites, benchmark/regression budgets, security review, package metadata, binaries/checksums/installer path, docs, and closure census.
 
 Exit: first release candidate has reproducible evidence and no planning/documentation state claims unsupported closure.
+
+## 11A. Corrective sequence discovered during pre-release audit
+
+A later implementation audit after M001–M007 found that several historical milestone closures overstated behavioral completeness. The architecture remains valid, but release work is paused for a bounded corrective sequence.
+
+Active graph:
+
+```text
+M009 core fault semantics ──┐
+                            ├─> M011 live state/scenario/observability
+M010 runtime/control ───────┘
+                                  |
+                                  v
+                         M012 Toxiproxy v2.12 parity
+                                  |
+                                  v
+                         M013 corrective requalification
+                                  |
+                                  v
+                              M008 resumes
+```
+
+M009 repairs release-baseline stream semantics: bounded asynchronous latency buffering, token-bucket bandwidth/burst behavior, slicer variation/delay, finite/indefinite blackhole behavior, exact limit-data termination, disconnect execution, and durable termination signaling.
+
+M010 makes listener/task runtime state authoritative for native proxy/fault CRUD, reset, CLI operations, cancellation, cleanup, and concrete TCP termination/reset handling.
+
+M011 reconciles canonical and live policy state, atomically publishes generation + seed namespace, makes scenario seeds effective, structurally owns scenario runs, expands connection evidence/metrics, and enforces bounded history.
+
+M012 completes the declared Toxiproxy v2.12 route/default/populate/reset/toxic surface and replaces partial smoke evidence with a pinned-oracle differential corpus.
+
+M013 reruns the corrected stack on one exact commit, including Eggfetch regression qualification, before M008 is allowed to continue release/package/target/performance work.
+
+Historical closure records are retained and should not be rewritten. The corrective sequence is the current release-readiness authority.
 
 ## 12. Performance targets
 
