@@ -265,6 +265,19 @@ Add a real TCP benchmark or repeatable benchmark harness comparing:
 
 Do not freeze a release threshold yet, but record throughput/latency and candidate hardware/runtime for M008.
 
+## Ordered work packages
+
+Execute in this order:
+
+1. **WP1 — Runtime config and lifecycle authority:** implement validated `ProxySpec`, service builder/handle, cancellation, listener ownership, and structured task supervision without traffic forwarding yet.
+2. **WP2 — Direct upstream connector:** add bounded direct TCP dialing, safe resolution/error classification, and port-0/bind metadata.
+3. **WP3 — Data-plane composition:** create connection identities, construct directional `ChaosStream` wrappers, and drive every session through `eggress_relay::relay_with_options`.
+4. **WP4 — Limits/outcomes:** add global/per-proxy admission bounds, connection registry, byte/outcome classification, and bounded retained state if retained history is enabled.
+5. **WP5 — Shutdown/half-close:** prove graceful drain, request-half-close/response behavior, target-first close, and no detached tasks.
+6. **WP6 — Concrete reset capability:** implement and qualify safe platform-specific TCP reset support or truthful unsupported/best-effort results.
+7. **WP7 — Integration/benchmark/docs:** reuse Eggress testkit fixtures, run multi-proxy/error/admission cases, record no-fault runtime baseline, and document embed API.
+8. **WP8 — Closure pass:** collect exact-commit runtime evidence and activate M004 only after closure.
+
 ## Acceptance criteria
 
 M003 closes only when:
