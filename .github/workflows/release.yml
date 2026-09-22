@@ -16,7 +16,9 @@ jobs:
           components: rustfmt, clippy
       - run: cargo install cargo-audit --locked --version 0.22.2
       - run: cargo install cargo-deny --locked --version 0.20.2
+      - run: cargo install cargo-fuzz --locked --version 0.13.2
       - run: ./scripts/release-smoke.sh
+      - run: EGGCHAOS_FUZZ_RUNS=10000 ./scripts/qualify_fuzz.sh
       - run: ./scripts/qualify_toxiproxy_v2_12.sh
       - run: ./scripts/qualify_eggfetch.sh
       - run: ./scripts/release-artifact-smoke.sh

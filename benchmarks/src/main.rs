@@ -30,6 +30,9 @@ async fn main() {
         ("bare_eggress_relay", None),
         ("eggchaos_empty_plan", Some(FaultPlan::empty())),
         ("eggchaos_latency_1ms", Some(latency_plan())),
+        ("eggchaos_bandwidth_16mib_s", Some(bandwidth_plan())),
+        ("eggchaos_slice_16k", Some(slice_plan())),
+        ("eggchaos_combined_latency_slice", Some(combined_plan())),
     ];
     for (index, (name, plan)) in cases.into_iter().enumerate() {
         let mut samples = Vec::with_capacity(rounds);
@@ -80,6 +83,55 @@ fn latency_plan() -> FaultPlan {
             max_buffer_bytes: NonZeroU64::new(BUFFER_SIZE as u64).expect("non-zero buffer"),
         }),
     }])
+    .expect("static benchmark plan")
+}
+
+fn bandwidth_plan() -> FaultPlan {
+    FaultPlan::new(vec![FaultSpec {
+        id: FaultId::new("bandwidth").expect("static fault id"),
+        probability: Probability::new(1.0).expect("static probability"),
+        kind: FaultKind::Bandwidth(eggchaos_core::BandwidthConfig {
+            bytes_per_second: NonZeroU64::new(16 * 1024 * 1024).expect("non-zero rate"),
+            burst_bytes: NonZeroU64::new(BUFFER_SIZE as u64).expect("non-zero burst"),
+        }),
+    }])
+    .expect("static benchmark plan")
+}
+
+fn slice_plan() -> FaultPlan {
+    FaultPlan::new(vec![FaultSpec {
+        id: FaultId::new("slice").expect("static fault id"),
+        probability: Probability::new(1.0).expect("static probability"),
+        kind: FaultKind::Slice(eggchaos_core::SliceConfig {
+            average_size: NonZeroU64::new(16 * 1024).expect("non-zero slice"),
+            variation: 4 * 1024,
+            delay: Duration::ZERO,
+        }),
+    }])
+    .expect("static benchmark plan")
+}
+
+fn combined_plan() -> FaultPlan {
+    FaultPlan::new(vec![
+        FaultSpec {
+            id: FaultId::new("latency").expect("static fault id"),
+            probability: Probability::new(1.0).expect("static probability"),
+            kind: FaultKind::Latency(LatencyConfig {
+                delay: Duration::from_millis(1),
+                jitter: Duration::ZERO,
+                max_buffer_bytes: NonZeroU64::new(BUFFER_SIZE as u64).expect("non-zero buffer"),
+            }),
+        },
+        FaultSpec {
+            id: FaultId::new("slice").expect("static fault id"),
+            probability: Probability::new(1.0).expect("static probability"),
+            kind: FaultKind::Slice(eggchaos_core::SliceConfig {
+                average_size: NonZeroU64::new(16 * 1024).expect("non-zero slice"),
+                variation: 4 * 1024,
+                delay: Duration::ZERO,
+            }),
+        },
+    ])
     .expect("static benchmark plan")
 }
 

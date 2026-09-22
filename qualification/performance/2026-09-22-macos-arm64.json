@@ -1,5 +1,5 @@
 {
-  "candidate": "working tree descended from 3a1c8d1ead1cdfc514e745067d280a0914e027cd",
+  "candidate": "working tree descended from bfe8f6c; benchmark expansion uncommitted",
   "host": {
     "os": "Darwin 25.6.0",
     "model": "Mac16,8",
@@ -17,30 +17,48 @@
       "bare_eggress_relay",
       "eggchaos_empty_plan",
       "eggchaos_latency_1ms",
+      "eggchaos_bandwidth_16mib_s",
+      "eggchaos_slice_16k",
+      "eggchaos_combined_latency_slice",
       "eggfetch_adapter_empty_policy"
     ],
     "caveat": "single host run; scheduler and thermal variance are not controlled"
   },
   "results": {
     "bare_eggress_relay": {
-      "mean_seconds": 0.013588,
-      "throughput_mib_s": 4710.009,
-      "samples_seconds": [0.0184645, 0.0121905, 0.010187666, 0.012594417, 0.014503333]
+      "mean_seconds": 0.012312,
+      "throughput_mib_s": 5198.096,
+      "samples_seconds": [0.02105375, 0.012774375, 0.009187792, 0.008652209, 0.009892875]
     },
     "eggchaos_empty_plan": {
-      "mean_seconds": 0.011918,
-      "throughput_mib_s": 5369.815,
-      "samples_seconds": [0.008679625, 0.01109875, 0.0119165, 0.014659916, 0.013237583]
+      "mean_seconds": 0.008867,
+      "throughput_mib_s": 7217.448,
+      "samples_seconds": [0.008749875, 0.008270625, 0.009482916, 0.008303375, 0.009530209]
     },
     "eggchaos_latency_1ms": {
-      "mean_seconds": 0.012051,
-      "throughput_mib_s": 5310.957,
-      "samples_seconds": [0.011168625, 0.013354834, 0.011780084, 0.011341208, 0.012608042]
+      "mean_seconds": 0.008733,
+      "throughput_mib_s": 7328.217,
+      "samples_seconds": [0.00826175, 0.008254458, 0.009859875, 0.008284458, 0.009006291]
+    },
+    "eggchaos_bandwidth_16mib_s": {
+      "mean_seconds": 0.008845,
+      "throughput_mib_s": 7235.692,
+      "samples_seconds": [0.008711875, 0.008616625, 0.009586709, 0.00801425, 0.00929575]
+    },
+    "eggchaos_slice_16k": {
+      "mean_seconds": 0.011561,
+      "throughput_mib_s": 5535.873,
+      "samples_seconds": [0.008547792, 0.011498666, 0.012292667, 0.013560625, 0.011905042]
+    },
+    "eggchaos_combined_latency_slice": {
+      "mean_seconds": 0.010542,
+      "throughput_mib_s": 6070.705,
+      "samples_seconds": [0.013508333, 0.008639459, 0.009500333, 0.008519791, 0.01254425]
     },
     "eggfetch_adapter_empty_policy": {
-      "mean_seconds": 0.009473,
-      "throughput_mib_s": 6755.954,
-      "samples_seconds": [0.011615083, 0.012709291, 0.012099333, 0.005181042, 0.005760875]
+      "mean_seconds": 0.010133,
+      "throughput_mib_s": 6315.909,
+      "samples_seconds": [0.014023708, 0.012477917, 0.011319, 0.007894208, 0.004950875]
     }
   },
   "budget": "provisional only; repeated cross-platform runs are required before freezing a release regression threshold"
