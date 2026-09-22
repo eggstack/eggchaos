@@ -1,6 +1,6 @@
 # M002 — Deterministic Stream Fault Engine
 
-Status: blocked  
+Status: active  
 Depends on: M001  
 Successor: M003
 

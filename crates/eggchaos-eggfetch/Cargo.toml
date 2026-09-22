@@ -8,7 +8,7 @@ repository.workspace = true
 description = "Eggfetch Dialer integration for eggchaos"
 
 [dependencies]
-eggchaos-core = { path = "../eggchaos-core" }
+eggchaos-core = { path = "../eggchaos-core", version = "0.1.0" }
 eggfetch-core.workspace = true
 thiserror.workspace = true
 tokio.workspace = true

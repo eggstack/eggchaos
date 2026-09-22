@@ -8,7 +8,7 @@ This file is the compact source of truth for active milestone state. Detailed sc
 | --- | --- | --- | --- | --- |
 | M000 | `000-architecture-and-scope-baseline.md` | closed | — | Initial investigation, architecture, references, and handoff sequence registered. |
 | M001 | `001-workspace-bootstrap-and-core-contracts.md` | closed | M000 | Closed in `plans/closure/M001-workspace-bootstrap-and-core-contracts-closure.md` at `309aeff8da9b1d91b36aecd55c190e12d56e537d`. |
-| M002 | `002-deterministic-stream-fault-engine.md` | ready | M001 | M001 workspace/core contracts and baseline CI are closed. |
+| M002 | `002-deterministic-stream-fault-engine.md` | active | M001 | Deterministic engine, bounded buffering, live policy foundations, and core evidence are implemented; qualification is in progress. |
 | M003 | `003-fixed-target-proxy-runtime.md` | blocked | M002 | Requires proven directional fault engine and byte-preserving no-fault path. |
 | M004 | `004-control-plane-cli-and-config.md` | blocked | M003 | Requires stable runtime handles/registry and lifecycle semantics. |
 | M005 | `005-live-mutation-observability-and-scenarios.md` | blocked | M004 | Requires native API/control model to be stable enough for generation changes and active-connection control. |

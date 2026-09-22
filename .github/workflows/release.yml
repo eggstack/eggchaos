@@ -1,0 +1,19 @@
+name: Release qualification
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*.*.*"]
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.89.0
+          components: rustfmt, clippy
+      - run: ./scripts/release-smoke.sh
+      - run: ./scripts/qualify_toxiproxy_v2_12.sh
+      - run: ./scripts/qualify_eggfetch.sh

@@ -193,6 +193,26 @@ impl FaultPlan {
         self.faults.push(fault);
         Ok(self)
     }
+    /// Remove one fault while preserving the remaining order.
+    pub fn without_fault(mut self, id: &str) -> Self {
+        self.faults.retain(|fault| fault.id.as_str() != id);
+        self
+    }
+    /// Replace one fault in place, preserving its order.
+    pub fn replace_fault(&self, fault: FaultSpec) -> Result<Self, ValidationError> {
+        fault.validate()?;
+        let mut next = self.clone();
+        if let Some(existing) = next
+            .faults
+            .iter_mut()
+            .find(|existing| existing.id == fault.id)
+        {
+            *existing = fault;
+            Ok(next)
+        } else {
+            next.with_fault(fault)
+        }
+    }
     /// Validate all stages.
     pub fn validate(&self) -> Result<(), ValidationError> {
         for fault in &self.faults {

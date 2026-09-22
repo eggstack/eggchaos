@@ -8,6 +8,7 @@ repository.workspace = true
 description = "Deterministic bounded byte-stream fault injection for Tokio"
 
 [dependencies]
+arc-swap.workspace = true
 bytes.workspace = true
 serde.workspace = true
 thiserror.workspace = true

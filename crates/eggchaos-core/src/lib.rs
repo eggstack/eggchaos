@@ -3,6 +3,7 @@
 
 mod engine;
 mod plan;
+mod policy;
 mod rng;
 mod stream;
 
@@ -12,11 +13,13 @@ pub use plan::{
     LatencyConfig, LimitDataConfig, Probability, RngVersion, SliceConfig, SlowCloseConfig,
     ValidationError,
 };
+pub use policy::LivePolicy;
 pub use rng::{derive_seed, DeterministicRng, RngEvidence};
-pub use stream::{ChaosStream, DirectionSummary, EngineError};
+pub use stream::{BidirectionalChaosStream, ChaosStream, DirectionSummary, EngineError};
 
 /// The direction in which application bytes travel through a proxy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Direction {
     /// Client to target.
     Upstream,

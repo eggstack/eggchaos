@@ -8,8 +8,14 @@ repository.workspace = true
 description = "Toxiproxy v2.12 compatibility adapter for eggchaos"
 
 [dependencies]
-eggchaos-core = { path = "../eggchaos-core" }
-eggchaos-server = { path = "../eggchaos-server" }
+eggchaos-core = { path = "../eggchaos-core", version = "0.1.0" }
+eggchaos-server = { path = "../eggchaos-server", version = "0.1.0" }
+eggserve-primitives.workspace = true
+eggserve-server.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+eggfetch-core.workspace = true

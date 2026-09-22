@@ -55,6 +55,7 @@ pub struct DirectionEngine {
     termination: Option<TerminationRequest>,
     sleep: Option<Pin<Box<Sleep>>>,
     shutdown_deadline: Option<Instant>,
+    slow_close: Option<Duration>,
     remaining_limit: Option<u64>,
     blackhole_until: Option<Instant>,
     next_release: Instant,
@@ -72,7 +73,8 @@ impl DirectionEngine {
         let mut max_buffer = 64 * 1024usize;
         let mut remaining_limit = None;
         let mut blackhole_until = None;
-        let mut shutdown_deadline = None;
+        let shutdown_deadline = None;
+        let mut slow_close = None;
         let mut rngs = Vec::with_capacity(plan.faults().len());
         for fault in plan.faults() {
             let seed = derive_seed(run_seed, proxy, connection_key, direction, &fault.id);
@@ -86,9 +88,7 @@ impl DirectionEngine {
                 (true, FaultKind::Blackhole(c)) => {
                     blackhole_until = c.close_after.map(|d| Instant::now() + d)
                 }
-                (true, FaultKind::SlowClose(c)) => {
-                    shutdown_deadline = Some(Instant::now() + c.delay)
-                }
+                (true, FaultKind::SlowClose(c)) => slow_close = Some(c.delay),
                 _ => {}
             }
             rngs.push((active, rng));
@@ -103,6 +103,7 @@ impl DirectionEngine {
             termination: None,
             sleep: None,
             shutdown_deadline,
+            slow_close,
             remaining_limit,
             blackhole_until,
             next_release: Instant::now(),
@@ -121,6 +122,7 @@ impl DirectionEngine {
             termination: None,
             sleep: None,
             shutdown_deadline: None,
+            slow_close: None,
             remaining_limit: None,
             blackhole_until: None,
             next_release: Instant::now(),
@@ -307,6 +309,11 @@ impl DirectionEngine {
     ) -> Poll<io::Result<()>> {
         if self.poll_queue(cx, inner).is_pending() {
             return Poll::Pending;
+        }
+        if self.shutdown_deadline.is_none() {
+            if let Some(delay) = self.slow_close {
+                self.shutdown_deadline = Some(Instant::now() + delay);
+            }
         }
         if let Some(deadline) = self.shutdown_deadline {
             if Instant::now() < deadline {
