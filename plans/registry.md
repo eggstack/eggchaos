@@ -7,8 +7,8 @@ This file is the compact source of truth for active milestone state. Detailed sc
 | Milestone | Plan | Status | Depends on | Activation / closure note |
 | --- | --- | --- | --- | --- |
 | M000 | `000-architecture-and-scope-baseline.md` | closed | — | Initial investigation, architecture, references, and handoff sequence registered. |
-| M001 | `001-workspace-bootstrap-and-core-contracts.md` | ready | M000 | First implementation handoff. Establish workspace, crate boundaries, canonical types, CI, and empty fast path. |
-| M002 | `002-deterministic-stream-fault-engine.md` | blocked | M001 | Activate only after workspace/core contracts compile and baseline CI is green. |
+| M001 | `001-workspace-bootstrap-and-core-contracts.md` | implemented-awaiting-evidence | M000 | Workspace/core implementation is complete; closure evidence is being recorded. |
+| M002 | `002-deterministic-stream-fault-engine.md` | blocked | M001 | Activate after the M001 closure record is committed. |
 | M003 | `003-fixed-target-proxy-runtime.md` | blocked | M002 | Requires proven directional fault engine and byte-preserving no-fault path. |
 | M004 | `004-control-plane-cli-and-config.md` | blocked | M003 | Requires stable runtime handles/registry and lifecycle semantics. |
 | M005 | `005-live-mutation-observability-and-scenarios.md` | blocked | M004 | Requires native API/control model to be stable enough for generation changes and active-connection control. |

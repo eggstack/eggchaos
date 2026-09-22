@@ -1,0 +1,29 @@
+[package]
+name = "eggchaos-server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Fixed-target chaos proxy runtime and native control plane"
+
+[dependencies]
+bytes.workspace = true
+eggchaos-core = { path = "../eggchaos-core" }
+egress-relay.workspace = true
+eggserve-primitives.workspace = true
+eggserve-server.workspace = true
+http.workspace = true
+http-body-util.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+prometheus-client.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+toml.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true

@@ -1,0 +1,56 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/eggchaos-core",
+    "crates/eggchaos-server",
+    "crates/eggchaos-cli",
+    "crates/eggchaos-toxiproxy",
+    "crates/eggchaos-eggfetch",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.89"
+license = "MIT"
+repository = "https://github.com/eggstack/eggchaos"
+homepage = "https://github.com/eggstack/eggchaos"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+
+[workspace.dependencies]
+bytes = "1"
+clap = { version = "4", features = ["derive", "env"] }
+egress-relay = { package = "eggress-relay", version = "1.0.7" }
+eggfetch-core = { version = "0.2.0", default-features = false, features = ["native-http1", "json", "tls-rustls", "tls-native-roots"] }
+eggserve-primitives = { git = "https://github.com/eggstack/eggserve.git", rev = "859a2bc2fe1d9e6215c122d19cd50f2f070d2da6" }
+eggserve-server = { git = "https://github.com/eggstack/eggserve.git", rev = "859a2bc2fe1d9e6215c122d19cd50f2f070d2da6" }
+http = "1"
+http-body-util = "0.1"
+hyper = { version = "1", features = ["client", "http1", "server"] }
+hyper-util = { version = "0.1", features = ["client-legacy", "http1", "server", "tokio"] }
+prometheus-client = "0.23"
+proptest = "1"
+rand = "0.9"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }
+toml = "0.9"
+tracing = "0.1"
+url = { version = "2", features = ["serde"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"

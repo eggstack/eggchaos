@@ -1,0 +1,1 @@
+//! Eggfetch in-process integration.

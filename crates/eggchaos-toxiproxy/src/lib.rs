@@ -1,0 +1,1 @@
+//! Toxiproxy compatibility adapter.
