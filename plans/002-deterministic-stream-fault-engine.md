@@ -326,6 +326,19 @@ Update:
 
 Do not claim Toxiproxy compatibility yet.
 
+## Ordered work packages
+
+Execute in this order:
+
+1. **WP1 — Runtime compiler/state model:** compile validated ordered `FaultPlan` values into per-connection/per-direction state with explicit accepted/forwarded/discarded accounting.
+2. **WP2 — RNG v1:** implement seed derivation and fault-local deterministic streams, freeze golden vectors, then wire probability activation before adding randomized fault details.
+3. **WP3 — Preserving timing/shape faults:** implement latency, bandwidth, and slicing with bounded queues, partial-I/O correctness, and paused-time tests.
+4. **WP4 — Destructive/termination faults:** implement blackhole/timeout, limit-data, slow-close, graceful disconnect, and abstract hard-reset requests with exact byte-boundary semantics.
+5. **WP5 — Composition correctness:** exercise ordered fault combinations, flush/shutdown, cancellation, inner errors, and arbitrary fragmentation; add byte-conservation property tests.
+6. **WP6 — Evidence surface:** expose deterministic connection/direction summaries without payload capture.
+7. **WP7 — Benchmarks/docs:** record empty/core fault baselines and reconcile native semantics/reproducibility documentation.
+8. **WP8 — Closure pass:** run the complete core/property/golden-vector suite on the candidate commit and activate M003 only after evidence closes M002.
+
 ## Acceptance criteria
 
 M002 closes only when:
