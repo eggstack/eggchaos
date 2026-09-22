@@ -1,6 +1,6 @@
 # M008 — Qualification, Release, and Distribution
 
-Status: ready
+Status: active
 Depends on: M006, M007  
 Role: first release gate
 
