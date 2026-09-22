@@ -1,13 +1,38 @@
 # Toxiproxy v2.12 compatibility
 
-The `eggchaos-toxiproxy` crate translates the v2.12 toxic vocabulary into the
-native `FaultPlan` authority. It supports the seven v2.12 toxic types:
-latency, bandwidth, slow_close, timeout, reset_peer, slicer, and limit_data.
-Toxicity is a deterministic per-connection activation probability. Slicer
-behavior is stream segmentation, not IP packet loss; reset capability is
-platform-qualified by the runtime.
+The `eggchaos-toxiproxy` crate exposes the Toxiproxy v2.12 route family backed
+entirely by native state: every view derives from `ControlState` snapshots
+and every mutation goes through the native control authority, so
+compatibility presentation cannot drift from what the runtime executes.
 
-The adapter deliberately does not claim current-Toxiproxy `main` extensions
-such as `packet_loss`. Compatibility qualification is run by
-`scripts/qualify_toxiproxy_v2_12.sh`; its oracle identity and any unavailable
-external execution are recorded in M006/M008 closure evidence.
+Supported surface (all differential-verified against pinned v2.12.0):
+
+- proxy CRUD plus `POST /proxies/{proxy}` and `PATCH` updates;
+- `POST /populate` with oracle keep/replace/create/skip semantics;
+- toxic CRUD for all seven v2.12 toxics (`latency`, `bandwidth`,
+  `slow_close`, `timeout`, `slicer`, `limit_data`, `reset_peer`),
+  with `PATCH` toxic updates;
+- `POST /reset` (re-enable all proxies, remove all toxics);
+- `GET /version` returning exactly `{"version":"2.12.0"}`.
+
+Deliberate, documented divergences (see
+`plans/reference/toxiproxy-parity.md` for the full matrix):
+
+- toxicity outside [0, 1] is clamped to the range;
+- degenerate zero `rate`/`average_size`/`bytes` coalesce to 1;
+- stream echo is lowercase; toxic order is upstream faults then downstream;
+- missing `listen` binds an ephemeral loopback port;
+- non-socket `upstream` values and out-of-charset proxy names are rejected
+  with a clear 400 (native fixed-target and path-segment invariants);
+- `reset_peer` termination is platform-qualified (RST vs FIN not asserted);
+- bandwidth/slicer/slow_close data-plane timing differential is incomplete;
+  `GET /metrics` matches the oracle (plain-text 404 without metrics flags).
+
+Toxicity is a deterministic per-connection activation probability. Slicer
+behavior is stream segmentation, not IP packet loss. The adapter does not
+claim current-Toxiproxy `main` extensions such as `packet_loss`.
+
+Run a standalone compat server with
+`cargo run -p eggchaos-toxiproxy --example compat_server -- 127.0.0.1:8474`
+(loopback by default). Qualification:
+`TOXIPROXY_SERVER=/path/to/pinned/v2.12.0 ./scripts/qualify_toxiproxy_v2_12.sh`.

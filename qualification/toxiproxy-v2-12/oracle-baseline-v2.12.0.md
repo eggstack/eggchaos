@@ -69,6 +69,8 @@ Valid types: `latency`, `bandwidth`, `slow_close`, `timeout`, `slicer`,
   type and attributes.
 - `DELETE /proxies/{p}/toxics/{t}` returns HTTP 204 with an empty body;
   missing toxic returns HTTP 404 `{"error":"toxic not found","status":404}`.
+- `PATCH` mirrors `POST` for proxy updates and toxic updates with identical
+  semantics (the pinned Go client uses `PATCH` for toxic updates).
 
 ## Non-API routes
 

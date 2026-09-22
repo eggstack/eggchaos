@@ -1,131 +1,92 @@
-# Toxiproxy Compatibility Baseline
+# Toxiproxy v2.12 Parity (M012 qualified)
 
-Research date: 2026-09-22  
-Primary compatibility target: Shopify Toxiproxy v2.12.0
+Research date: 2026-09-22; qualification date: 2026-09-22.  
+Primary compatibility target: Shopify Toxiproxy v2.12.0 (pinned oracle binary,
+SHA-256 `aa299966b52f16a8594f1cd0d1e9049dc2e8fe2c04a90c19860e2719b2b95d15`).
+Oracle behavior baseline: `qualification/toxiproxy-v2-12/oracle-baseline-v2.12.0.md`.
+Differential corpus: `crates/eggchaos-toxiproxy/tests/differential.rs`
+(45 API + data-plane comparisons, all passing against the live oracle).
+Client smokes: pinned Go client `github.com/Shopify/toxiproxy/v2@v2.12.0`
+(toolchain go1.27.1, 13/13 steps pass) and an independent Python-stdlib client
+(13/13 steps pass); transcripts in `qualification/toxiproxy-v2-12/client-smoke/`.
+
+Claim levels: `exact`, `behaviorally compatible` (tolerances noted),
+`intent compatible` (documented divergence), `not supported` (fails clearly),
+`incomplete` (not yet evidenced; never claimed).
 
 ## Version policy
 
-Eggchaos does not claim compatibility with an unversioned moving Toxiproxy `main`.
+Eggchaos does not claim compatibility with an unversioned moving Toxiproxy
+`main`. Current `main` additions such as `packet_loss` are out of scope.
 
-The first compatibility milestone targets the public API and toxic set present in the v2.12.0 tag. That is the latest tagged Toxiproxy release found during the initial investigation.
+## Route parity
 
-Current `main` has additional work, including a `packet_loss` toxic that is not present in the v2.12.0 tag. Such additions are future compatibility extensions and require their own tests/status.
+| Method/path | Level | Notes |
+| --- | --- | --- |
+| `GET /version` | exact | `{"version":"2.12.0"}` verbatim, differential-verified |
+| `GET /proxies` | exact | name-keyed map with `Logger:{}` + embedded toxics |
+| `POST /proxies` | exact | 201; duplicate 409; missing name/upstream 400 oracle-verbatim; malformed body 400 (message text differs, status exact); bind conflict 500 (shape matches, OS text differs) |
+| `POST /populate` | exact | upsert: same listen+upstream keeps proxy untouched; changed addresses replace (toxics drop); unknown names created; bind failures skipped; empty list echoes `{"proxies":null}`; missing entry name 400 oracle-verbatim with 1-based index |
+| `GET /proxies/{proxy}` | exact | 404 envelope oracle-verbatim |
+| `POST /proxies/{proxy}` | exact | listen/upstream restart-class, enabled lifecycle; invalid addresses 500 per oracle |
+| `PATCH /proxies/{proxy}` | exact | same as POST (the pinned Go client only needs POST here, but the oracle accepts both) |
+| `DELETE /proxies/{proxy}` | exact | 204 empty; 404 envelope |
+| `GET /proxies/{proxy}/toxics` | exact | array from live native snapshots |
+| `POST /proxies/{proxy}/toxics` | exact | 200; duplicate 409; invalid type/stream 400 oracle-verbatim; missing proxy 404 |
+| `GET /proxies/{proxy}/toxics/{toxic}` | exact | 404 envelope oracle-verbatim |
+| `POST /proxies/{proxy}/toxics/{toxic}` | exact | toxicity + same-type attributes applied; type/stream ignored |
+| `PATCH /proxies/{proxy}/toxics/{toxic}` | exact | same as POST (used by the pinned Go client) |
+| `DELETE /proxies/{proxy}/toxics/{toxic}` | exact | 204 empty; 404 envelope |
+| `POST /reset` | exact | re-enables every proxy and removes every toxic via the native authority |
+| `GET /metrics` | exact | plain-text 404, matching the oracle without metrics flags; no fabricated counters |
+| unknown routes | exact | plain-text `404 page not found` |
 
-## v2.12 proxy fields
+Error envelopes are `{"error","status"}` served as `text/plain`, matching the
+oracle; success bodies are `application/json` (version carries the oracle's
+`charset` suffix verbatim).
 
-| Field | Required behavior |
-| --- | --- |
-| `name` | Required, stable identifier. Renaming is not supported through update; recreate instead. |
-| `listen` | Listener address; port 0 must resolve to an actual bound ephemeral port in the returned representation. |
-| `upstream` | Fixed upstream target address. |
-| `enabled` | Defaults true. False takes the proxy down. |
+## Toxic parity
 
-Changing listen/upstream in compatibility mode must be treated as a listener/runtime restart and active connection handling must be documented and differentially checked.
+| Toxic | Level | Notes |
+| --- | --- | --- |
+| `latency` | behaviorally compatible | ms/jitter mapping; byte preservation + delay differential-verified (200 ms configured, >=150 ms observed, exact bytes) |
+| `bandwidth` | intent compatible | rate unit KiB/s confirmed (`bytes_per_second/1024` round-trips); sustained-throughput differential timing **incomplete** (not run against the oracle); exact Go chunk scheduling not claimed |
+| `slow_close` | intent compatible | delay mapping; close-timing differential **incomplete** |
+| `timeout` | behaviorally compatible | timeout=0 maps to indefinite `Blackhole { close_after: None }`; blocking + post-removal flow differential-verified |
+| `reset_peer` | intent compatible | maps to delayed `Disconnect { hard_reset: true }`; termination observed on darwin/arm64 in the differential run, but RST vs FIN is platform-dependent and not asserted |
+| `slicer` | intent compatible | average/variation/delay mapping onto deterministic native slicer; exact Go random sequence not claimed; byte-level differential **incomplete** |
+| `limit_data` | behaviorally compatible | exact 100/1000-byte boundary + termination differential-verified |
 
-## v2.12 toxic fields
+Defaults: omitted attributes zero-fill per type (differential-verified);
+absent or empty names default to `<type>_<stream>` (lowercase stream);
+stream defaults to downstream; toxicity defaults to 1.0.
 
-| Field | Behavior |
-| --- | --- |
-| `name` | Defaults to `<type>_<stream>` when omitted, matching compatibility rules. |
-| `type` | One of the supported v2.12 toxic names below. |
-| `stream` | `upstream` or `downstream`; default downstream. |
-| `toxicity` | Probability 0.0..1.0; default 1.0; selected per connection. |
-| `attributes` | Toxic-specific JSON object. |
+## Recorded divergences
 
-Directions:
+- Toxicity outside [0, 1] is clamped (oracle echoes verbatim). Runtime
+  effect is preserved (always/never applies); exact echo values asserted in
+  the corpus.
+- Degenerate zero numerics that native `NonZero` bounds cannot represent
+  coalesce to 1: bandwidth `rate`, slicer `average_size`, limit_data `bytes`.
+- Stream echo is lowercase; the oracle preserves exotic input case.
+- Missing `listen` binds an ephemeral loopback port; the oracle binds an
+  ephemeral wildcard port (native loopback-by-default invariant wins).
+- Non-socket `upstream` values: `not supported` (clear 400) — the oracle
+  stores arbitrary strings, but the native fixed-target invariant requires a
+  socket address.
+- Proxy names outside `[A-Za-z0-9._-]`: `not supported` (clear 400) — native
+  path-segment invariant; the oracle is laxer.
+- Malformed-body and bind-conflict message text is OS/implementation
+  specific; statuses and envelope shapes are exact.
+- Toxic presentation order is upstream faults then downstream faults;
+  differential comparison sorts by name (creation-interleaved order does not
+  round-trip through directional native plans).
 
-- upstream = client -> target;
-- downstream = target -> client.
+## State authority
 
-## v2.12 toxic matrix
-
-| Toxiproxy toxic | Attributes | Native eggchaos mapping | Initial parity intent |
-| --- | --- | --- | --- |
-| `latency` | `latency` ms, `jitter` ms | `Latency { delay, jitter }` | behaviorally compatible within timing tolerance |
-| `bandwidth` | `rate` KB/s | `Bandwidth { rate, burst }` with compatibility burst policy | behaviorally compatible; differential throughput windows |
-| `slow_close` | `delay` ms | `SlowClose` | compatible close-delay behavior |
-| `timeout` | `timeout` ms | `Blackhole { close_after }` | timeout=0 means indefinite drop until change/removal |
-| `reset_peer` | `timeout` ms | `Disconnect { mode=ResetBestEffort }` | platform-qualified; must not fake RST support |
-| `slicer` | `average_size`, `size_variation`, `delay` us | `Slice` | stream slicing parity with deterministic RNG |
-| `limit_data` | `bytes` | `LimitData` | exact byte-boundary behavior |
-
-Native faults may expose additional fields, but compatibility JSON must retain the v2.12 shape.
-
-## v2.12 endpoint matrix
-
-The adapter must cover:
-
-| Method/path | Required behavior |
-| --- | --- |
-| `GET /proxies` | list proxies with active toxics |
-| `POST /proxies` | create proxy |
-| `POST /populate` | create/replace collection idempotently when unchanged |
-| `GET /proxies/{proxy}` | proxy plus toxics |
-| `POST /proxies/{proxy}` | update supported proxy fields |
-| `DELETE /proxies/{proxy}` | remove proxy |
-| `GET /proxies/{proxy}/toxics` | list toxics |
-| `POST /proxies/{proxy}/toxics` | create toxic |
-| `GET /proxies/{proxy}/toxics/{toxic}` | get toxic |
-| `POST /proxies/{proxy}/toxics/{toxic}` | update toxic |
-| `DELETE /proxies/{proxy}/toxics/{toxic}` | remove toxic |
-| `POST /reset` | re-enable all proxies and remove all toxics |
-| `GET /version` | compatibility version response |
-| `GET /metrics` | Prometheus-compatible metrics endpoint |
-
-HTTP status codes, malformed body handling, missing-field behavior, duplicate names, not-found behavior, and defaulting must be captured from an actual v2.12.0 oracle during M006 rather than guessed from source alone.
-
-## Metrics
-
-Toxiproxy documents per-proxy received/sent byte counters labelled by direction, listener, proxy, and upstream. Eggchaos native metrics may be richer, but compatibility names/labels should only be emitted if they can be supported truthfully.
-
-Do not alias native “bytes intentionally dropped” into “sent bytes.”
-
-## Known semantic cautions
-
-### Latency buffering
-
-Toxiproxy buffers its latency toxic specifically to avoid turning latency into an accidental bandwidth limit. Eggchaos must preserve that intent with bounded byte-based buffering/backpressure.
-
-### Toxic live updates
-
-Toxiproxy interrupts toxic pipelines during update/removal and instructs toxic implementations to flush already accepted bytes to avoid corruption. Eggchaos uses generation/barrier semantics instead, but must differential-test externally visible byte preservation.
-
-### Reset behavior
-
-Toxiproxy's `reset_peer` intent is a connection reset. Portable Rust abstractions cannot guarantee a TCP RST for every erased stream. Compatibility is qualified by platform/transport capability and must not claim reset when only FIN/EOF occurred.
-
-### “packet_loss” after v2.12
-
-Current-main stream-chunk loss is not part of the initial v2.12 target. If added later, native documentation must call out that user-space chunk dropping is not equivalent to lower-layer packet loss/retransmission behavior.
-
-## Differential oracle plan
-
-M006 should launch official Toxiproxy v2.12.0 and eggchaos side by side against the same deterministic fixture and run a machine-readable corpus.
-
-Case groups:
-
-- API create/read/update/delete/defaults/errors;
-- populate idempotence and replacement;
-- enable/disable/reset;
-- upstream/downstream direction isolation;
-- each toxic with edge values;
-- toxic probability 0/1 and seeded intermediate distribution behavior where exact random parity is not expected;
-- active toxic update/removal with bytes in flight;
-- half-close interaction;
-- upstream refusal and mid-stream close;
-- ephemeral listener port;
-- metrics exposition presence/labels;
-- platform-specific reset observation.
-
-Comparators must distinguish exact fields from tolerance-based timing/throughput observations.
-
-## Compatibility claim levels
-
-Use explicit wording:
-
-- `API shape compatible`: JSON/routes/defaults accepted by tested clients.
-- `behaviorally compatible`: tested external behavior matches within documented tolerances.
-- `intent compatible`: exact low-level behavior cannot be guaranteed cross-platform, such as TCP RST.
-- `not supported`: fail clearly; do not silently no-op.
-
-The first release must publish a matrix using these levels instead of one blanket “Toxiproxy compatible” statement.
+The adapter holds no proxy or toxic definitions. All views derive from
+`ControlState` snapshots (native plans plus actual bound addresses); all
+mutations go through the M010 control authority (`create_proxy`,
+`import_definition`, `update_proxy`, `set_enabled`, `delete_proxy`,
+`add/update/remove_fault`, `reset`). Native `/v1` mutations are immediately
+visible through reverse `FaultSpec -> Toxic` translation.
