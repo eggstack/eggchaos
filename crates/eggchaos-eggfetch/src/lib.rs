@@ -159,14 +159,16 @@ mod tests {
         let address = listener.local_addr().unwrap();
         let task = tokio::spawn(async move {
             let (mut stream, _) = listener.accept().await.unwrap();
-            let mut request = [0; 256];
-            let _ = tokio::io::AsyncReadExt::read(&mut stream, &mut request)
-                .await
-                .unwrap();
-            stream
-                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
-                .await
-                .unwrap();
+            for _ in 0..2 {
+                let mut request = [0; 256];
+                let _ = tokio::io::AsyncReadExt::read(&mut stream, &mut request)
+                    .await
+                    .unwrap();
+                stream
+                    .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+                    .await
+                    .unwrap();
+            }
         });
         let dialer = ChaosDialer::new(42, "test");
         let client = eggfetch_core::Client::builder().dialer(dialer).build();
@@ -177,6 +179,13 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.bytes().await.unwrap().as_ref(), b"ok");
+        let mut second = client
+            .get(&format!("http://127.0.0.1:{}/second", address.port()))
+            .unwrap()
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(second.bytes().await.unwrap().as_ref(), b"ok");
         task.await.unwrap();
     }
 
