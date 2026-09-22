@@ -146,6 +146,18 @@ pub struct EngineEvidence {
     pub throttled_delay_ms: u64,
     /// The latest termination request, if any.
     pub termination: Option<TerminationRequest>,
+    /// Per-fault-type activation counts, indexed by
+    /// `FaultKind::type_index`.
+    ///
+    /// Activation is recorded when a connection-active fault stage
+    /// observably processes an accepted chunk: preserving stages
+    /// (latency, bandwidth, slice) and the limit stage count once per
+    /// `accept` call they engage in; the blackhole stage counts per
+    /// discarding call; termination-requesting stages (disconnect,
+    /// limit exhaustion, finite blackhole close) count once when their
+    /// request first publishes; slow-close counts once when a positive
+    /// shutdown delay is enforced.
+    pub activations: [u64; 7],
     /// Deterministic RNG contract version.
     pub rng_version: RngVersion,
 }
@@ -556,13 +568,16 @@ impl DirectionEngine {
         self.queue.is_empty()
     }
 
-    fn publish_termination(&mut self, info: TerminationInfo) {
+    fn publish_termination(&mut self, info: TerminationInfo) -> bool {
         self.term_handle.publish(info.clone());
         // First published request wins end to end.
         if self.termination.is_none() {
             self.termination = Some(info.clone());
+            self.evidence.termination = self.termination.as_ref().map(|i| i.request);
+            return true;
         }
         self.evidence.termination = self.termination.as_ref().map(|i| i.request);
+        false
     }
 
     fn refresh_sync_terminations(&mut self) {
@@ -583,7 +598,10 @@ impl DirectionEngine {
                     direction: self.direction,
                     fault_id: Some(state.fault_id.to_string()),
                 };
-                self.publish_termination(info);
+                if self.publish_termination(info) {
+                    // disconnect activation, indexed by FaultKind::type_index.
+                    self.evidence.activations[6] += 1;
+                }
                 return;
             }
         }
@@ -598,7 +616,10 @@ impl DirectionEngine {
                         direction: self.direction,
                         fault_id: Some(state.fault_id.to_string()),
                     };
-                    self.publish_termination(info);
+                    if self.publish_termination(info) {
+                        // blackhole close_after activation.
+                        self.evidence.activations[2] += 1;
+                    }
                 }
             }
         }
@@ -662,11 +683,14 @@ impl DirectionEngine {
             if self.termination.is_none() {
                 if let Some((_, id)) = &self.remaining_limit {
                     let id = id.clone();
-                    self.publish_termination(TerminationInfo {
+                    if self.publish_termination(TerminationInfo {
                         request: TerminationRequest::Graceful,
                         direction: self.direction,
                         fault_id: Some(id.to_string()),
-                    });
+                    }) {
+                        // limit-data exhaustion activation.
+                        self.evidence.activations[3] += 1;
+                    }
                 }
             }
             return 0;
@@ -686,6 +710,8 @@ impl DirectionEngine {
             self.evidence.bytes_accepted += accepted_cap as u64;
             self.evidence.bytes_discarded += accepted_cap as u64;
             self.evidence.segments += 1;
+            // blackhole discard activation.
+            self.evidence.activations[2] += 1;
             if self.remaining_limit.is_some() {
                 limit_available -= accepted_cap as u64;
                 if let Some((remaining, _)) = &mut self.remaining_limit {
@@ -694,11 +720,14 @@ impl DirectionEngine {
                 if limit_available == 0 {
                     if let Some((_, id)) = &self.remaining_limit {
                         let id = id.clone();
-                        self.publish_termination(TerminationInfo {
+                        if self.publish_termination(TerminationInfo {
                             request: TerminationRequest::Graceful,
                             direction: self.direction,
                             fault_id: Some(id.to_string()),
-                        });
+                        }) {
+                            // limit-data exhaustion activation.
+                            self.evidence.activations[3] += 1;
+                        }
                     }
                 }
             }
@@ -782,6 +811,32 @@ impl DirectionEngine {
             return 0;
         }
         self.evidence.bytes_accepted += offset as u64;
+        // Per-call stage engagement: each connection-active preserving or
+        // limit stage that processed this chunk counts one activation.
+        {
+            let mut engaged = [false; 7];
+            for (fault, (active, _)) in self.plan.faults().iter().zip(&self.rngs) {
+                if !*active {
+                    continue;
+                }
+                match fault.kind {
+                    FaultKind::Latency(_) => engaged[0] = true,
+                    FaultKind::Slice(_) => engaged[5] = true,
+                    _ => {}
+                }
+            }
+            if self.bandwidth.is_some() {
+                engaged[1] = true;
+            }
+            if self.remaining_limit.is_some() {
+                engaged[3] = true;
+            }
+            for (index, engaged) in engaged.iter().enumerate() {
+                if *engaged {
+                    self.evidence.activations[index] += 1;
+                }
+            }
+        }
         if self.remaining_limit.is_some() {
             if let Some((remaining, _)) = &mut self.remaining_limit {
                 *remaining = remaining.saturating_sub(offset as u64);
@@ -791,11 +846,14 @@ impl DirectionEngine {
                         .as_ref()
                         .map(|(_, id)| id.clone())
                         .expect("limit checked");
-                    self.publish_termination(TerminationInfo {
+                    if self.publish_termination(TerminationInfo {
                         request: TerminationRequest::Graceful,
                         direction: self.direction,
                         fault_id: Some(id.to_string()),
-                    });
+                    }) {
+                        // limit-data exhaustion activation.
+                        self.evidence.activations[3] += 1;
+                    }
                 }
             }
         }
@@ -916,6 +974,11 @@ impl DirectionEngine {
         if self.shutdown_deadline.is_none() {
             if let Some(delay) = self.slow_close {
                 self.shutdown_deadline = Some(Instant::now() + delay);
+                if !delay.is_zero() {
+                    // slow-close activation: a positive shutdown delay is
+                    // enforced from here on.
+                    self.evidence.activations[4] += 1;
+                }
             }
         }
         if let Some(deadline) = self.shutdown_deadline {
@@ -931,7 +994,7 @@ impl DirectionEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{BlackholeConfig, LimitDataConfig};
+    use crate::{BlackholeConfig, LatencyConfig, LimitDataConfig};
     use proptest::prelude::*;
     use std::num::NonZeroU64;
 
@@ -945,6 +1008,136 @@ mod tests {
 
     fn plan(faults: Vec<crate::FaultSpec>) -> FaultPlan {
         FaultPlan::new(faults).unwrap()
+    }
+
+    fn latency_kind() -> FaultKind {
+        FaultKind::Latency(LatencyConfig {
+            delay: Duration::ZERO,
+            jitter: Duration::ZERO,
+            max_buffer_bytes: NonZeroU64::new(1024).unwrap(),
+        })
+    }
+
+    #[test]
+    fn activations_count_per_type_deterministically() {
+        let mut engine = DirectionEngine::new(
+            plan(vec![fault("l", latency_kind())]),
+            1,
+            "p",
+            1,
+            Direction::Upstream,
+        )
+        .unwrap();
+        engine.accept(b"abc");
+        assert_eq!(engine.evidence().activations[0], 1);
+
+        let mut engine = DirectionEngine::new(
+            plan(vec![fault(
+                "b",
+                FaultKind::Bandwidth(crate::BandwidthConfig {
+                    bytes_per_second: NonZeroU64::new(1000).unwrap(),
+                    burst_bytes: NonZeroU64::new(1000).unwrap(),
+                }),
+            )]),
+            1,
+            "p",
+            1,
+            Direction::Upstream,
+        )
+        .unwrap();
+        engine.accept(b"abc");
+        assert_eq!(engine.evidence().activations[1], 1);
+
+        let mut engine = DirectionEngine::new(
+            plan(vec![fault(
+                "h",
+                FaultKind::Blackhole(BlackholeConfig { close_after: None }),
+            )]),
+            1,
+            "p",
+            1,
+            Direction::Upstream,
+        )
+        .unwrap();
+        engine.accept(b"abc");
+        assert_eq!(engine.evidence().activations[2], 1);
+        assert_eq!(engine.evidence().bytes_discarded, 3);
+
+        let mut engine = DirectionEngine::new(
+            plan(vec![fault(
+                "m",
+                FaultKind::LimitData(LimitDataConfig {
+                    bytes: NonZeroU64::new(10).unwrap(),
+                }),
+            )]),
+            1,
+            "p",
+            1,
+            Direction::Upstream,
+        )
+        .unwrap();
+        engine.accept(b"abc");
+        assert_eq!(engine.evidence().activations[3], 1);
+
+        let mut engine = DirectionEngine::new(
+            plan(vec![fault(
+                "s",
+                FaultKind::Slice(crate::SliceConfig {
+                    average_size: NonZeroU64::new(2).unwrap(),
+                    variation: 0,
+                    delay: Duration::ZERO,
+                }),
+            )]),
+            1,
+            "p",
+            1,
+            Direction::Upstream,
+        )
+        .unwrap();
+        engine.accept(b"abc");
+        assert_eq!(engine.evidence().activations[5], 1);
+
+        let mut engine = DirectionEngine::new(
+            plan(vec![fault(
+                "d",
+                FaultKind::Disconnect(crate::DisconnectConfig {
+                    after: Duration::ZERO,
+                    hard_reset: false,
+                }),
+            )]),
+            1,
+            "p",
+            1,
+            Direction::Upstream,
+        )
+        .unwrap();
+        engine.accept(b"abc");
+        assert_eq!(engine.evidence().activations[6], 1);
+    }
+
+    #[test]
+    fn seed_namespace_changes_probabilistic_decisions_reproducibly() {
+        let plan = || {
+            FaultPlan::new(vec![crate::FaultSpec {
+                id: crate::FaultId::new("coin").unwrap(),
+                probability: crate::Probability::new(0.5).unwrap(),
+                kind: latency_kind(),
+            }])
+            .unwrap()
+        };
+        let latency_active = |namespace: u64| {
+            let mut engine =
+                DirectionEngine::new(plan(), namespace, "p", 7, Direction::Downstream).unwrap();
+            engine.accept(b"x");
+            engine.evidence().activations[0]
+        };
+        let base = latency_active(0);
+        let other = (1..1000u64)
+            .find(|namespace| latency_active(*namespace) != base)
+            .expect("namespaces vary decisions");
+        // Replay: the same namespace reproduces the same decision.
+        assert_eq!(latency_active(other), latency_active(other));
+        assert_eq!(latency_active(0), base);
     }
 
     #[test]

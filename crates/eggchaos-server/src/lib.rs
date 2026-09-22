@@ -5,16 +5,22 @@
 mod admin;
 mod config;
 mod runtime;
-mod scenario;
+pub mod scenario;
 
 pub use admin::{AdminConfig, AdminError, AdminHandle, NativeAdmin};
 pub use config::{
     AdminFileConfig, FaultFileConfig, NativeConfig, NativeConfigError, ProxyFileConfig,
 };
+pub use eggchaos_core::{ActiveFault, FAULT_TYPE_NAMES};
 pub use runtime::{
-    AdmissionLimits, ClosedConnection, ConnectionOutcome, ConnectionSnapshot, ConnectionState,
-    ControlError, ControlState, EggchaosError, EggchaosService, FaultPatch, FaultUpsert,
+    AdmissionLimits, ClosedConnection, ConnectionEvidence, ConnectionOutcome, ConnectionSnapshot,
+    ConnectionState, ControlError, ControlState, DirectionBytes, EggchaosError, EggchaosService,
+    ExpectedPublish, FaultPatch, FaultUpsert, MetricTables, MetricsCounters, PerProxyMetrics,
     ProxyPatch, ProxySpec, ProxyView, ResetReport, ResetResult, ResettableTcpStream, RuntimeParams,
-    ServiceBuilder, ServiceHandle, TcpResetHandle, VERSION,
+    ServiceBuilder, ServiceHandle, TcpResetHandle, MAX_METRIC_ACTIVATIONS, MAX_METRIC_PROXIES,
+    OUTCOME_CLASS_NAMES, VERSION,
 };
-pub use scenario::{apply_scenario, Scenario, ScenarioAction, ScenarioEvent, ScenarioReport};
+pub use scenario::{
+    drive_scenario_run, validate_scenario, Scenario, ScenarioAction, ScenarioEvent,
+    ScenarioEventResult, ScenarioRunRecord, ScenarioRunStatus,
+};

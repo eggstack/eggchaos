@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use eggchaos_core::{Direction, FaultId, FaultPlan, FaultSpec};
+use eggchaos_core::{derive_policy_seed, Direction, FaultId, FaultPlan, FaultSpec};
 use serde::{Deserialize, Serialize};
 use tokio::time::sleep;
 
@@ -11,7 +11,8 @@ use crate::{ControlState, EggchaosError};
 pub struct Scenario {
     /// Scenario schema version.
     pub version: u32,
-    /// Explicit run seed recorded in evidence.
+    /// Explicit run seed recorded in evidence and mixed into published
+    /// policy seed namespaces.
     pub seed: u64,
     /// Relative control events.
     pub events: Vec<ScenarioEvent>,
@@ -43,22 +44,66 @@ pub enum ScenarioAction {
     },
 }
 
-/// Bounded execution report.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ScenarioReport {
-    /// Scenario seed.
-    pub seed: u64,
-    /// Number of applied events.
-    pub applied: usize,
-    /// Final native generation.
-    pub generation: u64,
+/// Observable scenario run lifecycle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ScenarioRunStatus {
+    /// Validated, waiting for its first event.
+    Pending,
+    /// Applying events.
+    Running,
+    /// Cancellation requested; the driver is unwinding.
+    Cancelling,
+    /// Cancelled before completion.
+    Cancelled,
+    /// All events applied.
+    Completed,
+    /// Stopped early by a failed event (fail-fast).
+    Failed,
 }
 
-/// Apply a scenario through the same control authority as HTTP mutations.
-pub async fn apply_scenario(
-    state: ControlState,
-    scenario: Scenario,
-) -> Result<ScenarioReport, EggchaosError> {
+/// Evidence for one applied scenario event (no payloads).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScenarioEventResult {
+    /// Event index in the scenario document.
+    pub index: usize,
+    /// Milliseconds from scenario start.
+    pub at_ms: u64,
+    /// Action summary (`set-plan` or `remove-fault`).
+    pub action: String,
+    /// Target proxy.
+    pub proxy: String,
+    /// Target direction.
+    pub direction: Direction,
+    /// Global configuration generation after the event.
+    pub global_generation: u64,
+    /// Upstream policy generation after the event.
+    pub upstream_generation: u64,
+    /// Downstream policy generation after the event.
+    pub downstream_generation: u64,
+}
+
+/// Observable scenario run record.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScenarioRunRecord {
+    /// Stable run identifier.
+    pub run_id: u64,
+    /// Scenario seed driving published policy namespaces.
+    pub seed: u64,
+    /// Current lifecycle status.
+    pub status: ScenarioRunStatus,
+    /// Number of applied events.
+    pub applied: usize,
+    /// Failure detail for `Failed` runs.
+    pub failure: Option<String>,
+    /// Per-event generation trail.
+    pub trail: Vec<ScenarioEventResult>,
+}
+
+/// Validate a scenario document entirely before a run begins.
+pub async fn validate_scenario(
+    state: &ControlState,
+    scenario: &Scenario,
+) -> Result<(), EggchaosError> {
     if scenario.version != 1 {
         return Err(EggchaosError::InvalidProxy(
             "unsupported scenario version".into(),
@@ -70,62 +115,209 @@ pub async fn apply_scenario(
         ));
     }
     let mut previous = 0;
-    let mut applied = 0;
-    for event in scenario.events {
+    for event in &scenario.events {
         if event.at_ms < previous {
             return Err(EggchaosError::InvalidProxy(
                 "scenario events must be ordered".into(),
             ));
         }
-        sleep(Duration::from_millis(event.at_ms - previous)).await;
         previous = event.at_ms;
-        let action = event.action;
-        let proxy_name = match &action {
-            ScenarioAction::SetPlan { proxy, .. } | ScenarioAction::RemoveFault { proxy, .. } => {
-                proxy.clone()
+        validate_action(state, &event.action).await?;
+    }
+    Ok(())
+}
+
+async fn validate_action(
+    state: &ControlState,
+    action: &ScenarioAction,
+) -> Result<(), EggchaosError> {
+    let (proxy, direction, id) = match action {
+        ScenarioAction::SetPlan {
+            proxy,
+            direction,
+            faults,
+        } => {
+            FaultPlan::new(faults.clone()).map_err(EggchaosError::InvalidPlan)?;
+            (proxy, *direction, None)
+        }
+        ScenarioAction::RemoveFault {
+            proxy,
+            direction,
+            id,
+        } => {
+            FaultId::new(id.clone()).map_err(|error| {
+                EggchaosError::InvalidProxy(format!("invalid fault id: {error}"))
+            })?;
+            (proxy, *direction, Some(id.clone()))
+        }
+    };
+    let Some((upstream, downstream)) = state.snapshot_policies(proxy).await else {
+        return Err(EggchaosError::InvalidProxy(
+            "scenario proxy not found".into(),
+        ));
+    };
+    if let Some(id) = id {
+        let base = match direction {
+            Direction::Upstream => upstream,
+            Direction::Downstream => downstream,
+        };
+        if base.plan.get(&id).is_none() {
+            return Err(EggchaosError::InvalidProxy(format!(
+                "scenario fault {id} not present on {proxy}"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Drive one owned scenario run to completion, cancellation, or fail-fast
+/// failure. Every event applies to the currently live plans (never a
+/// stale snapshot) and publishes with an expected-generation guard, so a
+/// concurrent manual publication fails the run instead of being silently
+/// overwritten.
+pub async fn drive_scenario_run(
+    state: ControlState,
+    run_id: u64,
+    scenario: Scenario,
+    token: tokio_util::sync::CancellationToken,
+) {
+    state
+        .update_scenario_run(run_id, |record| {
+            record.status = ScenarioRunStatus::Running;
+        })
+        .await;
+    let mut previous = 0;
+    for (index, event) in scenario.events.iter().enumerate() {
+        let wait = Duration::from_millis(event.at_ms.saturating_sub(previous));
+        tokio::select! {
+            biased;
+            () = token.cancelled() => {
+                state
+                    .update_scenario_run(run_id, |record| {
+                        record.status = ScenarioRunStatus::Cancelled;
+                    })
+                    .await;
+                state.remove_scenario_token(run_id).await;
+                return;
+            }
+            () = sleep(wait) => {}
+        }
+        previous = event.at_ms;
+        let (proxy, direction) = match &event.action {
+            ScenarioAction::SetPlan {
+                proxy, direction, ..
+            }
+            | ScenarioAction::RemoveFault {
+                proxy, direction, ..
+            } => (proxy.clone(), *direction),
+        };
+        let Some((base_upstream, base_downstream)) = state.snapshot_policies(&proxy).await else {
+            fail_run(&state, run_id, format!("scenario proxy {proxy} not found")).await;
+            return;
+        };
+        let mut upstream = (*base_upstream.plan).clone();
+        let mut downstream = (*base_downstream.plan).clone();
+        let action_summary = match &event.action {
+            ScenarioAction::SetPlan { faults, .. } => {
+                let next = match FaultPlan::new(faults.clone()) {
+                    Ok(next) => next,
+                    Err(error) => {
+                        fail_run(&state, run_id, format!("scenario plan invalid: {error}")).await;
+                        return;
+                    }
+                };
+                match direction {
+                    Direction::Upstream => upstream = next,
+                    Direction::Downstream => downstream = next,
+                }
+                "set-plan"
+            }
+            ScenarioAction::RemoveFault { id, .. } => {
+                let base = match direction {
+                    Direction::Upstream => &upstream,
+                    Direction::Downstream => &downstream,
+                };
+                if base.get(id).is_none() {
+                    fail_run(
+                        &state,
+                        run_id,
+                        format!("scenario fault {id} not present on {proxy}"),
+                    )
+                    .await;
+                    return;
+                }
+                match direction {
+                    Direction::Upstream => upstream = upstream.without_fault(id),
+                    Direction::Downstream => downstream = downstream.without_fault(id),
+                }
+                "remove-fault"
             }
         };
-        let proxy = state
-            .get(&proxy_name)
-            .await
-            .ok_or_else(|| EggchaosError::InvalidProxy("scenario proxy not found".into()))?;
-        let (mut upstream, mut downstream) = (
-            proxy.upstream_faults.clone(),
-            proxy.downstream_faults.clone(),
-        );
-        match action {
-            ScenarioAction::SetPlan {
-                direction: Direction::Upstream,
-                faults,
-                ..
-            } => upstream = FaultPlan::new(faults)?,
-            ScenarioAction::SetPlan {
-                direction: Direction::Downstream,
-                faults,
-                ..
-            } => downstream = FaultPlan::new(faults)?,
-            ScenarioAction::RemoveFault {
-                direction: Direction::Upstream,
-                ref id,
-                ..
-            } => upstream = upstream.without_fault(id),
-            ScenarioAction::RemoveFault {
-                direction: Direction::Downstream,
-                ref id,
-                ..
-            } => downstream = downstream.without_fault(id),
-        }
+        // The scenario seed participates in deterministic engine decisions
+        // through the published seed namespace, derived purely from
+        // (seed, run, event) with no scheduling input. Only the target
+        // direction publishes, so the other direction keeps its plan,
+        // generation, and namespace.
+        let namespace = derive_policy_seed(scenario.seed, run_id, index as u64);
+        let published = state
+            .publish_direction_expected(
+                &proxy,
+                direction,
+                match direction {
+                    Direction::Upstream => upstream,
+                    Direction::Downstream => downstream,
+                },
+                namespace,
+                match direction {
+                    Direction::Upstream => base_upstream.generation,
+                    Direction::Downstream => base_downstream.generation,
+                },
+            )
+            .await;
+        let (global, published_generation) = match published {
+            Ok(generations) => generations,
+            Err(error) => {
+                fail_run(&state, run_id, format!("scenario event failed: {error}")).await;
+                return;
+            }
+        };
+        let (upstream_generation, downstream_generation) = match direction {
+            Direction::Upstream => (published_generation, base_downstream.generation),
+            Direction::Downstream => (base_upstream.generation, published_generation),
+        };
+        let trail = ScenarioEventResult {
+            index,
+            at_ms: event.at_ms,
+            action: action_summary.to_owned(),
+            proxy,
+            direction,
+            global_generation: global,
+            upstream_generation,
+            downstream_generation,
+        };
         state
-            .publish_plans(&proxy_name, upstream, downstream)
-            .await
-            .map_err(|error| EggchaosError::InvalidProxy(error.to_string()))?;
-        applied += 1;
+            .update_scenario_run(run_id, |record| {
+                record.applied += 1;
+                record.trail.push(trail);
+            })
+            .await;
     }
-    Ok(ScenarioReport {
-        seed: scenario.seed,
-        applied,
-        generation: state.generation(),
-    })
+    state
+        .update_scenario_run(run_id, |record| {
+            record.status = ScenarioRunStatus::Completed;
+        })
+        .await;
+    state.remove_scenario_token(run_id).await;
+}
+
+async fn fail_run(state: &ControlState, run_id: u64, message: String) {
+    state
+        .update_scenario_run(run_id, |record| {
+            record.status = ScenarioRunStatus::Failed;
+            record.failure = Some(message);
+        })
+        .await;
+    state.remove_scenario_token(run_id).await;
 }
 
 /// Keep the ID type in the scenario API documentation without duplicating a
@@ -133,39 +325,4 @@ pub async fn apply_scenario(
 #[allow(dead_code)]
 fn _fault_id(value: String) -> Result<FaultId, eggchaos_core::ValidationError> {
     FaultId::new(value)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::ProxySpec;
-
-    #[tokio::test]
-    async fn ordered_zero_time_scenario_publishes_one_generation() {
-        let proxy = ProxySpec::new(
-            "p",
-            "127.0.0.1:0".parse().unwrap(),
-            "127.0.0.1:1".parse().unwrap(),
-        );
-        let state = ControlState::new([proxy]);
-        let report = apply_scenario(
-            state.clone(),
-            Scenario {
-                version: 1,
-                seed: 7,
-                events: vec![ScenarioEvent {
-                    at_ms: 0,
-                    action: ScenarioAction::SetPlan {
-                        proxy: "p".into(),
-                        direction: Direction::Upstream,
-                        faults: Vec::new(),
-                    },
-                }],
-            },
-        )
-        .await
-        .unwrap();
-        assert_eq!(report.applied, 1);
-        assert_eq!(state.generation(), 2);
-    }
 }

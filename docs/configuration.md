@@ -11,5 +11,9 @@ average size, and required capacities/rates are non-zero.
 
 The `Direction` names are `upstream` (client to target) and `downstream`
 (target to client). A plan is ordered, and a connection-local fault activation
-decision is derived from the explicit run seed, proxy identity, connection key,
-direction, and fault identity. No process-global RNG is used.
+decision is derived from the policy seed namespace, proxy identity, connection key,
+direction, and fault identity. No process-global RNG is used. Each published
+policy generation carries its own seed namespace: manual updates retain the
+current namespace, while scenario runs publish namespaces derived from
+`(scenario seed, run id, event index)`; see `docs/control-plane.md` for the
+replay limits this implies.

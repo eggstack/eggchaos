@@ -22,7 +22,6 @@ use tokio::{net::lookup_host, time::timeout};
 pub struct ChaosDialer {
     upstream: LivePolicy,
     downstream: LivePolicy,
-    run_seed: u64,
     proxy_name: Arc<str>,
     connection_ordinal: Arc<AtomicU64>,
     connect_timeout: Duration,
@@ -33,7 +32,8 @@ impl ChaosDialer {
     pub fn new(run_seed: u64, proxy_name: impl Into<Arc<str>>) -> Self {
         Self::with_policies(run_seed, proxy_name, FaultPlan::empty(), FaultPlan::empty())
     }
-    /// Create a dialer with validated initial directional plans.
+    /// Create a dialer with validated initial directional plans. The seed
+    /// is the namespace for both initial policy generations.
     pub fn with_policies(
         run_seed: u64,
         proxy_name: impl Into<Arc<str>>,
@@ -41,9 +41,8 @@ impl ChaosDialer {
         downstream: FaultPlan,
     ) -> Self {
         Self {
-            upstream: LivePolicy::new(upstream),
-            downstream: LivePolicy::new(downstream),
-            run_seed,
+            upstream: LivePolicy::new(upstream, run_seed),
+            downstream: LivePolicy::new(downstream, run_seed),
             proxy_name: proxy_name.into(),
             connection_ordinal: Arc::new(AtomicU64::new(1)),
             connect_timeout: Duration::from_secs(10),
@@ -62,23 +61,28 @@ impl ChaosDialer {
     pub fn downstream_policy(&self) -> LivePolicy {
         self.downstream.clone()
     }
-    /// Publish a new upstream generation.
+    /// Publish a new upstream generation, retaining the seed namespace.
     pub fn publish_upstream(&self, plan: FaultPlan) -> Result<u64, eggchaos_core::ValidationError> {
-        self.upstream.publish(plan)
+        let namespace = self.upstream.seed_namespace();
+        self.upstream
+            .publish(plan, namespace)
+            .map(|snapshot| snapshot.generation)
     }
-    /// Publish a new downstream generation.
+    /// Publish a new downstream generation, retaining the seed namespace.
     pub fn publish_downstream(
         &self,
         plan: FaultPlan,
     ) -> Result<u64, eggchaos_core::ValidationError> {
-        self.downstream.publish(plan)
+        let namespace = self.downstream.seed_namespace();
+        self.downstream
+            .publish(plan, namespace)
+            .map(|snapshot| snapshot.generation)
     }
 }
 
 impl Dialer for ChaosDialer {
     fn dial(&self, target: DialTarget) -> DialFuture<'_> {
         let timeout_duration = self.connect_timeout;
-        let run_seed = self.run_seed;
         let proxy_name = self.proxy_name.clone();
         let upstream = self.upstream.clone();
         let downstream = self.downstream.clone();
@@ -101,7 +105,6 @@ impl Dialer for ChaosDialer {
                             stream,
                             upstream,
                             downstream,
-                            run_seed,
                             &*proxy_name,
                             ordinal,
                         )

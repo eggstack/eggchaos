@@ -177,14 +177,8 @@ pub fn translate_proxy(proxy: &Proxy) -> Result<ProxySpec, CompatibilityError> {
         FaultPlan::new(up).map_err(|e| CompatibilityError::Invalid(e.to_string()))?;
     native.downstream_faults =
         FaultPlan::new(down).map_err(|e| CompatibilityError::Invalid(e.to_string()))?;
-    native
-        .upstream_policy
-        .publish(native.upstream_faults.clone())
-        .map_err(|e| CompatibilityError::Invalid(e.to_string()))?;
-    native
-        .downstream_policy
-        .publish(native.downstream_faults.clone())
-        .map_err(|e| CompatibilityError::Invalid(e.to_string()))?;
+    // Live policies initialize from these plans on import/create; the
+    // native authority owns publication from there.
     Ok(native)
 }
 

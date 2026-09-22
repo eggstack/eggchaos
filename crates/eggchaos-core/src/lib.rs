@@ -13,11 +13,14 @@ pub use engine::{
 pub use plan::{
     BandwidthConfig, BlackholeConfig, DisconnectConfig, FaultId, FaultKind, FaultPlan, FaultSpec,
     LatencyConfig, LimitDataConfig, Probability, RngVersion, SliceConfig, SlowCloseConfig,
-    ValidationError,
+    ValidationError, FAULT_TYPE_NAMES,
 };
-pub use policy::LivePolicy;
-pub use rng::{derive_seed, DeterministicRng, RngEvidence};
-pub use stream::{BidirectionalChaosStream, ChaosStream, DirectionSummary, EngineError};
+pub use policy::{LivePolicy, PolicyConflict, PublishError, PublishedPolicy};
+pub use rng::{derive_policy_seed, derive_seed, DeterministicRng, RngEvidence};
+pub use stream::{
+    ActiveFault, BidirectionalChaosStream, ChaosStream, DirectionSummary, EngineError,
+    StreamEvidence, MAX_EVIDENCE_FAULTS,
+};
 
 /// The direction in which application bytes travel through a proxy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]

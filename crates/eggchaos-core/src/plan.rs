@@ -150,6 +150,38 @@ pub enum FaultKind {
     Disconnect(DisconnectConfig),
 }
 
+/// Stable low-cardinality fault-type spellings, in `FaultKind` variant
+/// order. Used for metrics labels and connection evidence; the order is
+/// part of the evidence contract and must not change.
+pub const FAULT_TYPE_NAMES: [&str; 7] = [
+    "latency",
+    "bandwidth",
+    "blackhole",
+    "limit-data",
+    "slow-close",
+    "slice",
+    "disconnect",
+];
+
+impl FaultKind {
+    /// Stable low-cardinality type name for metrics and evidence.
+    pub const fn type_name(self) -> &'static str {
+        FAULT_TYPE_NAMES[self.type_index()]
+    }
+    /// Stable index into `FAULT_TYPE_NAMES` and activation counters.
+    pub const fn type_index(self) -> usize {
+        match self {
+            Self::Latency(_) => 0,
+            Self::Bandwidth(_) => 1,
+            Self::Blackhole(_) => 2,
+            Self::LimitData(_) => 3,
+            Self::SlowClose(_) => 4,
+            Self::Slice(_) => 5,
+            Self::Disconnect(_) => 6,
+        }
+    }
+}
+
 /// An ordered fault with a stable identity and connection activation probability.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FaultSpec {

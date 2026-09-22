@@ -43,7 +43,24 @@ fn splitmix(mut value: u64) -> u64 {
     z ^ (z >> 31)
 }
 
-/// Small explicitly specified SplitMix64-v1 generator.
+/// Derive a policy seed namespace from explicit scenario identity.
+///
+/// The namespace feeds fault-local RNG compilation for every connection
+/// that observes the published policy, so a scenario seed participates in
+/// the deterministic decisions it claims to reproduce. Derivation is a
+/// pure function of `(scenario_seed, run_id, event_index)`: it never
+/// depends on task scheduling, wall time, or connection order. Manual
+/// control updates retain the policy's current namespace instead.
+pub fn derive_policy_seed(scenario_seed: u64, run_id: u64, event_index: u64) -> u64 {
+    let mut h = Wrapping(scenario_seed) + Wrapping(0x9e37_79b9_7f4a_7c15);
+    h += Wrapping(run_id.rotate_left(13) + 0x100);
+    h ^= h >> 29;
+    h *= Wrapping(0xbf58_476d_1ce4_e5b9);
+    h += Wrapping(event_index.rotate_left(31) + 0x200);
+    h ^= h >> 27;
+    h *= Wrapping(0x94d0_49bb_1331_11eb);
+    splitmix(h.0 ^ 0x51ed_ee15_5eed_5eed)
+}
 #[derive(Debug, Clone)]
 pub struct DeterministicRng {
     state: u64,
@@ -95,5 +112,14 @@ mod tests {
             derive_seed(42, "proxy", 7, Direction::Upstream, &id),
             11_882_912_530_514_077_282
         );
+    }
+
+    #[test]
+    fn policy_seed_derivation_is_stable_and_sensitive() {
+        // Golden vectors pin the derivation; sensitivity pins that each
+        // identity component participates.
+        assert_eq!(derive_policy_seed(7, 1, 0), 4_026_889_766_568_732_747);
+        assert_eq!(derive_policy_seed(7, 1, 1), 11_250_473_848_183_634_583);
+        assert_eq!(derive_policy_seed(8, 1, 0), 3_937_417_822_122_820_953);
     }
 }

@@ -188,20 +188,8 @@ impl ProxyFileConfig {
                 field: "fault".into(),
                 message: e.to_string(),
             })?;
-        proxy
-            .upstream_policy
-            .publish(proxy.upstream_faults.clone())
-            .map_err(|e| NativeConfigError::Field {
-                field: "fault".into(),
-                message: e.to_string(),
-            })?;
-        proxy
-            .downstream_policy
-            .publish(proxy.downstream_faults.clone())
-            .map_err(|e| NativeConfigError::Field {
-                field: "fault".into(),
-                message: e.to_string(),
-            })?;
+        // Live policies initialize from these plans on import; the native
+        // authority owns publication from there.
         Ok(proxy)
     }
 }

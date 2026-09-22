@@ -11,8 +11,9 @@ use std::{
 };
 
 use eggchaos_core::{
-    ChaosStream, Direction, FaultKind, FaultPlan, FaultSpec, LivePolicy, TerminationInfo,
-    TerminationRequest,
+    ActiveFault, ChaosStream, Direction, FaultKind, FaultPlan, FaultSpec, LivePolicy,
+    PolicyConflict, RngVersion, StreamEvidence, TerminationInfo, TerminationRequest,
+    FAULT_TYPE_NAMES,
 };
 use egress_relay::{HalfClosePolicy, RelayOptions};
 use serde::{Deserialize, Serialize};
@@ -130,6 +131,15 @@ impl ProxySpec {
         }
         Ok(())
     }
+    /// Initialize live policies from the configured plans under the
+    /// service-scoped seed namespace. Canonical runtime state is the
+    /// policy snapshot; the plan fields remain config-origin mirrors that
+    /// mutations refresh from published snapshots under the same lock.
+    pub fn init_policies(&mut self, service_seed: u64) {
+        let namespace = service_seed ^ self.seed;
+        self.upstream_policy = LivePolicy::new(self.upstream_faults.clone(), namespace);
+        self.downstream_policy = LivePolicy::new(self.downstream_faults.clone(), namespace);
+    }
 }
 
 /// Global and per-proxy admission bounds.
@@ -162,6 +172,11 @@ pub enum ConnectionState {
 }
 
 /// Safe active-connection operational summary.
+///
+/// Accept-time identity fields are frozen when the connection is
+/// registered; `observed_*`/`pending_*`/counter/fault fields report live
+/// stream state merged at read time (or final state in history records).
+/// No payload bytes are ever recorded.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConnectionSnapshot {
     /// Globally unique connection ID.
@@ -178,10 +193,68 @@ pub struct ConnectionSnapshot {
     pub state: ConnectionState,
     /// Run-local deterministic connection key.
     pub connection_key: u64,
-    /// Seed namespace.
+    /// Seed namespace reference (service seed XOR proxy seed).
     pub seed: u64,
-    /// Configuration generation observed at accept time.
+    /// Global configuration generation observed at accept time.
     pub generation: u64,
+    /// Upstream policy generation accepted at connection start.
+    pub accepted_upstream_generation: u64,
+    /// Downstream policy generation accepted at connection start.
+    pub accepted_downstream_generation: u64,
+    /// Upstream seed namespace accepted at connection start.
+    pub accepted_upstream_seed: u64,
+    /// Downstream seed namespace accepted at connection start.
+    pub accepted_downstream_seed: u64,
+    /// Currently compiled upstream policy generation.
+    pub observed_upstream_generation: u64,
+    /// Currently compiled downstream policy generation.
+    pub observed_downstream_generation: u64,
+    /// Upstream transition target draining the old generation, if any.
+    pub pending_upstream_generation: Option<u64>,
+    /// Downstream transition target draining the old generation, if any.
+    pub pending_downstream_generation: Option<u64>,
+    /// Currently compiled upstream seed namespace.
+    pub upstream_seed_namespace: u64,
+    /// Currently compiled downstream seed namespace.
+    pub downstream_seed_namespace: u64,
+    /// Completed upstream live-policy transitions.
+    pub upstream_transitions: u64,
+    /// Completed downstream live-policy transitions.
+    pub downstream_transitions: u64,
+    /// Upstream byte counters.
+    pub upstream_bytes: DirectionBytes,
+    /// Downstream byte counters.
+    pub downstream_bytes: DirectionBytes,
+    /// Connection-active upstream fault identities (bounded, no payloads).
+    pub upstream_faults: Vec<ActiveFault>,
+    /// Whether the upstream fault list truncated at the evidence bound.
+    pub upstream_faults_truncated: bool,
+    /// Connection-active downstream fault identities.
+    pub downstream_faults: Vec<ActiveFault>,
+    /// Whether the downstream fault list truncated at the evidence bound.
+    pub downstream_faults_truncated: bool,
+    /// Deterministic RNG contract version.
+    pub rng_version: RngVersion,
+}
+
+/// Accepted/forwarded/discarded byte counters for one direction.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DirectionBytes {
+    /// Bytes accepted from the caller side.
+    pub accepted: u64,
+    /// Bytes forwarded to the inner transport.
+    pub forwarded: u64,
+    /// Bytes intentionally discarded by a configured fault.
+    pub discarded: u64,
+}
+
+/// Lock-shared live evidence for one connection, updated by its streams.
+#[derive(Debug, Clone)]
+pub struct ConnectionEvidence {
+    /// Target-to-client direction evidence.
+    pub upstream: Arc<StreamEvidence>,
+    /// Client-to-target direction evidence.
+    pub downstream: Arc<StreamEvidence>,
 }
 
 /// How a hard-reset request resolved at the concrete transport edge.
@@ -445,10 +518,20 @@ pub struct ProxyView {
     pub running: bool,
     /// Whether the proxy is enabled (desired state).
     pub enabled: bool,
-    /// Client-to-target fault plan.
+    /// Client-to-target fault plan, read from the same atomic snapshot as
+    /// `upstream_generation`.
     pub upstream_faults: FaultPlan,
-    /// Target-to-client fault plan.
+    /// Target-to-client fault plan, read from the same atomic snapshot as
+    /// `downstream_generation`.
     pub downstream_faults: FaultPlan,
+    /// Live upstream policy generation matching `upstream_faults`.
+    pub upstream_generation: u64,
+    /// Live downstream policy generation matching `downstream_faults`.
+    pub downstream_generation: u64,
+    /// Live upstream seed namespace matching `upstream_faults`.
+    pub upstream_seed_namespace: u64,
+    /// Live downstream seed namespace matching `downstream_faults`.
+    pub downstream_seed_namespace: u64,
     /// Per-proxy active connection limit.
     pub max_connections: Option<usize>,
     /// Direct-connect timeout in milliseconds.
@@ -542,7 +625,7 @@ pub enum EggchaosError {
 }
 
 /// Low-cardinality native metrics counters.
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct MetricsCounters {
     /// Accepted connection total.
     pub accepted: AtomicU64,
@@ -550,6 +633,130 @@ pub struct MetricsCounters {
     pub completed: AtomicU64,
     /// Rejected connection total (admission limits).
     pub rejected: AtomicU64,
+    /// Final outcomes by coarse class (`OUTCOME_CLASS_NAMES` order).
+    pub outcomes: [AtomicU64; 8],
+    /// Injected graceful termination requests observed at close.
+    pub graceful_requests: AtomicU64,
+    /// Injected hard-reset requests observed at close.
+    pub hard_reset_requests: AtomicU64,
+    /// Abortive closes applied at the TCP edge.
+    pub reset_applied: AtomicU64,
+    /// Abortive closes with no transport to act on.
+    pub reset_unsupported: AtomicU64,
+    /// Abortive closes attempted but failed.
+    pub reset_failed: AtomicU64,
+    /// Accepted bytes across all closed connections.
+    pub bytes_accepted: AtomicU64,
+    /// Forwarded bytes across all closed connections.
+    pub bytes_forwarded: AtomicU64,
+    /// Discarded bytes across all closed connections.
+    pub bytes_discarded: AtomicU64,
+    /// Completed live-policy transitions across all closed connections.
+    pub transitions: AtomicU64,
+    /// Bounded per-proxy and activation tables.
+    pub tables: StdMutex<MetricTables>,
+}
+
+/// Coarse final-outcome classes in counter order.
+pub const OUTCOME_CLASS_NAMES: [&str; 8] = [
+    "relay_completed",
+    "connect_failed",
+    "killed_by_operator",
+    "service_shutdown",
+    "proxy_removed",
+    "graceful_termination",
+    "hard_reset",
+    "relay_error",
+];
+
+/// Maximum proxy names retained in metrics tables.
+pub const MAX_METRIC_PROXIES: usize = 1024;
+/// Maximum (proxy, direction, fault-type) activation series retained.
+pub const MAX_METRIC_ACTIVATIONS: usize = 8192;
+
+/// Per-proxy reconciling counters.
+#[derive(Debug, Default)]
+pub struct PerProxyMetrics {
+    /// Connections accepted on this proxy.
+    pub accepted: u64,
+    /// Connections completed on this proxy.
+    pub completed: u64,
+    /// Byte counters per direction (0 = upstream, 1 = downstream) as
+    /// (accepted, forwarded, discarded).
+    pub bytes: [[u64; 3]; 2],
+}
+
+/// Bounded low-cardinality metric tables with overflow buckets, so metric
+/// memory stays bounded even if proxy names are created in a loop.
+#[derive(Debug, Default)]
+pub struct MetricTables {
+    proxies: HashMap<String, PerProxyMetrics>,
+    overflow_proxy: PerProxyMetrics,
+    activations: HashMap<(String, String, String), u64>,
+    overflow_activations: u64,
+}
+
+impl MetricTables {
+    fn proxy_entry(&mut self, proxy: &str) -> &mut PerProxyMetrics {
+        if self.proxies.contains_key(proxy) {
+            return self.proxies.get_mut(proxy).expect("checked");
+        }
+        if self.proxies.len() >= MAX_METRIC_PROXIES {
+            return &mut self.overflow_proxy;
+        }
+        self.proxies.entry(proxy.to_owned()).or_default()
+    }
+    /// Record an accepted connection on a proxy.
+    pub fn record_accept(&mut self, proxy: &str) {
+        self.proxy_entry(proxy).accepted += 1;
+    }
+    /// Record a completed connection with final byte counters.
+    pub fn record_complete(&mut self, proxy: &str, upstream: [u64; 3], downstream: [u64; 3]) {
+        let entry = self.proxy_entry(proxy);
+        entry.completed += 1;
+        for (slot, value) in entry.bytes[0].iter_mut().zip(upstream) {
+            *slot = slot.saturating_add(value);
+        }
+        for (slot, value) in entry.bytes[1].iter_mut().zip(downstream) {
+            *slot = slot.saturating_add(value);
+        }
+    }
+    /// Record fault-type activations for one direction.
+    pub fn record_activations(&mut self, proxy: &str, direction: &str, activations: [u64; 7]) {
+        for (index, count) in activations.iter().enumerate() {
+            if *count == 0 {
+                continue;
+            }
+            let key = (
+                proxy.to_owned(),
+                direction.to_owned(),
+                FAULT_TYPE_NAMES[index].to_owned(),
+            );
+            if let Some(slot) = self.activations.get_mut(&key) {
+                *slot = slot.saturating_add(*count);
+                continue;
+            }
+            if self.activations.len() >= MAX_METRIC_ACTIVATIONS {
+                self.overflow_activations = self.overflow_activations.saturating_add(*count);
+                continue;
+            }
+            self.activations.insert(key, *count);
+        }
+    }
+}
+
+/// Coarse outcome class index for `MetricsCounters::outcomes`.
+pub const fn outcome_class(outcome: &ConnectionOutcome) -> usize {
+    match outcome {
+        ConnectionOutcome::RelayCompleted => 0,
+        ConnectionOutcome::ConnectFailed(_) => 1,
+        ConnectionOutcome::KilledByOperator => 2,
+        ConnectionOutcome::ServiceShutdown => 3,
+        ConnectionOutcome::ProxyRemoved => 4,
+        ConnectionOutcome::GracefulTermination { .. } => 5,
+        ConnectionOutcome::HardReset { .. } => 6,
+        ConnectionOutcome::RelayError(_) => 7,
+    }
 }
 
 /// Runtime tuning shared by every proxy of a service.
@@ -652,6 +859,7 @@ pub struct RuntimeInner {
     active: AtomicUsize,
     connections: RwLock<HashMap<u64, ConnectionSnapshot>>,
     cancellations: RwLock<HashMap<u64, CancellationToken>>,
+    evidence: RwLock<HashMap<u64, ConnectionEvidence>>,
     history: RwLock<VecDeque<ClosedConnection>>,
     metrics: MetricsCounters,
     shutdown_initiated: AtomicBool,
@@ -660,6 +868,16 @@ pub struct RuntimeInner {
     /// the supervisor's done-flag confirms completion, so dropping a
     /// `JoinHandle` here never detaches a running task.
     root: Mutex<Vec<(String, JoinHandle<()>)>>,
+    /// Owned scenario run tasks. Shutdown cancels their tokens (children
+    /// of the service token) and then joins every task, so no scenario
+    /// outlives the service untracked.
+    scenario_tasks: Mutex<JoinSet<()>>,
+    /// Scenario run records by run ID, bounded (finished runs prune FIFO).
+    scenario_runs: Mutex<BTreeMap<u64, crate::scenario::ScenarioRunRecord>>,
+    /// Cancellation tokens for active scenario runs.
+    scenario_tokens: Mutex<HashMap<u64, CancellationToken>>,
+    /// Next scenario run ID.
+    next_run_id: AtomicU64,
 }
 
 impl RuntimeInner {
@@ -674,15 +892,25 @@ impl RuntimeInner {
             active: AtomicUsize::new(0),
             connections: RwLock::new(HashMap::new()),
             cancellations: RwLock::new(HashMap::new()),
+            evidence: RwLock::new(HashMap::new()),
             history: RwLock::new(VecDeque::new()),
             metrics: MetricsCounters::default(),
             shutdown_initiated: AtomicBool::new(false),
             shutdown_token,
             root: Mutex::new(Vec::new()),
+            scenario_tasks: Mutex::new(JoinSet::new()),
+            scenario_runs: Mutex::new(BTreeMap::new()),
+            scenario_tokens: Mutex::new(HashMap::new()),
+            next_run_id: AtomicU64::new(1),
         }
     }
 
     fn view_of(entry: &ManagedProxy) -> ProxyView {
+        // Both plans come from the same atomic snapshot load as the
+        // reported generation, so GET can never pair a plan with an older
+        // or newer generation than the one it was published with.
+        let upstream = entry.spec.upstream_policy.snapshot();
+        let downstream = entry.spec.downstream_policy.snapshot();
         ProxyView {
             name: entry.spec.name.clone(),
             listen: entry.spec.listen,
@@ -690,8 +918,12 @@ impl RuntimeInner {
             bound_addr: entry.bound_addr,
             running: entry.running,
             enabled: entry.spec.enabled,
-            upstream_faults: entry.spec.upstream_faults.clone(),
-            downstream_faults: entry.spec.downstream_faults.clone(),
+            upstream_faults: (*upstream.plan).clone(),
+            downstream_faults: (*downstream.plan).clone(),
+            upstream_generation: upstream.generation,
+            downstream_generation: downstream.generation,
+            upstream_seed_namespace: upstream.seed_namespace,
+            downstream_seed_namespace: downstream.seed_namespace,
             max_connections: entry.spec.max_connections,
             connect_timeout_ms: entry.spec.connect_timeout.as_millis().min(u64::MAX as u128) as u64,
             seed: entry.spec.seed,
@@ -703,6 +935,24 @@ impl RuntimeInner {
 #[derive(Clone)]
 pub struct ControlState {
     runtime: Arc<RuntimeInner>,
+}
+
+/// Expected-generation publication bundle for
+/// [`ControlState::publish_plans_expected`].
+#[derive(Debug, Clone)]
+pub struct ExpectedPublish {
+    /// Replacement client-to-target plan.
+    pub upstream: FaultPlan,
+    /// Replacement target-to-client plan.
+    pub downstream: FaultPlan,
+    /// Seed namespace for the upstream publication.
+    pub upstream_seed: u64,
+    /// Seed namespace for the downstream publication.
+    pub downstream_seed: u64,
+    /// Upstream generation the publisher based on.
+    pub expected_upstream: u64,
+    /// Downstream generation the publisher based on.
+    pub expected_downstream: u64,
 }
 
 impl Default for ControlState {
@@ -721,10 +971,11 @@ impl ControlState {
     pub fn new(proxies: impl IntoIterator<Item = ProxySpec>) -> Self {
         let state = Self::default();
         if let Ok(mut map) = state.runtime.proxies.try_write() {
-            for proxy in proxies {
+            for mut proxy in proxies {
                 if map.contains_key(&proxy.name) {
                     continue;
                 }
+                proxy.init_policies(state.runtime.params.seed);
                 map.insert(
                     proxy.name.clone(),
                     ManagedProxy {
@@ -749,16 +1000,117 @@ impl ControlState {
         }
     }
 
-    /// Render low-cardinality Prometheus text.
-    pub fn metrics_text(&self) -> String {
-        format!(
+    /// Render low-cardinality Prometheus text. Labels are bounded by
+    /// construction: proxy names come from a capped table, directions and
+    /// fault types are fixed vocabularies, and no connection ID, peer
+    /// address, scenario run, or arbitrary fault ID ever becomes a label.
+    pub async fn metrics_text(&self) -> String {
+        let mut text = format!(
             "# HELP eggchaos_config_generation Current configuration generation\n# TYPE eggchaos_config_generation gauge\neggchaos_config_generation {}\n# HELP eggchaos_connections_accepted_total Accepted connections\n# TYPE eggchaos_connections_accepted_total counter\neggchaos_connections_accepted_total {}\n# HELP eggchaos_connections_completed_total Completed connections\n# TYPE eggchaos_connections_completed_total counter\neggchaos_connections_completed_total {}\n# HELP eggchaos_connections_rejected_total Rejected connections\n# TYPE eggchaos_connections_rejected_total counter\neggchaos_connections_rejected_total {}\n# HELP eggchaos_connections_active Active connections\n# TYPE eggchaos_connections_active gauge\neggchaos_connections_active {}\n",
             self.generation(),
             self.runtime.metrics.accepted.load(Ordering::Relaxed),
             self.runtime.metrics.completed.load(Ordering::Relaxed),
             self.runtime.metrics.rejected.load(Ordering::Relaxed),
             self.runtime.active.load(Ordering::Relaxed),
-        )
+        );
+        for (index, name) in OUTCOME_CLASS_NAMES.iter().enumerate() {
+            text.push_str(&format!(
+                "eggchaos_connection_outcomes_total{{outcome=\"{name}\"}} {}\n",
+                self.runtime.metrics.outcomes[index].load(Ordering::Relaxed),
+            ));
+        }
+        text.push_str(&format!(
+            "# HELP eggchaos_termination_requests_total Injected termination requests observed at close\n# TYPE eggchaos_termination_requests_total counter\neggchaos_termination_requests_total{{request=\"graceful\"}} {}\neggchaos_termination_requests_total{{request=\"hard_reset\"}} {}\n# HELP eggchaos_reset_results_total Abortive-close outcomes at the TCP edge\n# TYPE eggchaos_reset_results_total counter\neggchaos_reset_results_total{{result=\"applied\"}} {}\neggchaos_reset_results_total{{result=\"unsupported\"}} {}\neggchaos_reset_results_total{{result=\"failed\"}} {}\n# HELP eggchaos_bytes_total Bytes by flow across closed connections\n# TYPE eggchaos_bytes_total counter\neggchaos_bytes_total{{flow=\"accepted\"}} {}\neggchaos_bytes_total{{flow=\"forwarded\"}} {}\neggchaos_bytes_total{{flow=\"discarded\"}} {}\n# HELP eggchaos_policy_transitions_total Completed live-policy transitions\n# TYPE eggchaos_policy_transitions_total counter\neggchaos_policy_transitions_total {}\n",
+            self.runtime.metrics.graceful_requests.load(Ordering::Relaxed),
+            self.runtime.metrics.hard_reset_requests.load(Ordering::Relaxed),
+            self.runtime.metrics.reset_applied.load(Ordering::Relaxed),
+            self.runtime.metrics.reset_unsupported.load(Ordering::Relaxed),
+            self.runtime.metrics.reset_failed.load(Ordering::Relaxed),
+            self.runtime.metrics.bytes_accepted.load(Ordering::Relaxed),
+            self.runtime.metrics.bytes_forwarded.load(Ordering::Relaxed),
+            self.runtime.metrics.bytes_discarded.load(Ordering::Relaxed),
+            self.runtime.metrics.transitions.load(Ordering::Relaxed),
+        ));
+        {
+            let tables = self.runtime.metrics.tables.lock().expect("metrics lock");
+            let mut proxies: Vec<_> = tables.proxies.iter().collect();
+            proxies.sort_by_key(|(name, _)| *name);
+            for (name, entry) in proxies {
+                text.push_str(&format!(
+                    "eggchaos_proxy_connections_accepted_total{{proxy=\"{name}\"}} {}\neggchaos_proxy_connections_completed_total{{proxy=\"{name}\"}} {}\n",
+                    entry.accepted, entry.completed,
+                ));
+                for (direction, index) in [("upstream", 0), ("downstream", 1)] {
+                    for (flow, value) in ["accepted", "forwarded", "discarded"]
+                        .iter()
+                        .zip(entry.bytes[index])
+                    {
+                        text.push_str(&format!(
+                            "eggchaos_proxy_bytes_total{{proxy=\"{name}\",direction=\"{direction}\",flow=\"{flow}\"}} {value}\n",
+                        ));
+                    }
+                }
+            }
+            if tables.overflow_proxy.accepted + tables.overflow_proxy.completed > 0 {
+                text.push_str(&format!(
+                    "eggchaos_proxy_connections_accepted_total{{proxy=\"_overflow\"}} {}\neggchaos_proxy_connections_completed_total{{proxy=\"_overflow\"}} {}\n",
+                    tables.overflow_proxy.accepted, tables.overflow_proxy.completed,
+                ));
+            }
+            let mut activations: Vec<_> = tables.activations.iter().collect();
+            activations.sort();
+            for ((proxy, direction, fault_type), count) in activations {
+                text.push_str(&format!(
+                    "eggchaos_fault_activations_total{{proxy=\"{proxy}\",direction=\"{direction}\",fault_type=\"{fault_type}\"}} {count}\n",
+                ));
+            }
+            if tables.overflow_activations > 0 {
+                text.push_str(&format!(
+                    "eggchaos_fault_activations_total{{proxy=\"_overflow\",direction=\"_overflow\",fault_type=\"_overflow\"}} {}\n",
+                    tables.overflow_activations,
+                ));
+            }
+        }
+        // Live gauges read directly from policies: per-proxy active
+        // connections, queued bytes summed from live evidence, and current
+        // policy generations.
+        let map = self.runtime.proxies.read().await;
+        let evidence = self.runtime.evidence.read().await;
+        let connections = self.runtime.connections.read().await;
+        let mut names: Vec<_> = map.keys().collect();
+        names.sort();
+        // Queue bytes per proxy+direction from live evidence handles.
+        let mut queued: HashMap<(&str, &str), u64> = HashMap::new();
+        for snapshot in connections.values() {
+            let Some(record) = evidence.get(&snapshot.id) else {
+                continue;
+            };
+            for (handle, direction) in [
+                (&record.upstream, "upstream"),
+                (&record.downstream, "downstream"),
+            ] {
+                let (accepted, forwarded, discarded) = handle.byte_counts();
+                let current = accepted.saturating_sub(forwarded.saturating_add(discarded));
+                let slot = queued
+                    .entry((snapshot.proxy.as_str(), direction))
+                    .or_default();
+                *slot = slot.saturating_add(current);
+            }
+        }
+        for name in names {
+            let entry = &map[name];
+            let upstream = entry.spec.upstream_policy.snapshot();
+            let downstream = entry.spec.downstream_policy.snapshot();
+            text.push_str(&format!(
+                "eggchaos_proxy_connections_active{{proxy=\"{name}\"}} {}\neggchaos_proxy_policy_generation{{proxy=\"{name}\",direction=\"upstream\"}} {}\neggchaos_proxy_policy_generation{{proxy=\"{name}\",direction=\"downstream\"}} {}\neggchaos_proxy_queue_bytes{{proxy=\"{name}\",direction=\"upstream\"}} {}\neggchaos_proxy_queue_bytes{{proxy=\"{name}\",direction=\"downstream\"}} {}\n",
+                entry.active.load(Ordering::Relaxed),
+                upstream.generation,
+                downstream.generation,
+                queued.get(&(name.as_str(), "upstream")).copied().unwrap_or(0),
+                queued.get(&(name.as_str(), "downstream")).copied().unwrap_or(0),
+            ));
+        }
+        text
     }
 
     /// Current configuration generation.
@@ -791,20 +1143,24 @@ impl ControlState {
             .map(RuntimeInner::view_of)
     }
 
-    /// Snapshot active runtime connections.
+    /// Snapshot active runtime connections, merging live stream evidence
+    /// (observed/pending generations, counters, active faults) at read
+    /// time. Connections whose evidence is not yet registered report
+    /// accept-time values.
     pub async fn connections(&self) -> Vec<ConnectionSnapshot> {
-        self.runtime
-            .connections
-            .read()
-            .await
-            .values()
-            .cloned()
+        let map = self.runtime.connections.read().await;
+        let evidence = self.runtime.evidence.read().await;
+        map.values()
+            .map(|snapshot| merge_evidence(snapshot, evidence.get(&snapshot.id)))
             .collect()
     }
 
-    /// Snapshot one active connection.
+    /// Snapshot one active connection with live evidence merged.
     pub async fn get_connection(&self, id: u64) -> Option<ConnectionSnapshot> {
-        self.runtime.connections.read().await.get(&id).cloned()
+        let map = self.runtime.connections.read().await;
+        let snapshot = map.get(&id)?.clone();
+        let evidence = self.runtime.evidence.read().await;
+        Some(merge_evidence(&snapshot, evidence.get(&id)))
     }
 
     /// Snapshot bounded closed-connection history, newest last.
@@ -825,9 +1181,11 @@ impl ControlState {
         }
     }
 
-    /// Store a validated definition without binding. The proxy reports
-    /// `running: false` until started.
-    pub async fn import_definition(&self, proxy: ProxySpec) -> Result<u64, ControlError> {
+    /// Store a validated definition without binding. Live policies are
+    /// initialized from the configured plans so reads never diverge from
+    /// what streams will compile. The proxy reports `running: false`
+    /// until started.
+    pub async fn import_definition(&self, mut proxy: ProxySpec) -> Result<u64, ControlError> {
         proxy.validate().map_err(|error| match error {
             EggchaosError::InvalidProxy(message) => ControlError::Invalid(message),
             EggchaosError::InvalidPlan(error) => {
@@ -835,6 +1193,7 @@ impl ControlState {
             }
             other => ControlError::Invalid(other.to_string()),
         })?;
+        proxy.init_policies(self.runtime.params.seed);
         let mut map = self.runtime.proxies.write().await;
         if map.contains_key(&proxy.name) {
             return Err(ControlError::Conflict(format!(
@@ -919,16 +1278,10 @@ impl ControlState {
                 proxy: proxy.name.clone(),
                 reason: source.to_string(),
             })?;
-        // Canonical plans and live policies publish together: the stored
-        // spec carries the same policy Arcs the streams read.
-        proxy
-            .upstream_policy
-            .publish(proxy.upstream_faults.clone())
-            .map_err(|error| ControlError::Invalid(error.to_string()))?;
-        proxy
-            .downstream_policy
-            .publish(proxy.downstream_faults.clone())
-            .map_err(|error| ControlError::Invalid(error.to_string()))?;
+        // Canonical plans and live policies start together at generation
+        // one: the stored spec carries the same policy snapshots the
+        // streams will compile from.
+        proxy.init_policies(self.runtime.params.seed);
         proxy.enabled = true;
         let name = proxy.name.clone();
         let cancel = self.runtime.shutdown_token.child_token();
@@ -1277,14 +1630,20 @@ impl ControlState {
         let Some(entry) = map.get_mut(proxy) else {
             return Err(ControlError::NotFound(proxy.to_owned()));
         };
-        let (plan, policy) = match upsert.direction {
-            Direction::Upstream => (&mut entry.spec.upstream_faults, &entry.spec.upstream_policy),
+        // The base plan comes from one atomic snapshot load, so a
+        // concurrent publication cannot slip between the read and the
+        // publish below: the write lock serializes publishers.
+        let (base, policy) = match upsert.direction {
+            Direction::Upstream => (
+                entry.spec.upstream_policy.snapshot(),
+                entry.spec.upstream_policy.clone(),
+            ),
             Direction::Downstream => (
-                &mut entry.spec.downstream_faults,
-                &entry.spec.downstream_policy,
+                entry.spec.downstream_policy.snapshot(),
+                entry.spec.downstream_policy.clone(),
             ),
         };
-        if plan.get(spec.id.as_str()).is_some() {
+        if base.plan.get(spec.id.as_str()).is_some() {
             return Err(ControlError::Conflict(format!(
                 "fault {} already exists on {}/{}",
                 spec.id,
@@ -1292,14 +1651,19 @@ impl ControlState {
                 upsert.direction.as_str()
             )));
         }
-        let mut next_faults = plan.faults().to_vec();
+        let mut next_faults = base.plan.faults().to_vec();
         next_faults.push(spec.clone());
         let next = FaultPlan::new(next_faults)
             .map_err(|error| ControlError::Invalid(error.to_string()))?;
-        policy
-            .publish(next.clone())
+        let published = policy
+            .publish(next, base.seed_namespace)
             .map_err(|error| ControlError::Invalid(error.to_string()))?;
-        *plan = next;
+        // Canonical mirror refreshes from the published snapshot, never
+        // from a locally built plan.
+        match upsert.direction {
+            Direction::Upstream => entry.spec.upstream_faults = (*published.plan).clone(),
+            Direction::Downstream => entry.spec.downstream_faults = (*published.plan).clone(),
+        }
         Ok((upsert.direction, spec, self.next_generation()))
     }
 
@@ -1323,16 +1687,12 @@ impl ControlState {
             return Err(ControlError::NotFound(proxy.to_owned()));
         };
         for direction in [Direction::Upstream, Direction::Downstream] {
-            let (plan, policy) = match direction {
-                Direction::Upstream => {
-                    (&mut entry.spec.upstream_faults, &entry.spec.upstream_policy)
-                }
-                Direction::Downstream => (
-                    &mut entry.spec.downstream_faults,
-                    &entry.spec.downstream_policy,
-                ),
+            let policy = match direction {
+                Direction::Upstream => entry.spec.upstream_policy.clone(),
+                Direction::Downstream => entry.spec.downstream_policy.clone(),
             };
-            let Some(existing) = plan.get(id) else {
+            let base = policy.snapshot();
+            let Some(existing) = base.plan.get(id) else {
                 continue;
             };
             let mut next_spec = existing.clone();
@@ -1343,13 +1703,21 @@ impl ControlState {
             if let Some(kind) = patch.kind {
                 next_spec.kind = kind;
             }
-            let next = plan
-                .replace_fault(next_spec.clone())
+            let mut next_faults = base.plan.faults().to_vec();
+            let position = next_faults
+                .iter()
+                .position(|fault| fault.id.as_str() == id)
+                .expect("fault found in base");
+            next_faults[position] = next_spec.clone();
+            let next = FaultPlan::new(next_faults)
                 .map_err(|error| ControlError::Invalid(error.to_string()))?;
-            policy
-                .publish(next.clone())
+            let published = policy
+                .publish(next, base.seed_namespace)
                 .map_err(|error| ControlError::Invalid(error.to_string()))?;
-            *plan = next;
+            match direction {
+                Direction::Upstream => entry.spec.upstream_faults = (*published.plan).clone(),
+                Direction::Downstream => entry.spec.downstream_faults = (*published.plan).clone(),
+            }
             return Ok((direction, next_spec, self.next_generation()));
         }
         Err(ControlError::NotFound(format!("fault {id} on {proxy}")))
@@ -1361,54 +1729,66 @@ impl ControlState {
         let Some(entry) = map.get_mut(proxy) else {
             return Err(ControlError::NotFound(proxy.to_owned()));
         };
-        for (plan, policy) in [
-            (&mut entry.spec.upstream_faults, &entry.spec.upstream_policy),
-            (
-                &mut entry.spec.downstream_faults,
-                &entry.spec.downstream_policy,
-            ),
-        ] {
-            if plan.get(id).is_none() {
+        for direction in [Direction::Upstream, Direction::Downstream] {
+            let policy = match direction {
+                Direction::Upstream => entry.spec.upstream_policy.clone(),
+                Direction::Downstream => entry.spec.downstream_policy.clone(),
+            };
+            let base = policy.snapshot();
+            if base.plan.get(id).is_none() {
                 continue;
             }
-            let next = plan.clone().without_fault(id);
+            let next = (*base.plan).clone().without_fault(id);
             next.validate()
                 .map_err(|error| ControlError::Invalid(error.to_string()))?;
-            policy
-                .publish(next.clone())
+            let published = policy
+                .publish(next, base.seed_namespace)
                 .map_err(|error| ControlError::Invalid(error.to_string()))?;
-            *plan = next;
+            match direction {
+                Direction::Upstream => entry.spec.upstream_faults = (*published.plan).clone(),
+                Direction::Downstream => entry.spec.downstream_faults = (*published.plan).clone(),
+            }
             return Ok(self.next_generation());
         }
         Err(ControlError::NotFound(format!("fault {id} on {proxy}")))
     }
 
-    /// Fetch one fault, searching upstream then downstream.
+    /// Fetch one fault, searching upstream then downstream. Plans come
+    /// from live snapshots, so reads agree with what streams compile.
     pub async fn get_fault(&self, proxy: &str, id: &str) -> Option<(Direction, FaultSpec)> {
         let map = self.runtime.proxies.read().await;
         let entry = map.get(proxy)?;
-        if let Some(fault) = entry.spec.upstream_faults.get(id) {
+        if let Some(fault) = entry.spec.upstream_policy.snapshot().plan.get(id) {
             return Some((Direction::Upstream, fault.clone()));
         }
         entry
             .spec
-            .downstream_faults
+            .downstream_policy
+            .snapshot()
+            .plan
             .get(id)
             .map(|fault| (Direction::Downstream, fault.clone()))
     }
 
-    /// List both directional fault plans.
+    /// List both directional fault plans from live snapshots.
     pub async fn list_faults(&self, proxy: &str) -> Option<(Vec<FaultSpec>, Vec<FaultSpec>)> {
         let map = self.runtime.proxies.read().await;
         let entry = map.get(proxy)?;
         Some((
-            entry.spec.upstream_faults.faults().to_vec(),
-            entry.spec.downstream_faults.faults().to_vec(),
+            entry.spec.upstream_policy.snapshot().plan.faults().to_vec(),
+            entry
+                .spec
+                .downstream_policy
+                .snapshot()
+                .plan
+                .faults()
+                .to_vec(),
         ))
     }
 
     /// Publish complete fault-plan generations for an existing proxy,
-    /// updating canonical stored plans and live policies together.
+    /// updating live policies and canonical mirrors together. Seed
+    /// namespaces are retained.
     pub async fn publish_plans(
         &self,
         name: &str,
@@ -1425,19 +1805,254 @@ impl ControlState {
         let Some(entry) = map.get_mut(name) else {
             return Err(ControlError::NotFound(name.to_owned()));
         };
-        entry
+        let base_upstream = entry.spec.upstream_policy.snapshot();
+        let base_downstream = entry.spec.downstream_policy.snapshot();
+        let published_upstream = entry
             .spec
             .upstream_policy
-            .publish(upstream.clone())
+            .publish(upstream, base_upstream.seed_namespace)
             .map_err(|error| ControlError::Invalid(error.to_string()))?;
-        entry
+        let published_downstream = entry
             .spec
             .downstream_policy
-            .publish(downstream.clone())
+            .publish(downstream, base_downstream.seed_namespace)
             .map_err(|error| ControlError::Invalid(error.to_string()))?;
-        entry.spec.upstream_faults = upstream;
-        entry.spec.downstream_faults = downstream;
+        entry.spec.upstream_faults = (*published_upstream.plan).clone();
+        entry.spec.downstream_faults = (*published_downstream.plan).clone();
         Ok(self.next_generation())
+    }
+
+    /// Publish plans only when both directions still sit on the expected
+    /// generations, deriving no seed change: a concurrent publication
+    /// fails fast with `Conflict` instead of being silently overwritten
+    /// by a stale base. Scenario events use this path. Returns the global
+    /// generation plus the two published policy generations for trails.
+    pub async fn publish_plans_expected(
+        &self,
+        name: &str,
+        publish: ExpectedPublish,
+    ) -> Result<(u64, u64, u64), ControlError> {
+        let mut map = self.runtime.proxies.write().await;
+        let Some(entry) = map.get_mut(name) else {
+            return Err(ControlError::NotFound(name.to_owned()));
+        };
+        let published_upstream = entry
+            .spec
+            .upstream_policy
+            .publish_expected(
+                publish.upstream,
+                publish.upstream_seed,
+                publish.expected_upstream,
+            )
+            .map_err(|error| match error {
+                eggchaos_core::PublishError::Invalid(error) => {
+                    ControlError::Invalid(error.to_string())
+                }
+                eggchaos_core::PublishError::Conflict(conflict) => {
+                    ControlError::Conflict(conflict_message(name, conflict))
+                }
+            })?;
+        let published_downstream = entry
+            .spec
+            .downstream_policy
+            .publish_expected(
+                publish.downstream,
+                publish.downstream_seed,
+                publish.expected_downstream,
+            )
+            .map_err(|error| match error {
+                eggchaos_core::PublishError::Invalid(error) => {
+                    ControlError::Invalid(error.to_string())
+                }
+                eggchaos_core::PublishError::Conflict(conflict) => {
+                    ControlError::Conflict(conflict_message(name, conflict))
+                }
+            })?;
+        entry.spec.upstream_faults = (*published_upstream.plan).clone();
+        entry.spec.downstream_faults = (*published_downstream.plan).clone();
+        Ok((
+            self.next_generation(),
+            published_upstream.generation,
+            published_downstream.generation,
+        ))
+    }
+
+    /// Maximum retained scenario run records.
+    pub const MAX_SCENARIO_RUNS: usize = 32;
+
+    /// Publish one direction only when it still sits on the expected
+    /// generation. Scenario events use this so an event touches exactly
+    /// its target direction: the other direction keeps its plan,
+    /// generation, and seed namespace. Returns the global generation
+    /// plus the published policy generation.
+    pub async fn publish_direction_expected(
+        &self,
+        name: &str,
+        direction: Direction,
+        plan: FaultPlan,
+        seed_namespace: u64,
+        expected: u64,
+    ) -> Result<(u64, u64), ControlError> {
+        let mut map = self.runtime.proxies.write().await;
+        let Some(entry) = map.get_mut(name) else {
+            return Err(ControlError::NotFound(name.to_owned()));
+        };
+        let policy = match direction {
+            Direction::Upstream => entry.spec.upstream_policy.clone(),
+            Direction::Downstream => entry.spec.downstream_policy.clone(),
+        };
+        let published = policy
+            .publish_expected(plan, seed_namespace, expected)
+            .map_err(|error| match error {
+                eggchaos_core::PublishError::Invalid(error) => {
+                    ControlError::Invalid(error.to_string())
+                }
+                eggchaos_core::PublishError::Conflict(conflict) => {
+                    ControlError::Conflict(conflict_message(name, conflict))
+                }
+            })?;
+        match direction {
+            Direction::Upstream => entry.spec.upstream_faults = (*published.plan).clone(),
+            Direction::Downstream => entry.spec.downstream_faults = (*published.plan).clone(),
+        }
+        Ok((self.next_generation(), published.generation))
+    }
+
+    /// Atomically snapshot both directional policies for a proxy: the
+    /// plans a scenario event must base its publication on.
+    pub async fn snapshot_policies(
+        &self,
+        name: &str,
+    ) -> Option<(
+        Arc<eggchaos_core::PublishedPolicy>,
+        Arc<eggchaos_core::PublishedPolicy>,
+    )> {
+        let map = self.runtime.proxies.read().await;
+        let entry = map.get(name)?;
+        Some((
+            entry.spec.upstream_policy.snapshot(),
+            entry.spec.downstream_policy.snapshot(),
+        ))
+    }
+
+    /// Start an owned scenario run. The document validates entirely
+    /// upfront; the run task is supervised by the service and cancelled
+    /// on shutdown, never detached.
+    pub async fn start_scenario(
+        &self,
+        scenario: crate::scenario::Scenario,
+    ) -> Result<crate::scenario::ScenarioRunRecord, EggchaosError> {
+        crate::scenario::validate_scenario(self, &scenario).await?;
+        let run_id = self.runtime.next_run_id.fetch_add(1, Ordering::AcqRel);
+        let record = crate::scenario::ScenarioRunRecord {
+            run_id,
+            seed: scenario.seed,
+            status: crate::scenario::ScenarioRunStatus::Pending,
+            applied: 0,
+            failure: None,
+            trail: Vec::new(),
+        };
+        {
+            let mut runs = self.runtime.scenario_runs.lock().await;
+            // Prune oldest finished runs first; active runs always fit
+            // until the active cap, which fails fast instead of queuing.
+            let active = runs
+                .values()
+                .filter(|record| {
+                    matches!(
+                        record.status,
+                        crate::scenario::ScenarioRunStatus::Pending
+                            | crate::scenario::ScenarioRunStatus::Running
+                            | crate::scenario::ScenarioRunStatus::Cancelling
+                    )
+                })
+                .count();
+            if active >= Self::MAX_SCENARIO_RUNS {
+                return Err(EggchaosError::Control(ControlError::Conflict(
+                    "too many active scenario runs".into(),
+                )));
+            }
+            while runs.len() >= Self::MAX_SCENARIO_RUNS {
+                let oldest_finished = runs
+                    .iter()
+                    .find(|(_, record)| {
+                        !matches!(
+                            record.status,
+                            crate::scenario::ScenarioRunStatus::Pending
+                                | crate::scenario::ScenarioRunStatus::Running
+                                | crate::scenario::ScenarioRunStatus::Cancelling
+                        )
+                    })
+                    .map(|(id, _)| *id);
+                let Some(oldest) = oldest_finished else {
+                    break;
+                };
+                runs.remove(&oldest);
+            }
+            runs.insert(run_id, record.clone());
+        }
+        let token = self.runtime.shutdown_token.child_token();
+        self.runtime
+            .scenario_tokens
+            .lock()
+            .await
+            .insert(run_id, token.clone());
+        let state = self.clone();
+        self.runtime
+            .scenario_tasks
+            .lock()
+            .await
+            .spawn(crate::scenario::drive_scenario_run(
+                state, run_id, scenario, token,
+            ));
+        Ok(record)
+    }
+
+    /// Fetch one scenario run record.
+    pub async fn get_scenario(&self, run_id: u64) -> Option<crate::scenario::ScenarioRunRecord> {
+        self.runtime
+            .scenario_runs
+            .lock()
+            .await
+            .get(&run_id)
+            .cloned()
+    }
+
+    /// Cancel an active scenario run, returning its latest record.
+    /// Returns `None` for unknown run IDs. Cancelling a finished run
+    /// returns its final record unchanged.
+    pub async fn cancel_scenario(&self, run_id: u64) -> Option<crate::scenario::ScenarioRunRecord> {
+        let token = self.runtime.scenario_tokens.lock().await.remove(&run_id);
+        if let Some(token) = token {
+            token.cancel();
+            self.update_scenario_run(run_id, |record| {
+                if matches!(
+                    record.status,
+                    crate::scenario::ScenarioRunStatus::Pending
+                        | crate::scenario::ScenarioRunStatus::Running
+                ) {
+                    record.status = crate::scenario::ScenarioRunStatus::Cancelling;
+                }
+            })
+            .await;
+        }
+        self.get_scenario(run_id).await
+    }
+
+    /// Apply a record mutation for a scenario run, if still retained.
+    pub async fn update_scenario_run(
+        &self,
+        run_id: u64,
+        update: impl FnOnce(&mut crate::scenario::ScenarioRunRecord),
+    ) {
+        if let Some(record) = self.runtime.scenario_runs.lock().await.get_mut(&run_id) {
+            update(record);
+        }
+    }
+
+    /// Drop a finished run's cancellation token.
+    pub async fn remove_scenario_token(&self, run_id: u64) {
+        self.runtime.scenario_tokens.lock().await.remove(&run_id);
     }
 
     /// Reset the service: retain definitions and listen/upstream addresses,
@@ -1456,8 +2071,18 @@ impl ControlState {
                 entry.spec.enabled = true;
                 entry.spec.upstream_faults = FaultPlan::empty();
                 entry.spec.downstream_faults = FaultPlan::empty();
-                let _ = entry.spec.upstream_policy.publish(FaultPlan::empty());
-                let _ = entry.spec.downstream_policy.publish(FaultPlan::empty());
+                // Reset clears plans but retains seed namespaces; the next
+                // scenario or manual publication sets its own.
+                let upstream_ns = entry.spec.upstream_policy.seed_namespace();
+                let downstream_ns = entry.spec.downstream_policy.seed_namespace();
+                let _ = entry
+                    .spec
+                    .upstream_policy
+                    .publish(FaultPlan::empty(), upstream_ns);
+                let _ = entry
+                    .spec
+                    .downstream_policy
+                    .publish(FaultPlan::empty(), downstream_ns);
             }
             map.iter()
                 .filter(|(_, entry)| !entry.running)
@@ -1496,7 +2121,9 @@ impl ControlState {
     }
 
     /// Shut down and wait until every supervised listener and connection
-    /// task has drained. Idempotent.
+    /// task has drained. Owned scenario runs observe shutdown through
+    /// their tokens and are joined here, so none outlive the service.
+    /// Idempotent.
     pub async fn shutdown_and_join(&self) {
         self.initiate_shutdown();
         let tracked: Vec<(String, JoinHandle<()>)> = {
@@ -1506,6 +2133,8 @@ impl ControlState {
         for (_, handle) in tracked {
             let _ = handle.await;
         }
+        let mut scenarios = self.runtime.scenario_tasks.lock().await;
+        while scenarios.join_next().await.is_some() {}
     }
 
     /// Actual bound addresses for running proxies.
@@ -1666,7 +2295,6 @@ struct ProxyConnParams {
     name: String,
     upstream: SocketAddr,
     connect_timeout: Duration,
-    seed: u64,
     upstream_policy: LivePolicy,
     downstream_policy: LivePolicy,
 }
@@ -1739,9 +2367,18 @@ async fn accept_connection(
         return;
     }
     runtime.metrics.accepted.fetch_add(1, Ordering::Relaxed);
+    {
+        let mut tables = runtime.metrics.tables.lock().expect("metrics lock");
+        tables.record_accept(&entry.spec.name);
+    }
     let id = runtime.next_conn_id.fetch_add(1, Ordering::AcqRel);
     let key = entry.ordinal.fetch_add(1, Ordering::AcqRel);
     let generation = runtime.generation.load(Ordering::Acquire);
+    // Accept-time policy state comes from one atomic snapshot per
+    // direction, so accepted generations and namespaces always describe
+    // the plans the new streams will compile.
+    let upstream_snapshot = entry.spec.upstream_policy.snapshot();
+    let downstream_snapshot = entry.spec.downstream_policy.snapshot();
     let conn_token = entry.cancel.child_token();
     runtime.connections.write().await.insert(
         id,
@@ -1755,6 +2392,25 @@ async fn accept_connection(
             connection_key: key,
             seed: runtime.params.seed ^ entry.spec.seed,
             generation,
+            accepted_upstream_generation: upstream_snapshot.generation,
+            accepted_downstream_generation: downstream_snapshot.generation,
+            accepted_upstream_seed: upstream_snapshot.seed_namespace,
+            accepted_downstream_seed: downstream_snapshot.seed_namespace,
+            observed_upstream_generation: upstream_snapshot.generation,
+            observed_downstream_generation: downstream_snapshot.generation,
+            pending_upstream_generation: None,
+            pending_downstream_generation: None,
+            upstream_seed_namespace: upstream_snapshot.seed_namespace,
+            downstream_seed_namespace: downstream_snapshot.seed_namespace,
+            upstream_transitions: 0,
+            downstream_transitions: 0,
+            upstream_bytes: DirectionBytes::default(),
+            downstream_bytes: DirectionBytes::default(),
+            upstream_faults: Vec::new(),
+            upstream_faults_truncated: false,
+            downstream_faults: Vec::new(),
+            downstream_faults_truncated: false,
+            rng_version: RngVersion::V1,
         },
     );
     runtime
@@ -1766,7 +2422,6 @@ async fn accept_connection(
         name: entry.spec.name.clone(),
         upstream: entry.spec.upstream,
         connect_timeout: entry.spec.connect_timeout,
-        seed: runtime.params.seed ^ entry.spec.seed,
         upstream_policy: entry.spec.upstream_policy.clone(),
         downstream_policy: entry.spec.downstream_policy.clone(),
     };
@@ -1788,17 +2443,22 @@ async fn accept_connection(
     ));
 }
 
-/// Remove exactly one connection record plus its cancellation token.
-/// Returns the snapshot when this caller won the removal; counters and
-/// history update only on `Some`, so concurrent finish/purge paths cannot
-/// double-count or underflow.
+/// Remove exactly one connection record plus its cancellation token and
+/// live evidence. Returns the snapshot, token, and evidence when this
+/// caller won the removal; counters and history update only on `Some`,
+/// so concurrent finish/purge paths cannot double-count or underflow.
 async fn take_connection(
     runtime: &RuntimeInner,
     id: u64,
-) -> Option<(ConnectionSnapshot, Option<CancellationToken>)> {
+) -> Option<(
+    ConnectionSnapshot,
+    Option<CancellationToken>,
+    Option<ConnectionEvidence>,
+)> {
     let snapshot = runtime.connections.write().await.remove(&id);
     let token = runtime.cancellations.write().await.remove(&id);
-    snapshot.map(|snapshot| (snapshot, token))
+    let evidence = runtime.evidence.write().await.remove(&id);
+    snapshot.map(|snapshot| (snapshot, token, evidence))
 }
 
 async fn record_close(
@@ -1810,12 +2470,25 @@ async fn record_close(
     downstream_termination: Option<TerminationInfo>,
     detail: Option<String>,
 ) {
-    let Some((mut snapshot, _)) = take_connection(runtime, id).await else {
+    let Some((snapshot, _, evidence)) = take_connection(runtime, id).await else {
         return;
     };
     runtime.active.fetch_sub(1, Ordering::AcqRel);
     proxy_active.fetch_sub(1, Ordering::AcqRel);
+    // Final evidence merges before metrics and history so both report the
+    // streams' real closing state, including any drain-pending transition.
+    let snapshot = merge_evidence(&snapshot, evidence.as_ref());
+    aggregate_close_metrics(
+        runtime,
+        &snapshot,
+        evidence.as_ref(),
+        &outcome,
+        upstream_termination
+            .as_ref()
+            .or(downstream_termination.as_ref()),
+    );
     runtime.metrics.completed.fetch_add(1, Ordering::Relaxed);
+    let mut snapshot = snapshot;
     snapshot.state = ConnectionState::Closed;
     if runtime.params.limits.history == 0 {
         return;
@@ -1831,6 +2504,95 @@ async fn record_close(
         downstream_termination,
         detail,
     });
+}
+
+/// Fold one closed connection into reconciling metrics. Totals are
+/// derived from final stream evidence, so counters always agree with the
+/// history records they summarize.
+fn aggregate_close_metrics(
+    runtime: &RuntimeInner,
+    snapshot: &ConnectionSnapshot,
+    evidence: Option<&ConnectionEvidence>,
+    outcome: &ConnectionOutcome,
+    termination: Option<&TerminationInfo>,
+) {
+    runtime.metrics.outcomes[outcome_class(outcome)].fetch_add(1, Ordering::Relaxed);
+    match termination.map(|info| info.request) {
+        Some(TerminationRequest::Graceful) => {
+            runtime
+                .metrics
+                .graceful_requests
+                .fetch_add(1, Ordering::Relaxed);
+        }
+        Some(TerminationRequest::HardReset) => {
+            runtime
+                .metrics
+                .hard_reset_requests
+                .fetch_add(1, Ordering::Relaxed);
+        }
+        None => {}
+    }
+    if let ConnectionOutcome::HardReset { client, upstream } = outcome {
+        for result in [client, upstream] {
+            match result {
+                ResetResult::Applied => {
+                    runtime
+                        .metrics
+                        .reset_applied
+                        .fetch_add(1, Ordering::Relaxed);
+                }
+                ResetResult::Unsupported(_) => {
+                    runtime
+                        .metrics
+                        .reset_unsupported
+                        .fetch_add(1, Ordering::Relaxed);
+                }
+                ResetResult::Failed(_) => {
+                    runtime.metrics.reset_failed.fetch_add(1, Ordering::Relaxed);
+                }
+            }
+        }
+    }
+    let mut up = [0; 7];
+    let mut down = [0; 7];
+    if let Some(record) = evidence {
+        up = record.upstream.activations();
+        down = record.downstream.activations();
+        runtime.metrics.transitions.fetch_add(
+            record.upstream.transitions() + record.downstream.transitions(),
+            Ordering::Relaxed,
+        );
+    }
+    runtime.metrics.bytes_accepted.fetch_add(
+        snapshot.upstream_bytes.accepted + snapshot.downstream_bytes.accepted,
+        Ordering::Relaxed,
+    );
+    runtime.metrics.bytes_forwarded.fetch_add(
+        snapshot.upstream_bytes.forwarded + snapshot.downstream_bytes.forwarded,
+        Ordering::Relaxed,
+    );
+    runtime.metrics.bytes_discarded.fetch_add(
+        snapshot.upstream_bytes.discarded + snapshot.downstream_bytes.discarded,
+        Ordering::Relaxed,
+    );
+    {
+        let mut tables = runtime.metrics.tables.lock().expect("metrics lock");
+        tables.record_complete(
+            &snapshot.proxy,
+            [
+                snapshot.upstream_bytes.accepted,
+                snapshot.upstream_bytes.forwarded,
+                snapshot.upstream_bytes.discarded,
+            ],
+            [
+                snapshot.downstream_bytes.accepted,
+                snapshot.downstream_bytes.forwarded,
+                snapshot.downstream_bytes.discarded,
+            ],
+        );
+        tables.record_activations(&snapshot.proxy, "upstream", up);
+        tables.record_activations(&snapshot.proxy, "downstream", down);
+    }
 }
 
 /// Purge every remaining record for a proxy after its supervisor exits.
@@ -1860,14 +2622,17 @@ async fn purge_proxy_connections(
         .get(proxy_name)
         .map(|entry| entry.active.clone());
     for id in ids {
-        let Some((mut snapshot, _)) = take_connection(runtime, id).await else {
+        let Some((snapshot, _, evidence)) = take_connection(runtime, id).await else {
             continue;
         };
         runtime.active.fetch_sub(1, Ordering::AcqRel);
         if let Some(active) = &proxy_active {
             active.fetch_sub(1, Ordering::AcqRel);
         }
+        let snapshot = merge_evidence(&snapshot, evidence.as_ref());
+        aggregate_close_metrics(runtime, &snapshot, evidence.as_ref(), &outcome, None);
         runtime.metrics.completed.fetch_add(1, Ordering::Relaxed);
+        let mut snapshot = snapshot;
         snapshot.state = ConnectionState::Closed;
         if runtime.params.limits.history == 0 {
             continue;
@@ -1889,6 +2654,69 @@ async fn purge_proxy_connections(
 fn is_eggchaos_termination(error: &io::Error) -> bool {
     error.kind() == io::ErrorKind::ConnectionAborted
         && error.to_string().starts_with("eggchaos stream terminated")
+}
+
+/// Human-readable stale-base conflict detail for scenario fail-fast.
+fn conflict_message(proxy: &str, conflict: PolicyConflict) -> String {
+    format!(
+        "proxy {proxy} policy moved from generation {} to {} during the operation; retry from current state",
+        conflict.expected, conflict.found,
+    )
+}
+
+/// Merge live stream evidence into a snapshot copy. Accept-time fields
+/// are preserved; observed/pending generations, seed namespaces,
+/// transitions, counters, and active fault lists come from the streams.
+fn merge_evidence(
+    snapshot: &ConnectionSnapshot,
+    evidence: Option<&ConnectionEvidence>,
+) -> ConnectionSnapshot {
+    let mut merged = snapshot.clone();
+    let Some(record) = evidence else {
+        return merged;
+    };
+    for (handle, observed, pending, namespace, transitions, bytes, faults, truncated) in [
+        (
+            &record.upstream,
+            &mut merged.observed_upstream_generation,
+            &mut merged.pending_upstream_generation,
+            &mut merged.upstream_seed_namespace,
+            &mut merged.upstream_transitions,
+            &mut merged.upstream_bytes,
+            &mut merged.upstream_faults,
+            &mut merged.upstream_faults_truncated,
+        ),
+        (
+            &record.downstream,
+            &mut merged.observed_downstream_generation,
+            &mut merged.pending_downstream_generation,
+            &mut merged.downstream_seed_namespace,
+            &mut merged.downstream_transitions,
+            &mut merged.downstream_bytes,
+            &mut merged.downstream_faults,
+            &mut merged.downstream_faults_truncated,
+        ),
+    ] {
+        *observed = handle.observed_generation();
+        let pending_value = handle.pending_generation();
+        *pending = if pending_value == 0 {
+            None
+        } else {
+            Some(pending_value)
+        };
+        *namespace = handle.seed_namespace();
+        *transitions = handle.transitions();
+        let (accepted, forwarded, discarded) = handle.byte_counts();
+        *bytes = DirectionBytes {
+            accepted,
+            forwarded,
+            discarded,
+        };
+        let (faults_live, truncated_live) = handle.active_faults();
+        *faults = faults_live;
+        *truncated = truncated_live;
+    }
+    merged
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1943,10 +2771,11 @@ async fn run_connection(
     }
     let (client_wrapped, client_reset) = ResettableTcpStream::new(client);
     let (upstream_wrapped, upstream_reset) = ResettableTcpStream::new(upstream);
+    // Engines compile from the accepted atomic snapshots, so the seed
+    // namespaces and plans always agree with the accepted generation.
     let client_chaos = match ChaosStream::new_live(
         client_wrapped,
         params.downstream_policy.clone(),
-        params.seed,
         &params.name,
         key,
         Direction::Downstream,
@@ -1969,7 +2798,6 @@ async fn run_connection(
     let upstream_chaos = match ChaosStream::new_live(
         upstream_wrapped,
         params.upstream_policy.clone(),
-        params.seed,
         &params.name,
         key,
         Direction::Upstream,
@@ -1991,6 +2819,15 @@ async fn run_connection(
     };
     let term_upstream = upstream_chaos.termination_handle();
     let term_downstream = client_chaos.termination_handle();
+    // Register live evidence before relaying so snapshots report
+    // observed generations, counters, and active faults from the start.
+    runtime.evidence.write().await.insert(
+        id,
+        ConnectionEvidence {
+            upstream: upstream_chaos.stream_evidence(),
+            downstream: client_chaos.stream_evidence(),
+        },
+    );
     let options = RelayOptions {
         buffer_size: relay_buffer,
         half_close,
@@ -2154,7 +2991,8 @@ async fn handle_termination<F>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use eggchaos_core::{FaultId, Probability};
+    use crate::scenario::{Scenario, ScenarioAction, ScenarioEvent, ScenarioRunStatus};
+    use eggchaos_core::{derive_policy_seed, FaultId, Probability};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     fn fault(id: &str, kind: FaultKind) -> FaultSpec {
@@ -3072,5 +3910,848 @@ mod tests {
         );
         control.shutdown_and_join().await;
         origin_task.abort();
+    }
+
+    #[tokio::test]
+    async fn publish_get_and_stream_observe_same_generation() {
+        let (origin_addr, origin_task) = echo_server().await;
+        let control = test_control();
+        let (view, _) = control
+            .create_proxy(ProxySpec::new(
+                "echo",
+                "127.0.0.1:0".parse().unwrap(),
+                origin_addr,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(view.downstream_generation, 1);
+        control
+            .add_fault(
+                "echo",
+                FaultUpsert {
+                    direction: Direction::Downstream,
+                    id: "note".into(),
+                    probability: 1.0,
+                    kind: FaultKind::SlowClose(eggchaos_core::SlowCloseConfig {
+                        delay: Duration::ZERO,
+                    }),
+                },
+            )
+            .await
+            .unwrap();
+        // GET reports the published plan with its generation from one
+        // atomic snapshot.
+        let view = control.get("echo").await.unwrap();
+        assert_eq!(view.downstream_generation, 2);
+        assert!(view.downstream_faults.get("note").is_some());
+        // A stream accepted afterwards observes the same generation and
+        // fault identity. The client stays open so the relay (and its
+        // record) is alive for the assertions below.
+        let mut client = TcpStream::connect(view.bound_addr.unwrap()).await.unwrap();
+        client.write_all(b"yo").await.unwrap();
+        let mut response = [0; 2];
+        tokio::time::timeout(Duration::from_secs(5), client.read_exact(&mut response))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(&response, b"yo");
+        let connections = control.connections().await;
+        assert_eq!(connections.len(), 1);
+        assert_eq!(connections[0].observed_downstream_generation, 2);
+        assert_eq!(connections[0].accepted_downstream_generation, 2);
+        assert!(connections[0]
+            .downstream_faults
+            .iter()
+            .any(|fault| fault.id == "note"));
+        drop(client);
+        control.shutdown_and_join().await;
+        origin_task.abort();
+    }
+
+    #[tokio::test]
+    async fn stale_base_publication_conflicts_instead_of_overwriting() {
+        let (origin_addr, origin_task) = echo_server().await;
+        let control = test_control();
+        control
+            .create_proxy(ProxySpec::new(
+                "echo",
+                "127.0.0.1:0".parse().unwrap(),
+                origin_addr,
+            ))
+            .await
+            .unwrap();
+        // Read a base, then let a concurrent publication move the
+        // generation before the stale base publishes.
+        let (base_upstream, base_downstream) = control.snapshot_policies("echo").await.unwrap();
+        control
+            .add_fault(
+                "echo",
+                FaultUpsert {
+                    direction: Direction::Downstream,
+                    id: "fresh".into(),
+                    probability: 1.0,
+                    kind: FaultKind::SlowClose(eggchaos_core::SlowCloseConfig {
+                        delay: Duration::ZERO,
+                    }),
+                },
+            )
+            .await
+            .unwrap();
+        let stale = (*base_downstream.plan).clone();
+        let error = control
+            .publish_plans_expected(
+                "echo",
+                ExpectedPublish {
+                    upstream: (*base_upstream.plan).clone(),
+                    downstream: stale,
+                    upstream_seed: base_upstream.seed_namespace,
+                    downstream_seed: base_downstream.seed_namespace,
+                    expected_upstream: base_upstream.generation,
+                    expected_downstream: base_downstream.generation,
+                },
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(error, ControlError::Conflict(_)));
+        // The concurrent state survived: no silent rollback.
+        let view = control.get("echo").await.unwrap();
+        assert!(view.downstream_faults.get("fresh").is_some());
+        control.shutdown_and_join().await;
+        origin_task.abort();
+    }
+
+    #[tokio::test]
+    async fn scenario_remove_builds_on_current_state() {
+        let (origin_addr, origin_task) = echo_server().await;
+        let control = test_control();
+        control
+            .create_proxy(ProxySpec::new(
+                "echo",
+                "127.0.0.1:0".parse().unwrap(),
+                origin_addr,
+            ))
+            .await
+            .unwrap();
+        for id in ["alpha", "beta"] {
+            control
+                .add_fault(
+                    "echo",
+                    FaultUpsert {
+                        direction: Direction::Downstream,
+                        id: id.into(),
+                        probability: 1.0,
+                        kind: FaultKind::SlowClose(eggchaos_core::SlowCloseConfig {
+                            delay: Duration::ZERO,
+                        }),
+                    },
+                )
+                .await
+                .unwrap();
+        }
+        let record = control
+            .start_scenario(Scenario {
+                version: 1,
+                seed: 11,
+                events: vec![ScenarioEvent {
+                    at_ms: 0,
+                    action: ScenarioAction::RemoveFault {
+                        proxy: "echo".into(),
+                        direction: Direction::Downstream,
+                        id: "alpha".into(),
+                    },
+                }],
+            })
+            .await
+            .unwrap();
+        let terminal = wait_scenario(&control, record.run_id).await;
+        assert_eq!(terminal.status, ScenarioRunStatus::Completed);
+        assert_eq!(terminal.applied, 1);
+        // The removal derived from live B-state: beta survives, alpha is
+        // gone, and the trail names the resulting generations.
+        let view = control.get("echo").await.unwrap();
+        assert!(view.downstream_faults.get("alpha").is_none());
+        assert!(view.downstream_faults.get("beta").is_some());
+        assert_eq!(terminal.trail.len(), 1);
+        assert_eq!(
+            terminal.trail[0].downstream_generation,
+            view.downstream_generation
+        );
+        control.shutdown_and_join().await;
+        origin_task.abort();
+    }
+
+    #[tokio::test]
+    async fn concurrent_fault_publications_serialize_monotonically() {
+        let (origin_addr, origin_task) = echo_server().await;
+        let control = test_control();
+        control
+            .create_proxy(ProxySpec::new(
+                "echo",
+                "127.0.0.1:0".parse().unwrap(),
+                origin_addr,
+            ))
+            .await
+            .unwrap();
+        let mut handles = Vec::new();
+        for index in 0..10 {
+            let control = control.clone();
+            handles.push(tokio::spawn(async move {
+                control
+                    .add_fault(
+                        "echo",
+                        FaultUpsert {
+                            direction: Direction::Downstream,
+                            id: format!("fault-{index}"),
+                            probability: 1.0,
+                            kind: FaultKind::SlowClose(eggchaos_core::SlowCloseConfig {
+                                delay: Duration::ZERO,
+                            }),
+                        },
+                    )
+                    .await
+                    .map(|(_, _, generation)| generation)
+            }));
+        }
+        let mut generations = Vec::new();
+        for handle in handles {
+            generations.push(handle.await.unwrap().unwrap());
+        }
+        generations.sort();
+        // Ten serialized publications yield ten unique monotonic global
+        // generations.
+        let mut deduped = generations.clone();
+        deduped.dedup();
+        assert_eq!(deduped.len(), 10);
+        assert!(generations.windows(2).all(|pair| pair[0] < pair[1]));
+        // Canonical GET and the live snapshot agree on the winner order.
+        let view = control.get("echo").await.unwrap();
+        assert_eq!(view.downstream_faults.faults().len(), 10);
+        assert_eq!(view.downstream_generation, 11);
+        let (upstream, downstream) = control.snapshot_policies("echo").await.unwrap();
+        assert_eq!(downstream.generation, 11);
+        assert_eq!(*downstream.plan, view.downstream_faults);
+        assert_eq!(upstream.generation, 1);
+        control.shutdown_and_join().await;
+        origin_task.abort();
+    }
+
+    #[tokio::test]
+    async fn transition_pending_while_buffer_drains() {
+        let (origin_addr, origin_task) = echo_server().await;
+        let control = test_control();
+        let (view, _) = control
+            .create_proxy(ProxySpec::new(
+                "echo",
+                "127.0.0.1:0".parse().unwrap(),
+                origin_addr,
+            ))
+            .await
+            .unwrap();
+        let bound = view.bound_addr.unwrap();
+        control
+            .add_fault(
+                "echo",
+                FaultUpsert {
+                    direction: Direction::Downstream,
+                    id: "slow".into(),
+                    probability: 1.0,
+                    kind: FaultKind::Latency(eggchaos_core::LatencyConfig {
+                        delay: Duration::from_millis(500),
+                        jitter: Duration::ZERO,
+                        max_buffer_bytes: std::num::NonZeroU64::new(64 * 1024).unwrap(),
+                    }),
+                },
+            )
+            .await
+            .unwrap();
+        // Hold one connection open without exchanging: its upstream leg
+        // (client to target) carries no fault and completes instantly.
+        let mut client = TcpStream::connect(bound).await.unwrap();
+        client.write_all(b"ping").await.unwrap();
+        // Wait until the echo is accepted into the downstream latency
+        // queue (still far from due): publishing before the relay
+        // processes the first chunk would leave nothing to drain and no
+        // observable pending window.
+        let id = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let connections = control.connections().await;
+                if let Some(snapshot) = connections.first() {
+                    if snapshot.downstream_bytes.accepted == 4 {
+                        break snapshot.id;
+                    }
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .unwrap();
+        // Publish an empty plan while the downstream echo is still held
+        // in the latency queue, then force the stream to observe it with
+        // another write.
+        control.remove_fault("echo", "slow").await.unwrap();
+        client.write_all(b"ping").await.unwrap();
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let connections = control.connections().await;
+                if let Some(snapshot) = connections.first() {
+                    if snapshot.pending_downstream_generation.is_some() {
+                        break;
+                    }
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .unwrap();
+        let snapshot = control.get_connection(id).await.unwrap();
+        assert_eq!(snapshot.accepted_downstream_generation, 2);
+        assert_eq!(snapshot.observed_downstream_generation, 2);
+        assert_eq!(snapshot.pending_downstream_generation, Some(3));
+        // After the buffer drains the transition completes observably.
+        let snapshot = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let snapshot = control.get_connection(id).await.unwrap();
+                if snapshot.pending_downstream_generation.is_none()
+                    && snapshot.observed_downstream_generation == 3
+                {
+                    break snapshot;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(snapshot.downstream_transitions, 1);
+        drop(client);
+        control.shutdown_and_join().await;
+        origin_task.abort();
+    }
+
+    #[tokio::test]
+    async fn accepted_and_current_generations_update_on_traffic() {
+        let (origin_addr, origin_task) = echo_server().await;
+        let control = test_control();
+        let (view, _) = control
+            .create_proxy(ProxySpec::new(
+                "echo",
+                "127.0.0.1:0".parse().unwrap(),
+                origin_addr,
+            ))
+            .await
+            .unwrap();
+        let bound = view.bound_addr.unwrap();
+        let mut client = TcpStream::connect(bound).await.unwrap();
+        client.write_all(b"fast").await.unwrap();
+        let mut response = [0; 4];
+        tokio::time::timeout(Duration::from_secs(5), client.read_exact(&mut response))
+            .await
+            .unwrap()
+            .unwrap();
+        control
+            .add_fault(
+                "echo",
+                FaultUpsert {
+                    direction: Direction::Downstream,
+                    id: "slow".into(),
+                    probability: 1.0,
+                    kind: FaultKind::Latency(eggchaos_core::LatencyConfig {
+                        delay: Duration::from_millis(50),
+                        jitter: Duration::ZERO,
+                        max_buffer_bytes: std::num::NonZeroU64::new(64 * 1024).unwrap(),
+                    }),
+                },
+            )
+            .await
+            .unwrap();
+        // Traffic after the publication transitions the live connection.
+        client.write_all(b"slow").await.unwrap();
+        tokio::time::timeout(Duration::from_secs(5), client.read_exact(&mut response))
+            .await
+            .unwrap()
+            .unwrap();
+        let snapshot = control.connections().await.pop().unwrap();
+        assert_eq!(snapshot.accepted_downstream_generation, 1);
+        assert_eq!(snapshot.observed_downstream_generation, 2);
+        assert_eq!(snapshot.pending_downstream_generation, None);
+        assert_eq!(snapshot.downstream_transitions, 1);
+        assert_eq!(snapshot.accepted_upstream_generation, 1);
+        assert_eq!(snapshot.observed_upstream_generation, 1);
+        drop(client);
+        control.shutdown_and_join().await;
+        origin_task.abort();
+    }
+
+    #[tokio::test]
+    async fn scenario_seed_drives_published_namespaces() {
+        let (origin_addr, origin_task) = echo_server().await;
+        let control = test_control();
+        control
+            .create_proxy(ProxySpec::new(
+                "echo",
+                "127.0.0.1:0".parse().unwrap(),
+                origin_addr,
+            ))
+            .await
+            .unwrap();
+        let first = control
+            .start_scenario(Scenario {
+                version: 1,
+                seed: 21,
+                events: vec![ScenarioEvent {
+                    at_ms: 0,
+                    action: ScenarioAction::SetPlan {
+                        proxy: "echo".into(),
+                        direction: Direction::Downstream,
+                        faults: Vec::new(),
+                    },
+                }],
+            })
+            .await
+            .unwrap();
+        let first = wait_scenario(&control, first.run_id).await;
+        assert_eq!(first.status, ScenarioRunStatus::Completed);
+        let view = control.get("echo").await.unwrap();
+        assert_eq!(
+            view.downstream_seed_namespace,
+            derive_policy_seed(21, first.run_id, 0)
+        );
+        // A different seed publishes a different namespace for the same
+        // event identity.
+        let second = control
+            .start_scenario(Scenario {
+                version: 1,
+                seed: 22,
+                events: vec![ScenarioEvent {
+                    at_ms: 0,
+                    action: ScenarioAction::SetPlan {
+                        proxy: "echo".into(),
+                        direction: Direction::Downstream,
+                        faults: Vec::new(),
+                    },
+                }],
+            })
+            .await
+            .unwrap();
+        let second = wait_scenario(&control, second.run_id).await;
+        assert_eq!(second.status, ScenarioRunStatus::Completed);
+        let view = control.get("echo").await.unwrap();
+        assert_eq!(
+            view.downstream_seed_namespace,
+            derive_policy_seed(22, second.run_id, 0)
+        );
+        assert_ne!(
+            derive_policy_seed(21, first.run_id, 0),
+            derive_policy_seed(22, second.run_id, 0)
+        );
+        control.shutdown_and_join().await;
+        origin_task.abort();
+    }
+
+    #[tokio::test]
+    async fn scenario_namespaces_replay_independent_of_scheduling() {
+        let (origin_addr, origin_task) = echo_server().await;
+        let control = test_control();
+        control
+            .create_proxy(ProxySpec::new(
+                "echo",
+                "127.0.0.1:0".parse().unwrap(),
+                origin_addr,
+            ))
+            .await
+            .unwrap();
+        let document = |at_ms: u64| Scenario {
+            version: 1,
+            seed: 33,
+            events: vec![
+                ScenarioEvent {
+                    at_ms: 0,
+                    action: ScenarioAction::SetPlan {
+                        proxy: "echo".into(),
+                        direction: Direction::Downstream,
+                        faults: Vec::new(),
+                    },
+                },
+                ScenarioEvent {
+                    at_ms,
+                    action: ScenarioAction::SetPlan {
+                        proxy: "echo".into(),
+                        direction: Direction::Upstream,
+                        faults: Vec::new(),
+                    },
+                },
+            ],
+        };
+        // Same seed and event identities under different timing produce
+        // the same derived namespaces.
+        let first = control.start_scenario(document(50)).await.unwrap();
+        let first = wait_scenario(&control, first.run_id).await;
+        let second = control.start_scenario(document(5)).await.unwrap();
+        let second = wait_scenario(&control, second.run_id).await;
+        assert_eq!(first.status, ScenarioRunStatus::Completed);
+        assert_eq!(second.status, ScenarioRunStatus::Completed);
+        for (record, at_ms) in [(&first, 50), (&second, 5)] {
+            assert_eq!(record.trail.len(), 2);
+            assert_eq!(record.trail[0].at_ms, 0);
+            assert_eq!(record.trail[1].at_ms, at_ms);
+        }
+        let view = control.get("echo").await.unwrap();
+        assert_eq!(
+            view.downstream_seed_namespace,
+            derive_policy_seed(33, second.run_id, 0)
+        );
+        assert_eq!(
+            view.upstream_seed_namespace,
+            derive_policy_seed(33, second.run_id, 1)
+        );
+        control.shutdown_and_join().await;
+        origin_task.abort();
+    }
+
+    #[tokio::test]
+    async fn scenario_cancel_during_sleep_returns_boundedly() {
+        let (origin_addr, origin_task) = echo_server().await;
+        let control = test_control();
+        control
+            .create_proxy(ProxySpec::new(
+                "echo",
+                "127.0.0.1:0".parse().unwrap(),
+                origin_addr,
+            ))
+            .await
+            .unwrap();
+        let record = control
+            .start_scenario(Scenario {
+                version: 1,
+                seed: 44,
+                events: vec![ScenarioEvent {
+                    at_ms: 30_000,
+                    action: ScenarioAction::SetPlan {
+                        proxy: "echo".into(),
+                        direction: Direction::Downstream,
+                        faults: Vec::new(),
+                    },
+                }],
+            })
+            .await
+            .unwrap();
+        let start = tokio::time::Instant::now();
+        let cancelled = control.cancel_scenario(record.run_id).await.unwrap();
+        assert!(matches!(
+            cancelled.status,
+            ScenarioRunStatus::Cancelling
+                | ScenarioRunStatus::Cancelled
+                | ScenarioRunStatus::Running
+                | ScenarioRunStatus::Pending
+        ));
+        let terminal = wait_scenario(&control, record.run_id).await;
+        assert_eq!(terminal.status, ScenarioRunStatus::Cancelled);
+        assert_eq!(terminal.applied, 0);
+        assert!(start.elapsed() < Duration::from_secs(10));
+        control.shutdown_and_join().await;
+        origin_task.abort();
+    }
+
+    #[tokio::test]
+    async fn service_shutdown_cancels_active_scenarios() {
+        let (origin_addr, origin_task) = echo_server().await;
+        let control = test_control();
+        control
+            .create_proxy(ProxySpec::new(
+                "echo",
+                "127.0.0.1:0".parse().unwrap(),
+                origin_addr,
+            ))
+            .await
+            .unwrap();
+        let record = control
+            .start_scenario(Scenario {
+                version: 1,
+                seed: 55,
+                events: vec![ScenarioEvent {
+                    at_ms: 30_000,
+                    action: ScenarioAction::SetPlan {
+                        proxy: "echo".into(),
+                        direction: Direction::Downstream,
+                        faults: Vec::new(),
+                    },
+                }],
+            })
+            .await
+            .unwrap();
+        control.shutdown_and_join().await;
+        let terminal = control.get_scenario(record.run_id).await.unwrap();
+        assert_eq!(terminal.status, ScenarioRunStatus::Cancelled);
+        origin_task.abort();
+    }
+
+    #[tokio::test]
+    async fn scenario_failure_is_observable_not_discarded() {
+        let (origin_addr, origin_task) = echo_server().await;
+        let control = test_control();
+        control
+            .create_proxy(ProxySpec::new(
+                "echo",
+                "127.0.0.1:0".parse().unwrap(),
+                origin_addr,
+            ))
+            .await
+            .unwrap();
+        // The event fires after the proxy is deleted, so validation
+        // passes but application fails fast with an observable record.
+        let record = control
+            .start_scenario(Scenario {
+                version: 1,
+                seed: 66,
+                events: vec![ScenarioEvent {
+                    at_ms: 200,
+                    action: ScenarioAction::SetPlan {
+                        proxy: "echo".into(),
+                        direction: Direction::Downstream,
+                        faults: Vec::new(),
+                    },
+                }],
+            })
+            .await
+            .unwrap();
+        control.delete_proxy("echo").await.unwrap();
+        let terminal = wait_scenario(&control, record.run_id).await;
+        assert_eq!(terminal.status, ScenarioRunStatus::Failed);
+        assert!(terminal.failure.as_deref().unwrap().contains("echo"));
+        assert_eq!(terminal.applied, 0);
+        control.shutdown_and_join().await;
+        origin_task.abort();
+    }
+
+    #[tokio::test]
+    async fn history_bound_zero_disables_retention_but_keeps_metrics() {
+        let (origin_addr, origin_task) = echo_server().await;
+        let control = ControlState::with_params(RuntimeParams {
+            seed: 7,
+            term_grace: Duration::from_millis(100),
+            limits: AdmissionLimits {
+                global_connections: 64,
+                history: 0,
+            },
+            ..RuntimeParams::default()
+        });
+        control
+            .create_proxy(ProxySpec::new(
+                "echo",
+                "127.0.0.1:0".parse().unwrap(),
+                origin_addr,
+            ))
+            .await
+            .unwrap();
+        let bound = control.get("echo").await.unwrap().bound_addr.unwrap();
+        assert_eq!(exchange(bound, b"ping").await, b"ping");
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if control.connections().await.is_empty() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(control.history().await.is_empty());
+        let metrics = control.metrics_text().await;
+        assert!(metrics.contains("eggchaos_connections_completed_total 1\n"));
+        control.shutdown_and_join().await;
+        origin_task.abort();
+    }
+
+    #[tokio::test]
+    async fn metrics_reconcile_with_deterministic_fixture() {
+        let (origin_addr, origin_task) = echo_server().await;
+        let control = test_control();
+        let (view, _) = control
+            .create_proxy(ProxySpec::new(
+                "echo",
+                "127.0.0.1:0".parse().unwrap(),
+                origin_addr,
+            ))
+            .await
+            .unwrap();
+        let bound = view.bound_addr.unwrap();
+        // A zero-delay graceful disconnect publishes exactly one
+        // activation per connection however the bytes fragment, keeping
+        // the whole fixture deterministic.
+        control
+            .add_fault(
+                "echo",
+                FaultUpsert {
+                    direction: Direction::Downstream,
+                    id: "bye".into(),
+                    probability: 1.0,
+                    kind: FaultKind::Disconnect(eggchaos_core::DisconnectConfig {
+                        after: Duration::ZERO,
+                        hard_reset: false,
+                    }),
+                },
+            )
+            .await
+            .unwrap();
+        // Three graceful echoes plus one operator kill.
+        for _ in 0..3 {
+            assert_eq!(exchange(bound, b"hello").await, b"hello");
+        }
+        // Wait until all three echoes fully closed: killing while a
+        // naturally-closing connection still holds its record would race
+        // the token against an already-decided close.
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if control.history().await.len() == 3 {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        let held = TcpStream::connect(bound).await.unwrap();
+        // Identify the held connection by peer address: `connect`
+        // returning does not mean the proxy registered it yet, so a bare
+        // length wait could grab a lingering echo record instead.
+        let held_peer = held.local_addr().unwrap();
+        let id = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let connections = control.connections().await;
+                if let Some(snapshot) = connections
+                    .iter()
+                    .find(|snapshot| snapshot.peer == held_peer)
+                {
+                    break snapshot.id;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(control.kill(id).await);
+        drop(held);
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if control.connections().await.is_empty() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        let metrics = control.metrics_text().await;
+        // Exact global reconciliation: 4 accepted, 4 completed, 3
+        // graceful drains, 1 kill, 30 bytes each way per echo leg.
+        assert!(metrics.contains("eggchaos_connections_accepted_total 4\n"));
+        assert!(metrics.contains("eggchaos_connections_completed_total 4\n"));
+        assert!(metrics
+            .contains("eggchaos_connection_outcomes_total{outcome=\"graceful_termination\"} 3\n"));
+        assert!(metrics
+            .contains("eggchaos_connection_outcomes_total{outcome=\"killed_by_operator\"} 1\n"));
+        assert!(metrics.contains("eggchaos_termination_requests_total{request=\"graceful\"} 3\n"));
+        assert!(metrics.contains("eggchaos_bytes_total{flow=\"accepted\"} 30\n"));
+        assert!(metrics.contains("eggchaos_bytes_total{flow=\"forwarded\"} 30\n"));
+        assert!(metrics.contains("eggchaos_bytes_total{flow=\"discarded\"} 0\n"));
+        assert!(metrics.contains("eggchaos_proxy_connections_accepted_total{proxy=\"echo\"} 4\n"));
+        assert!(metrics.contains("eggchaos_proxy_connections_completed_total{proxy=\"echo\"} 4\n"));
+        // The disconnect fault activated exactly once per echo connection.
+        assert!(metrics.contains(
+            "eggchaos_fault_activations_total{proxy=\"echo\",direction=\"downstream\",fault_type=\"disconnect\"} 3\n"
+        ));
+        // History agrees with the completed counter.
+        assert_eq!(control.history().await.len(), 4);
+        control.shutdown_and_join().await;
+        origin_task.abort();
+    }
+
+    #[tokio::test]
+    async fn metrics_use_only_bounded_label_keys() {
+        let (origin_addr, origin_task) = echo_server().await;
+        let control = test_control();
+        let (view, _) = control
+            .create_proxy(ProxySpec::new(
+                "echo",
+                "127.0.0.1:0".parse().unwrap(),
+                origin_addr,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(exchange(view.bound_addr.unwrap(), b"ping").await, b"ping");
+        let metrics = control.metrics_text().await;
+        for line in metrics.lines() {
+            if line.starts_with('#') || line.trim().is_empty() {
+                continue;
+            }
+            if let Some(labels) = line
+                .split('{')
+                .nth(1)
+                .and_then(|rest| rest.split('}').next())
+            {
+                for pair in labels.split(',') {
+                    let key = pair.split('=').next().unwrap_or_default();
+                    assert!(
+                        [
+                            "proxy",
+                            "direction",
+                            "flow",
+                            "outcome",
+                            "request",
+                            "result",
+                            "fault_type"
+                        ]
+                        .contains(&key),
+                        "unexpected metric label {key:?} in {line:?}"
+                    );
+                }
+            }
+        }
+        control.shutdown_and_join().await;
+        origin_task.abort();
+    }
+
+    #[tokio::test]
+    async fn connection_evidence_contains_no_payload_bytes() {
+        let (origin_addr, origin_task) = echo_server().await;
+        let control = test_control();
+        let (view, _) = control
+            .create_proxy(ProxySpec::new(
+                "echo",
+                "127.0.0.1:0".parse().unwrap(),
+                origin_addr,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(exchange(view.bound_addr.unwrap(), b"PxQ9z").await, b"PxQ9z");
+        let live = serde_json::to_string(&control.connections().await).unwrap();
+        assert!(!live.contains("PxQ9z"));
+        assert!(!live.contains("payload"));
+        let closed = serde_json::to_string(&control.history().await).unwrap();
+        assert!(!closed.contains("PxQ9z"));
+        assert!(!closed.contains("payload"));
+        control.shutdown_and_join().await;
+        origin_task.abort();
+    }
+
+    async fn wait_scenario(
+        control: &ControlState,
+        run_id: u64,
+    ) -> crate::scenario::ScenarioRunRecord {
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let record = control.get_scenario(run_id).await.unwrap();
+                if matches!(
+                    record.status,
+                    ScenarioRunStatus::Completed
+                        | ScenarioRunStatus::Cancelled
+                        | ScenarioRunStatus::Failed
+                ) {
+                    break record;
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .unwrap()
     }
 }

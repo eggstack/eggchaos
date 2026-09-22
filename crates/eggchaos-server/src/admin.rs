@@ -232,7 +232,7 @@ async fn route(method: &str, segments: &[&str], body: &[u8], state: &ControlStat
             StatusCode::OK,
             &serde_json::json!({"version": env!("CARGO_PKG_VERSION"), "api": "v1"}),
         )),
-        ("GET", ["metrics"]) => RouteOutcome::Response(text_response(state.metrics_text())),
+        ("GET", ["metrics"]) => RouteOutcome::Response(text_response(state.metrics_text().await)),
         ("POST", ["v1", "reset"]) => match state.reset().await {
             Ok(report) => RouteOutcome::Response(json_response(StatusCode::OK, &report)),
             Err(error) => RouteOutcome::ControlError(error),
@@ -370,19 +370,44 @@ async fn route(method: &str, segments: &[&str], body: &[u8], state: &ControlStat
         }
         ("POST", ["v1", "scenarios", "apply"]) => {
             match serde_json::from_slice::<crate::Scenario>(body) {
-                Ok(scenario) => {
-                    let state = state.clone();
-                    tokio::spawn(async move {
-                        let _ = crate::apply_scenario(state, scenario).await;
-                    });
-                    RouteOutcome::Response(json_response(
+                Ok(scenario) => match state.start_scenario(scenario).await {
+                    Ok(record) => RouteOutcome::Response(json_response(
                         StatusCode::new(202).expect("accepted status"),
-                        &serde_json::json!({"accepted": true}),
-                    ))
-                }
+                        &serde_json::json!({
+                            "run_id": record.run_id,
+                            "seed": record.seed,
+                            "status": record.status,
+                        }),
+                    )),
+                    Err(error) => {
+                        RouteOutcome::ControlError(crate::ControlError::Invalid(error.to_string()))
+                    }
+                },
                 Err(error) => RouteOutcome::BadJson(error.to_string()),
             }
         }
+        ("GET", ["v1", "scenarios", id]) => match id.parse::<u64>() {
+            Ok(run_id) => match state.get_scenario(run_id).await {
+                Some(record) => RouteOutcome::Response(json_response(StatusCode::OK, &record)),
+                None => RouteOutcome::ControlError(crate::ControlError::NotFound(format!(
+                    "scenario run {run_id}"
+                ))),
+            },
+            Err(_) => RouteOutcome::ControlError(crate::ControlError::Invalid(
+                "scenario run id must be an integer".into(),
+            )),
+        },
+        ("DELETE", ["v1", "scenarios", id]) => match id.parse::<u64>() {
+            Ok(run_id) => match state.cancel_scenario(run_id).await {
+                Some(record) => RouteOutcome::Response(json_response(StatusCode::OK, &record)),
+                None => RouteOutcome::ControlError(crate::ControlError::NotFound(format!(
+                    "scenario run {run_id}"
+                ))),
+            },
+            Err(_) => RouteOutcome::ControlError(crate::ControlError::Invalid(
+                "scenario run id must be an integer".into(),
+            )),
+        },
         _ => RouteOutcome::NotFound,
     }
 }

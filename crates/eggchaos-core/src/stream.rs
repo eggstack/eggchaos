@@ -2,14 +2,18 @@ use std::{
     collections::VecDeque,
     io,
     pin::Pin,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Mutex,
+    },
     task::{Context, Poll},
 };
 
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 use crate::{
-    Direction, DirectionEngine, FaultPlan, LivePolicy, RngVersion, TerminationHandle,
-    TerminationInfo, TerminationRequest,
+    Direction, DirectionEngine, FaultPlan, LivePolicy, PublishedPolicy, RngVersion,
+    TerminationHandle, TerminationInfo, TerminationRequest, FAULT_TYPE_NAMES,
 };
 
 /// Serializable counters for one wrapped stream direction.
@@ -33,10 +37,134 @@ pub struct DirectionSummary {
     pub injected_delay_ms: u64,
     /// Cumulative bandwidth-throttle delay.
     pub throttled_delay_ms: u64,
+    /// Per-fault-type activation counts, indexed by
+    /// `FaultKind::type_index`.
+    pub activations: [u64; 7],
     /// Latest termination request, if any.
     pub termination: Option<TerminationRequest>,
     /// Deterministic RNG contract version.
     pub rng_version: RngVersion,
+}
+
+/// Maximum fault identities retained in live evidence per direction.
+pub const MAX_EVIDENCE_FAULTS: usize = 128;
+
+/// One connection-active fault identity for evidence (no payloads).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ActiveFault {
+    /// Stable fault identity.
+    pub id: String,
+    /// Low-cardinality fault type (`FAULT_TYPE_NAMES` spelling).
+    pub fault_type: String,
+}
+
+/// Lock-shared live evidence for one stream direction, updated by
+/// `ChaosStream` as bytes flow and generations transition. The embedding
+/// runtime reads it without locking the stream itself.
+#[derive(Debug, Default)]
+pub struct StreamEvidence {
+    observed_generation: AtomicU64,
+    pending_generation: AtomicU64,
+    seed_namespace: AtomicU64,
+    bytes_accepted: AtomicU64,
+    bytes_forwarded: AtomicU64,
+    bytes_discarded: AtomicU64,
+    high_water_bytes: AtomicU64,
+    transitions: AtomicU64,
+    activations: [AtomicU64; 7],
+    active_faults: Mutex<(Vec<ActiveFault>, bool)>,
+    /// Bytes moved through the empty-engine direct path, which bypasses
+    /// engine counters. Mirroring adds these to accepted/forwarded so
+    /// evidence covers no-fault traffic too.
+    direct_bytes: AtomicU64,
+}
+
+impl StreamEvidence {
+    /// Currently compiled policy generation (0 when no live policy).
+    pub fn observed_generation(&self) -> u64 {
+        self.observed_generation.load(Ordering::Relaxed)
+    }
+    /// Transition target draining the old generation, if any (0 = none).
+    pub fn pending_generation(&self) -> u64 {
+        self.pending_generation.load(Ordering::Relaxed)
+    }
+    /// Seed namespace the current engine compiled from.
+    pub fn seed_namespace(&self) -> u64 {
+        self.seed_namespace.load(Ordering::Relaxed)
+    }
+    /// Completed live-policy transitions.
+    pub fn transitions(&self) -> u64 {
+        self.transitions.load(Ordering::Relaxed)
+    }
+    /// Engine byte counters mirrored from the last drive.
+    pub fn byte_counts(&self) -> (u64, u64, u64) {
+        (
+            self.bytes_accepted.load(Ordering::Relaxed),
+            self.bytes_forwarded.load(Ordering::Relaxed),
+            self.bytes_discarded.load(Ordering::Relaxed),
+        )
+    }
+    /// High-water mark of owned queued bytes.
+    pub fn high_water_bytes(&self) -> u64 {
+        self.high_water_bytes.load(Ordering::Relaxed)
+    }
+    /// Per-fault-type activation counts.
+    pub fn activations(&self) -> [u64; 7] {
+        self.activations
+            .each_ref()
+            .map(|c| c.load(Ordering::Relaxed))
+    }
+    /// Connection-active fault identities and whether the list truncated.
+    pub fn active_faults(&self) -> (Vec<ActiveFault>, bool) {
+        self.active_faults.lock().expect("evidence lock").clone()
+    }
+    fn refresh_policy(&self, snapshot: &PublishedPolicy) {
+        self.observed_generation
+            .store(snapshot.generation, Ordering::Relaxed);
+        self.seed_namespace
+            .store(snapshot.seed_namespace, Ordering::Relaxed);
+        let mut faults = Vec::new();
+        let mut truncated = false;
+        for fault in snapshot.plan.faults() {
+            if faults.len() >= MAX_EVIDENCE_FAULTS {
+                truncated = true;
+                break;
+            }
+            faults.push(ActiveFault {
+                id: fault.id.as_str().to_owned(),
+                fault_type: FAULT_TYPE_NAMES[fault.kind.type_index()].to_owned(),
+            });
+        }
+        *self.active_faults.lock().expect("evidence lock") = (faults, truncated);
+    }
+    fn mirror_engine(&self, engine: &DirectionEngine) {
+        let evidence = engine.evidence();
+        let direct = self.direct_bytes.load(Ordering::Relaxed);
+        self.bytes_accepted.store(
+            evidence.bytes_accepted.saturating_add(direct),
+            Ordering::Relaxed,
+        );
+        self.bytes_forwarded.store(
+            evidence.bytes_forwarded.saturating_add(direct),
+            Ordering::Relaxed,
+        );
+        self.bytes_discarded
+            .store(evidence.bytes_discarded, Ordering::Relaxed);
+        self.high_water_bytes
+            .store(evidence.high_water_bytes, Ordering::Relaxed);
+        for (slot, value) in self.activations.iter().zip(evidence.activations) {
+            slot.store(value, Ordering::Relaxed);
+        }
+    }
+    fn note_direct(&self, bytes: u64) {
+        if bytes > 0 {
+            self.direct_bytes.fetch_add(bytes, Ordering::Relaxed);
+            // The direct path accepts and forwards atomically: mirror
+            // immediately so evidence never lags a completed write.
+            self.bytes_accepted.fetch_add(bytes, Ordering::Relaxed);
+            self.bytes_forwarded.fetch_add(bytes, Ordering::Relaxed);
+        }
+    }
 }
 
 /// Error returned when a stream engine cannot be constructed.
@@ -58,10 +186,10 @@ pub struct ChaosStream<T> {
     engine: DirectionEngine,
     direction: Direction,
     live_policy: Option<LivePolicy>,
-    run_seed: u64,
     proxy: String,
     connection_key: u64,
     observed_generation: u64,
+    evidence: Arc<StreamEvidence>,
 }
 
 impl<T> ChaosStream<T> {
@@ -74,21 +202,29 @@ impl<T> ChaosStream<T> {
         connection_key: u64,
         direction: Direction,
     ) -> Result<Self, EngineError> {
+        let engine = DirectionEngine::new(
+            plan.clone(),
+            run_seed,
+            proxy.as_ref(),
+            connection_key,
+            direction,
+        )?;
+        let evidence = Arc::new(StreamEvidence::default());
+        evidence.seed_namespace.store(run_seed, Ordering::Relaxed);
+        evidence.refresh_policy(&PublishedPolicy {
+            generation: 0,
+            plan: Arc::new(plan),
+            seed_namespace: run_seed,
+        });
         Ok(Self {
             inner,
-            engine: DirectionEngine::new(
-                plan,
-                run_seed,
-                proxy.as_ref(),
-                connection_key,
-                direction,
-            )?,
+            engine,
             direction,
             live_policy: None,
-            run_seed,
             proxy: proxy.as_ref().to_owned(),
             connection_key,
             observed_generation: 0,
+            evidence,
         })
     }
     /// Wrap a stream with an empty plan.
@@ -98,38 +234,42 @@ impl<T> ChaosStream<T> {
             engine: DirectionEngine::empty(),
             direction,
             live_policy: None,
-            run_seed: 0,
             proxy: String::new(),
             connection_key: 0,
             observed_generation: 0,
+            evidence: Arc::new(StreamEvidence::default()),
         }
     }
-    /// Wrap a stream with a generation-published live policy.
+    /// Wrap a stream with a generation-published live policy. The engine
+    /// compiles from one atomic snapshot, so plan, generation, and seed
+    /// namespace always agree.
     pub fn new_live(
         inner: T,
         policy: LivePolicy,
-        run_seed: u64,
         proxy: impl AsRef<str>,
         connection_key: u64,
         direction: Direction,
     ) -> Result<Self, EngineError> {
         let proxy = proxy.as_ref().to_owned();
-        let generation = policy.generation();
+        let snapshot = policy.snapshot();
+        let engine = DirectionEngine::new(
+            (*snapshot.plan).clone(),
+            snapshot.seed_namespace,
+            &proxy,
+            connection_key,
+            direction,
+        )?;
+        let evidence = Arc::new(StreamEvidence::default());
+        evidence.refresh_policy(&snapshot);
         Ok(Self {
             inner,
-            engine: DirectionEngine::new(
-                policy.snapshot(),
-                run_seed,
-                &proxy,
-                connection_key,
-                direction,
-            )?,
+            engine,
             direction,
             live_policy: Some(policy),
-            run_seed,
             proxy,
             connection_key,
-            observed_generation: generation,
+            observed_generation: snapshot.generation,
+            evidence,
         })
     }
     /// Return the configured direction.
@@ -143,9 +283,13 @@ impl<T> ChaosStream<T> {
     /// Live generation the stream has not yet transitioned to, if any.
     pub fn pending_generation(&self) -> Option<u64> {
         self.live_policy.as_ref().and_then(|policy| {
-            let generation = policy.generation();
+            let generation = policy.snapshot().generation;
             (generation != self.observed_generation).then_some(generation)
         })
+    }
+    /// Lock-shared live evidence for this direction.
+    pub fn stream_evidence(&self) -> Arc<StreamEvidence> {
+        self.evidence.clone()
     }
     /// Durable termination handle shared with the embedding runtime.
     pub fn termination_handle(&self) -> TerminationHandle {
@@ -166,12 +310,14 @@ impl<T> ChaosStream<T> {
             Poll::Pending => Poll::Pending,
         }
     }
-    /// Access the current direction summary.
+    /// Access the current direction summary, including transparent
+    /// direct-path bytes.
     pub fn summary(&self) -> DirectionSummary {
         let e = self.engine.evidence();
+        let direct = self.evidence.direct_bytes.load(Ordering::Relaxed);
         DirectionSummary {
-            bytes_accepted: e.bytes_accepted,
-            bytes_forwarded: e.bytes_forwarded,
+            bytes_accepted: e.bytes_accepted.saturating_add(direct),
+            bytes_forwarded: e.bytes_forwarded.saturating_add(direct),
             bytes_discarded: e.bytes_discarded,
             segments: e.segments,
             slices: e.slices,
@@ -179,6 +325,7 @@ impl<T> ChaosStream<T> {
             high_water_bytes: e.high_water_bytes,
             injected_delay_ms: e.injected_delay_ms,
             throttled_delay_ms: e.throttled_delay_ms,
+            activations: e.activations,
             termination: e.termination,
             rng_version: e.rng_version,
         }
@@ -214,6 +361,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> AsyncRead for ChaosStream<T> {
             // semantics. Pump errors are ignored here; the write path owns
             // error reporting.
             let _ = this.engine.poll_flush(cx, &mut this.inner);
+            this.evidence.mirror_engine(&this.engine);
             // A resolved graceful termination surfaces as EOF once the
             // accepted prefix has drained: the embedding relay observes the
             // FIN analog and ends, which lets the runtime record drain
@@ -257,7 +405,14 @@ impl<T: AsyncWrite + Unpin> AsyncWrite for ChaosStream<T> {
             return Poll::Pending;
         }
         if this.engine.is_empty() {
-            return Pin::new(&mut this.inner).poll_write(cx, bytes);
+            // Direct path: count accepted/forwarded bytes for evidence;
+            // the engine never sees them.
+            let outcome = Pin::new(&mut this.inner).poll_write(cx, bytes);
+            if let Poll::Ready(Ok(written)) = outcome {
+                this.evidence.note_direct(written as u64);
+                return Poll::Ready(Ok(written));
+            }
+            return outcome;
         }
         // Opportunistically drive releasable bytes to free bounded capacity.
         // This arms release timers but never blocks acceptance: ownership
@@ -279,6 +434,7 @@ impl<T: AsyncWrite + Unpin> AsyncWrite for ChaosStream<T> {
             // queued behind their release timers. Errors are owned by the
             // write path and surface on the next pre-accept drive.
             let _ = this.engine.poll_flush(cx, &mut this.inner);
+            this.evidence.mirror_engine(&this.engine);
             return Poll::Ready(Ok(accepted));
         }
         // Nothing accepted: either bounded capacity is full (the drive above
@@ -295,7 +451,9 @@ impl<T: AsyncWrite + Unpin> AsyncWrite for ChaosStream<T> {
         if this.update_live(cx).is_pending() {
             return Poll::Pending;
         }
-        this.engine.poll_flush(cx, &mut this.inner)
+        let outcome = this.engine.poll_flush(cx, &mut this.inner);
+        this.evidence.mirror_engine(&this.engine);
+        outcome
     }
     fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         let this = self.get_mut();
@@ -319,7 +477,13 @@ impl<T: AsyncWrite + Unpin> AsyncWrite for ChaosStream<T> {
             return Poll::Pending;
         }
         if self.engine.is_empty() {
-            return Pin::new(&mut self.inner).poll_write_vectored(cx, bufs);
+            match Pin::new(&mut self.inner).poll_write_vectored(cx, bufs) {
+                Poll::Ready(Ok(written)) => {
+                    self.evidence.note_direct(written as u64);
+                    return Poll::Ready(Ok(written));
+                }
+                other => return other,
+            }
         }
         let mut joined = Vec::new();
         for buf in bufs {
@@ -334,12 +498,19 @@ impl<T: AsyncWrite + Unpin> ChaosStream<T> {
         let Some(policy) = self.live_policy.clone() else {
             return Poll::Ready(());
         };
-        if policy.generation() == self.observed_generation {
+        // One atomic load: the generation compared here always agrees with
+        // the plan and seed namespace the transition compiles from.
+        let snapshot = policy.snapshot();
+        if snapshot.generation == self.observed_generation {
             return Poll::Ready(());
         }
         // Barrier transition: already accepted preserving bytes drain before
         // the engine is replaced, so a policy update never silently forgets
         // owned bytes. Already discarded blackhole bytes stay discarded.
+        // The pending marker is visible to evidence readers while draining.
+        self.evidence
+            .pending_generation
+            .store(snapshot.generation, Ordering::Relaxed);
         if !self.engine.queue_is_empty() && self.engine.poll_flush(cx, &mut self.inner).is_pending()
         {
             return Poll::Pending;
@@ -348,15 +519,19 @@ impl<T: AsyncWrite + Unpin> ChaosStream<T> {
         // termination request survives the transition (first wins).
         let handle = self.engine.termination_handle();
         self.engine = DirectionEngine::new_with_termination(
-            policy.snapshot(),
-            self.run_seed,
+            (*snapshot.plan).clone(),
+            snapshot.seed_namespace,
             &self.proxy,
             self.connection_key,
             self.direction,
             handle,
         )
         .expect("published policies are validated");
-        self.observed_generation = policy.generation();
+        self.observed_generation = snapshot.generation;
+        self.evidence.refresh_policy(&snapshot);
+        self.evidence.pending_generation.store(0, Ordering::Relaxed);
+        self.evidence.transitions.fetch_add(1, Ordering::Relaxed);
+        self.evidence.mirror_engine(&self.engine);
         Poll::Ready(())
     }
 }
@@ -392,36 +567,38 @@ pub struct BidirectionalChaosStream<T> {
     downstream_policy: Option<LivePolicy>,
     observed_upstream: u64,
     observed_downstream: u64,
-    run_seed: u64,
     proxy: String,
     connection_key: u64,
 }
 
 impl<T: AsyncRead + AsyncWrite + Unpin> BidirectionalChaosStream<T> {
     /// Construct a physical stream carrying two generation-published policies.
+    /// Both engines compile from atomic snapshots, so plan, generation,
+    /// and seed namespace always agree.
     pub fn new_live(
         inner: T,
         upstream: LivePolicy,
         downstream: LivePolicy,
-        run_seed: u64,
         proxy: impl AsRef<str>,
         connection_key: u64,
     ) -> Result<Self, EngineError> {
         let proxy = proxy.as_ref().to_owned();
-        let observed_upstream = upstream.generation();
-        let observed_downstream = downstream.generation();
+        let upstream_snapshot = upstream.snapshot();
+        let downstream_snapshot = downstream.snapshot();
+        let observed_upstream = upstream_snapshot.generation;
+        let observed_downstream = downstream_snapshot.generation;
         Ok(Self {
             inner,
             upstream: DirectionEngine::new(
-                upstream.snapshot(),
-                run_seed,
+                (*upstream_snapshot.plan).clone(),
+                upstream_snapshot.seed_namespace,
                 &proxy,
                 connection_key,
                 Direction::Upstream,
             )?,
             downstream: DirectionEngine::new(
-                downstream.snapshot(),
-                run_seed,
+                (*downstream_snapshot.plan).clone(),
+                downstream_snapshot.seed_namespace,
                 &proxy,
                 connection_key,
                 Direction::Downstream,
@@ -431,7 +608,6 @@ impl<T: AsyncRead + AsyncWrite + Unpin> BidirectionalChaosStream<T> {
             downstream_policy: Some(downstream),
             observed_upstream,
             observed_downstream,
-            run_seed,
             proxy,
             connection_key,
         })
@@ -449,7 +625,8 @@ impl<T: AsyncRead + AsyncWrite + Unpin> BidirectionalChaosStream<T> {
 
     fn update_policies(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         if let Some(policy) = self.upstream_policy.clone() {
-            if policy.generation() != self.observed_upstream {
+            let snapshot = policy.snapshot();
+            if snapshot.generation != self.observed_upstream {
                 if !self.upstream.queue_is_empty()
                     && self.upstream.poll_flush(cx, &mut self.inner).is_pending()
                 {
@@ -457,19 +634,20 @@ impl<T: AsyncRead + AsyncWrite + Unpin> BidirectionalChaosStream<T> {
                 }
                 let handle = self.upstream.termination_handle();
                 self.upstream = DirectionEngine::new_with_termination(
-                    policy.snapshot(),
-                    self.run_seed,
+                    (*snapshot.plan).clone(),
+                    snapshot.seed_namespace,
                     &self.proxy,
                     self.connection_key,
                     Direction::Upstream,
                     handle,
                 )
                 .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
-                self.observed_upstream = policy.generation();
+                self.observed_upstream = snapshot.generation;
             }
         }
         if let Some(policy) = self.downstream_policy.clone() {
-            if policy.generation() != self.observed_downstream {
+            let snapshot = policy.snapshot();
+            if snapshot.generation != self.observed_downstream {
                 if !self.output.is_empty() {
                     return Poll::Ready(Ok(()));
                 }
@@ -483,15 +661,15 @@ impl<T: AsyncRead + AsyncWrite + Unpin> BidirectionalChaosStream<T> {
                 }
                 let handle = self.downstream.termination_handle();
                 self.downstream = DirectionEngine::new_with_termination(
-                    policy.snapshot(),
-                    self.run_seed,
+                    (*snapshot.plan).clone(),
+                    snapshot.seed_namespace,
                     &self.proxy,
                     self.connection_key,
                     Direction::Downstream,
                     handle,
                 )
                 .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
-                self.observed_downstream = policy.generation();
+                self.observed_downstream = snapshot.generation;
             }
         }
         Poll::Ready(Ok(()))
@@ -674,6 +852,24 @@ mod tests {
         let mut out = [0; 5];
         wrapped.read_exact(&mut out).await.unwrap();
         assert_eq!(&out, b"hello");
+    }
+
+    #[tokio::test]
+    async fn direct_path_bytes_count_toward_evidence() {
+        // No-fault traffic bypasses the engine but must still reconcile
+        // in evidence and summaries.
+        let policy = crate::LivePolicy::new(crate::FaultPlan::empty(), 0);
+        let (mut peer, right) = tokio::io::duplex(32);
+        let mut wrapped =
+            ChaosStream::new_live(right, policy, "p", 1, Direction::Upstream).unwrap();
+        wrapped.write_all(b"abc").await.unwrap();
+        let mut out = [0; 3];
+        peer.read_exact(&mut out).await.unwrap();
+        assert_eq!(&out, b"abc");
+        let evidence = wrapped.stream_evidence();
+        assert_eq!(evidence.byte_counts(), (3, 3, 0));
+        assert_eq!(wrapped.summary().bytes_accepted, 3);
+        assert_eq!(wrapped.summary().bytes_forwarded, 3);
     }
 
     #[tokio::test]
@@ -1085,12 +1281,12 @@ mod tests {
     #[tokio::test]
     async fn live_policy_publishes_after_existing_queue_drains() {
         let initial = latency_plan(10, 32);
-        let policy = crate::LivePolicy::new(initial);
+        let policy = crate::LivePolicy::new(initial, 0);
         let (mut peer, right) = tokio::io::duplex(32);
         let mut wrapped =
-            ChaosStream::new_live(right, policy.clone(), 7, "p", 1, Direction::Upstream).unwrap();
+            ChaosStream::new_live(right, policy.clone(), "p", 1, Direction::Upstream).unwrap();
         wrapped.write_all(b"a").await.unwrap();
-        policy.publish(crate::FaultPlan::empty()).unwrap();
+        policy.publish(crate::FaultPlan::empty(), 0).unwrap();
         wrapped.flush().await.unwrap();
         wrapped.write_all(b"b").await.unwrap();
         let mut out = [0; 2];
@@ -1108,15 +1304,15 @@ mod tests {
             }),
         )])
         .unwrap();
-        let policy = crate::LivePolicy::new(limited);
+        let policy = crate::LivePolicy::new(limited, 0);
         let (mut peer, right) = tokio::io::duplex(32);
         let mut wrapped =
-            ChaosStream::new_live(right, policy.clone(), 7, "p", 1, Direction::Upstream).unwrap();
+            ChaosStream::new_live(right, policy.clone(), "p", 1, Direction::Upstream).unwrap();
         assert_eq!(wrapped.write(b"ab").await.unwrap(), 2);
         assert!(wrapped.pending_generation().is_none());
         // Publish an empty plan while termination from the old generation is
         // already due: the swap must not erase it.
-        policy.publish(crate::FaultPlan::empty()).unwrap();
+        policy.publish(crate::FaultPlan::empty(), 0).unwrap();
         assert_eq!(wrapped.pending_generation(), Some(2));
         wrapped.flush().await.unwrap();
         let mut out = [0; 2];
@@ -1181,11 +1377,11 @@ mod tests {
 
     #[tokio::test]
     async fn bidirectional_downstream_policy_updates_from_empty() {
-        let upstream = crate::LivePolicy::new(crate::FaultPlan::empty());
-        let downstream = crate::LivePolicy::new(crate::FaultPlan::empty());
+        let upstream = crate::LivePolicy::new(crate::FaultPlan::empty(), 0);
+        let downstream = crate::LivePolicy::new(crate::FaultPlan::empty(), 0);
         let (mut peer, right) = tokio::io::duplex(32);
         let wrapped =
-            BidirectionalChaosStream::new_live(right, upstream, downstream.clone(), 7, "p", 1)
+            BidirectionalChaosStream::new_live(right, upstream, downstream.clone(), "p", 1)
                 .unwrap();
         let read_task = tokio::spawn(async move {
             let mut wrapped = wrapped;
@@ -1200,6 +1396,7 @@ mod tests {
                     crate::FaultKind::Blackhole(crate::BlackholeConfig { close_after: None }),
                 )])
                 .unwrap(),
+                0,
             )
             .unwrap();
         peer.write_all(b"x").await.unwrap();
@@ -1237,6 +1434,7 @@ mod tests {
             high_water_bytes: 3,
             injected_delay_ms: 10,
             throttled_delay_ms: 0,
+            activations: [0; 7],
             termination: Some(crate::TerminationRequest::Graceful),
             rng_version: crate::RngVersion::V1,
         };
@@ -1249,20 +1447,21 @@ mod tests {
     async fn live_publish_from_empty_direct_path_engages_fault() {
         // A stream created without faults takes the direct write path, but
         // a later publication must still transition it without reconnecting.
-        let policy = crate::LivePolicy::new(crate::FaultPlan::empty());
+        let policy = crate::LivePolicy::new(crate::FaultPlan::empty(), 0);
         let (mut peer, right) = tokio::io::duplex(32);
         let mut wrapped =
-            ChaosStream::new_live(right, policy.clone(), 7, "p", 1, Direction::Upstream).unwrap();
+            ChaosStream::new_live(right, policy.clone(), "p", 1, Direction::Upstream).unwrap();
         wrapped.write_all(b"a").await.unwrap();
         let mut out = [0; 1];
         peer.read_exact(&mut out).await.unwrap();
         assert_eq!(&out, b"a");
-        policy.publish(latency_plan(50, 32)).unwrap();
+        policy.publish(latency_plan(50, 32), 0).unwrap();
         wrapped.write_all(b"b").await.unwrap();
         // Still held before the deadline: the fault engaged on the live
-        // connection (direct-path writes never buffer).
+        // connection (direct-path writes never buffer, but they do
+        // count, so "a" already forwarded).
         assert_eq!(wrapped.summary().buffered_bytes, 1);
-        assert_eq!(wrapped.summary().bytes_forwarded, 0);
+        assert_eq!(wrapped.summary().bytes_forwarded, 1);
         tokio::time::advance(Duration::from_millis(50)).await;
         wrapped.flush().await.unwrap();
         peer.read_exact(&mut out).await.unwrap();
@@ -1286,6 +1485,21 @@ mod tests {
         let mut out = [0; 3];
         peer.read_exact(&mut out).await.unwrap();
         assert_eq!(&out, b"abc");
+    }
+
+    #[tokio::test]
+    async fn slow_close_shutdown_counts_activation() {
+        let plan = crate::FaultPlan::new(vec![fault(
+            "close",
+            crate::FaultKind::SlowClose(crate::SlowCloseConfig {
+                delay: Duration::from_millis(50),
+            }),
+        )])
+        .unwrap();
+        let (_peer, right) = tokio::io::duplex(32);
+        let mut wrapped = ChaosStream::new(right, plan, 7, "p", 1, Direction::Upstream).unwrap();
+        wrapped.shutdown().await.unwrap();
+        assert_eq!(wrapped.summary().activations[4], 1);
     }
 
     #[tokio::test]
