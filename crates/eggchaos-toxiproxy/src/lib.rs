@@ -516,4 +516,48 @@ mod tests {
         handle.shutdown();
         handle.wait().await;
     }
+
+    #[tokio::test]
+    async fn compatibility_http_create_list_and_toxic_routes_share_native_state() {
+        let adapter = ToxiproxyAdapter::new(ControlState::default());
+        let handle = ToxiproxyHttp::start("127.0.0.1:0".parse().unwrap(), adapter)
+            .await
+            .unwrap();
+        let client = eggfetch_core::Client::builder().build();
+        let proxy = serde_json::json!({"name":"echo","listen":"127.0.0.1:0","upstream":"127.0.0.1:1","enabled":true,"toxics":[]});
+        let created = client
+            .post(&format!("http://{}/proxies", handle.local_addr()))
+            .unwrap()
+            .json(&proxy)
+            .unwrap()
+            .send()
+            .await
+            .unwrap();
+        assert!(created.status().is_success());
+        let toxic = serde_json::json!({"name":"delay","type":"latency","stream":"downstream","toxicity":1.0,"attributes":{"latency":10}});
+        let added = client
+            .post(&format!(
+                "http://{}/proxies/echo/toxics",
+                handle.local_addr()
+            ))
+            .unwrap()
+            .json(&toxic)
+            .unwrap()
+            .send()
+            .await
+            .unwrap();
+        assert!(added.status().is_success());
+        let mut listed = client
+            .get(&format!(
+                "http://{}/proxies/echo/toxics",
+                handle.local_addr()
+            ))
+            .unwrap()
+            .send()
+            .await
+            .unwrap();
+        assert!(String::from_utf8_lossy(&listed.bytes().await.unwrap()).contains("latency"));
+        handle.shutdown();
+        handle.wait().await;
+    }
 }

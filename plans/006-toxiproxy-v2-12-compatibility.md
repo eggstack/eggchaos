@@ -1,6 +1,6 @@
 # M006 — Toxiproxy v2.12.0 Compatibility
 
-Status: blocked  
+Status: active
 Depends on: M005  
 Parallel with: M007  
 Successor gate: M008

@@ -12,7 +12,7 @@ This file is the compact source of truth for active milestone state. Detailed sc
 | M003 | `003-fixed-target-proxy-runtime.md` | closed | M002 | Closed in `plans/closure/M003-fixed-target-proxy-runtime-closure.md` at `5dd41027948e7413b595c77f11d7a9e0b31f3785`. |
 | M004 | `004-control-plane-cli-and-config.md` | closed | M003 | Closed in `plans/closure/M004-control-plane-cli-and-config-closure.md` at `14791042aad47dc11d57f84677dcb69ef055d690`. |
 | M005 | `005-live-mutation-observability-and-scenarios.md` | closed | M004 | Closed in `plans/closure/M005-live-mutation-observability-and-scenarios-closure.md` at `250494fc7d408c3f86933f44437d454864519984`. |
-| M006 | `006-toxiproxy-v2-12-compatibility.md` | ready | M005 | Native generation/live-policy, connection control, evidence snapshots, metrics, and scenario v1 are closed. |
+| M006 | `006-toxiproxy-v2-12-compatibility.md` | active | M005 | Compatibility route/DTO translation and the pinned v2.12.0 oracle are under qualification. |
 | M007 | `007-eggfetch-inprocess-integration.md` | ready | M005 | Native generation/live-policy handles and physical connection identity are closed. |
 | M008 | `008-qualification-release-and-distribution.md` | blocked | M006, M007 | First release gate: compatibility, integration, cross-platform, performance, packaging, and evidence. |
 
