@@ -11,7 +11,7 @@ Eggchaos is intended to be a small Rust-native successor to the useful core of T
 | `roadmap.md` | Long-term architecture, sequencing, release stages, and future extensions. |
 | `registry.md` | Current milestone status and dependency source of truth. |
 | `000-architecture-and-scope-baseline.md` | Investigated baseline, reuse decisions, scope boundaries, and initial dependency graph. |
-| `001-*.md` ... `008-*.md` | Bounded implementation handoffs in execution order. |
+| `001-*.md` ... `013-*.md` | Bounded implementation and corrective handoffs in execution order. |
 | `adrs/` | Durable architecture decisions that should not be silently changed by implementation. |
 | `reference/toxiproxy-parity.md` | Compatibility target and semantic mapping. |
 | `reference/verification-matrix.md` | Required evidence across faults, platforms, APIs, and performance. |
@@ -20,13 +20,17 @@ Eggchaos is intended to be a small Rust-native successor to the useful core of T
 
 ## Current execution order
 
-The initial executable chain is:
+The initial M001–M007 implementation chain completed, but a later source/behavior audit found correctness gaps in the fault engine, runtime/control authority, live state/scenarios, and Toxiproxy adapter. Release qualification M008 is therefore paused.
 
-`M001 -> M002 -> M003 -> M004 -> M005 -> (M006 || M007) -> M008`
+The active corrective graph is:
 
-M006 and M007 may proceed in parallel after M005 closes. M008 is the first release qualification gate and requires both.
+`(M009 || M010) -> M011 -> M012 -> M013 -> M008`
 
-M000 is this planning/bootstrap investigation and is closed when all canonical planning files are present and registered.
+M009 and M010 are both ready and may proceed in parallel. M011 joins their results, M012 requalifies the declared Toxiproxy v2.12 surface, and M013 is the cross-layer evidence gate. M008 must not resume until M013 closes cleanly.
+
+Historical M002–M006 closure records are preserved. Corrective plans do not rewrite history; they supersede those records only for current release-readiness decisions.
+
+M000 is the original planning/bootstrap investigation and remains closed.
 
 ## Status rules
 
