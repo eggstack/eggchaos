@@ -1,10 +1,13 @@
 # Eggfetch integration
 
 `eggchaos-eggfetch::ChaosDialer` implements Eggfetch's public `Dialer` seam.
-It performs bounded direct TCP dialing and returns a `ChaosStream`; Eggfetch
+It performs bounded direct TCP dialing and returns a
+`BidirectionalChaosStream` with live upstream/downstream policies; Eggfetch
 continues to own HTTP framing, pooling, destination TLS/SNI, certificate
 validation, and retry policy. A deterministic physical connection ordinal is
-used in fault seed derivation.
+used in fault seed derivation. Live policy publications engage pooled
+connections without reconnecting; resolved downstream terminations surface
+as EOF (graceful) or errors (hard reset) on the physical stream.
 
 Fault policy is physical-connection scoped. A pooled HTTP/2 connection can
 therefore expose one policy to multiple logical streams; per-request chaos is

@@ -705,13 +705,46 @@ impl<T: AsyncRead + AsyncWrite + Unpin> AsyncRead for BidirectionalChaosStream<T
                 }
                 return Poll::Ready(Ok(()));
             }
-            if !this.downstream.queue_is_empty()
-                && this
+            if !this.downstream.queue_is_empty() {
+                // Drive queued bytes into the output buffer, then loop back
+                // to serve them before reading more from inner: inner may
+                // already be at EOF (peer closed after writing), and an
+                // inner read would strand the flushed bytes behind a
+                // premature EOF. Flush errors propagate; the write path
+                // owns no exclusive error reporting here.
+                match this
                     .downstream
                     .poll_flush(cx, &mut CaptureWriter(&mut this.output))
-                    .is_pending()
-            {
-                return Poll::Pending;
+                {
+                    Poll::Pending => return Poll::Pending,
+                    Poll::Ready(Err(error)) => return Poll::Ready(Err(error)),
+                    Poll::Ready(Ok(())) => {}
+                }
+                if !this.output.is_empty() {
+                    continue;
+                }
+            }
+            // Drained queue with a resolved termination ends the read side
+            // here instead of waiting for inner EOF: unlike the relay
+            // embedding, no runtime polls this stream's termination handle,
+            // so graceful requests surface as EOF and hard resets as errors.
+            // Live inner bytes were already delivered above; only a
+            // would-be-idle read becomes EOF/error.
+            match this.downstream.termination_request() {
+                Some(TerminationRequest::Graceful) => return Poll::Ready(Ok(())),
+                Some(TerminationRequest::HardReset) => {
+                    let detail = this
+                        .downstream
+                        .termination_info()
+                        .and_then(|info| info.fault_id)
+                        .map(|id| format!("connection reset by fault {id}"))
+                        .unwrap_or_else(|| "connection reset".into());
+                    return Poll::Ready(Err(io::Error::new(
+                        io::ErrorKind::ConnectionReset,
+                        detail,
+                    )));
+                }
+                None => {}
             }
             let mut temp = [0u8; 8192];
             let mut read = ReadBuf::new(&mut temp);
@@ -1527,5 +1560,63 @@ mod tests {
         );
         let mut mark = [0; 1];
         assert_eq!(wrapped.read(&mut mark).await.unwrap(), 0);
+    }
+}
+
+#[cfg(test)]
+mod bidirectional_read_tests {
+    use super::*;
+    use std::{num::NonZeroU64, time::Duration};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    /// Drive one downstream fault through a bidirectional stream whose peer
+    /// writes then closes, and read everything back.
+    async fn drive_closed_peer(kind: crate::FaultKind) -> Vec<u8> {
+        let plan = crate::FaultPlan::new(vec![crate::FaultSpec {
+            id: crate::FaultId::new("f").unwrap(),
+            probability: crate::Probability::new(1.0).unwrap(),
+            kind,
+        }])
+        .unwrap();
+        let (mut peer, right) = tokio::io::duplex(256 * 1024);
+        let mut wrapped = BidirectionalChaosStream::new_live(
+            right,
+            crate::LivePolicy::new(crate::FaultPlan::empty(), 0),
+            crate::LivePolicy::new(plan, 0),
+            "p",
+            1,
+        )
+        .unwrap();
+        tokio::spawn(async move {
+            peer.write_all(&vec![7u8; 4096]).await.unwrap();
+            // Close after writing: the read path must deliver flushed bytes
+            // before observing inner EOF, not strand them behind it.
+        });
+        let mut out = vec![0u8; 4096];
+        tokio::time::timeout(Duration::from_secs(10), wrapped.read_exact(&mut out))
+            .await
+            .expect("read completes")
+            .unwrap();
+        out
+    }
+
+    /// M013 narrow fix: flushed output bytes must be served before the next
+    /// inner read, so a peer that closes after writing cannot strand them
+    /// behind a premature EOF.
+    #[tokio::test]
+    async fn downstream_reads_survive_peer_close_after_write() {
+        let latency = drive_closed_peer(crate::FaultKind::Latency(crate::LatencyConfig {
+            delay: Duration::ZERO,
+            jitter: Duration::ZERO,
+            max_buffer_bytes: NonZeroU64::new(64 * 1024).unwrap(),
+        }))
+        .await;
+        assert!(latency.iter().all(|b| *b == 7));
+        let shaped = drive_closed_peer(crate::FaultKind::Bandwidth(crate::BandwidthConfig {
+            bytes_per_second: NonZeroU64::new(1_000_000).unwrap(),
+            burst_bytes: NonZeroU64::new(64 * 1024).unwrap(),
+        }))
+        .await;
+        assert!(shaped.iter().all(|b| *b == 7));
     }
 }

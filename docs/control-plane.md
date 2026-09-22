@@ -11,6 +11,28 @@ lifecycle. Eggchaos owns only route dispatch and typed JSON conversion. The
 CLI uses Eggfetch for control requests, including JSON mode and nonzero error
 exit status.
 
+## Route inventory
+
+Proxies: `GET /v1/proxies`, `POST /v1/proxies`,
+`GET /v1/proxies/{name}`, `PATCH /v1/proxies/{name}`,
+`DELETE /v1/proxies/{name}`. Faults:
+`GET /v1/proxies/{name}/faults`, `POST /v1/proxies/{name}/faults`,
+`GET /v1/proxies/{name}/faults/{id}`,
+`PATCH /v1/proxies/{name}/faults/{id}`,
+`DELETE /v1/proxies/{name}/faults/{id}`. Connections:
+`GET /v1/connections`, `GET /v1/connections/{id}`,
+`DELETE /v1/connections/{id}` (terminate), `GET /v1/history`.
+Service: `GET /v1/health`, `GET /v1/version`, `POST /v1/reset`,
+`GET /metrics` (Prometheus text, no `/v1` prefix).
+
+## CLI command inventory
+
+`eggchaos --admin <url> [--json] <command>`: `serve` (start from
+schema-v1 TOML), `version`, `reset`; `proxy list|get|add|set|remove|
+enable|disable`; `fault list|get|add|set|remove`;
+`connection list|get|kill`. Every command emits one machine-readable JSON
+document with `--json` and exits nonzero on failure.
+
 ## Generations and policy snapshots
 
 Fault updates are generation transitions. Existing streams drain bytes already
