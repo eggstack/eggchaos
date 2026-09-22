@@ -134,3 +134,38 @@ pub async fn apply_scenario(
 fn _fault_id(value: String) -> Result<FaultId, eggchaos_core::ValidationError> {
     FaultId::new(value)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ProxySpec;
+
+    #[tokio::test]
+    async fn ordered_zero_time_scenario_publishes_one_generation() {
+        let proxy = ProxySpec::new(
+            "p",
+            "127.0.0.1:0".parse().unwrap(),
+            "127.0.0.1:1".parse().unwrap(),
+        );
+        let state = ControlState::new([proxy]);
+        let report = apply_scenario(
+            state.clone(),
+            Scenario {
+                version: 1,
+                seed: 7,
+                events: vec![ScenarioEvent {
+                    at_ms: 0,
+                    action: ScenarioAction::SetPlan {
+                        proxy: "p".into(),
+                        direction: Direction::Upstream,
+                        faults: Vec::new(),
+                    },
+                }],
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(report.applied, 1);
+        assert_eq!(state.generation(), 2);
+    }
+}
