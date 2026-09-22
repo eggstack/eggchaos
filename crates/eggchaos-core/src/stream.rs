@@ -374,13 +374,13 @@ impl<T: AsyncRead + AsyncWrite + Unpin> AsyncRead for BidirectionalChaosStream<T
         buffer: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
         let this = self.as_mut().get_mut();
-        if this.downstream.is_empty() {
-            return Pin::new(&mut this.inner).poll_read(cx, buffer);
-        }
         match this.update_policies(cx) {
             Poll::Ready(Ok(())) => {}
             Poll::Ready(Err(error)) => return Poll::Ready(Err(error)),
             Poll::Pending => return Poll::Pending,
+        }
+        if this.downstream.is_empty() {
+            return Pin::new(&mut this.inner).poll_read(cx, buffer);
         }
         loop {
             if !this.output.is_empty() {
@@ -622,6 +622,35 @@ mod tests {
         peer.read_exact(&mut out).await.unwrap();
         assert_eq!(&out, b"ab");
         assert_eq!(policy.generation(), 2);
+    }
+
+    #[tokio::test]
+    async fn bidirectional_downstream_policy_updates_from_empty() {
+        let upstream = crate::LivePolicy::new(crate::FaultPlan::empty());
+        let downstream = crate::LivePolicy::new(crate::FaultPlan::empty());
+        let (mut peer, right) = tokio::io::duplex(32);
+        let wrapped =
+            BidirectionalChaosStream::new_live(right, upstream, downstream.clone(), 7, "p", 1)
+                .unwrap();
+        let read_task = tokio::spawn(async move {
+            let mut wrapped = wrapped;
+            let mut out = [0; 1];
+            let _ = wrapped.read(&mut out).await;
+        });
+        tokio::task::yield_now().await;
+        downstream
+            .publish(
+                crate::FaultPlan::new(vec![fault(
+                    "hole",
+                    crate::FaultKind::Blackhole(crate::BlackholeConfig { close_after: None }),
+                )])
+                .unwrap(),
+            )
+            .unwrap();
+        peer.write_all(b"x").await.unwrap();
+        tokio::task::yield_now().await;
+        assert!(!read_task.is_finished());
+        read_task.abort();
     }
 
     #[test]

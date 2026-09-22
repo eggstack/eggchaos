@@ -7,8 +7,20 @@ license.workspace = true
 repository.workspace = true
 description = "Eggfetch Dialer integration for eggchaos"
 
+[features]
+default = []
+http2 = ["eggfetch-core/http2"]
+
 [dependencies]
 eggchaos-core = { path = "../eggchaos-core", version = "0.1.0" }
 eggfetch-core.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
+
+[dev-dependencies]
+bytes.workspace = true
+h2.workspace = true
+http.workspace = true
+rcgen.workspace = true
+rustls.workspace = true
+tokio-rustls.workspace = true

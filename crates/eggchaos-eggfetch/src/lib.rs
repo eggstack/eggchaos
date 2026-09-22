@@ -81,6 +81,7 @@ impl Dialer for ChaosDialer {
         let run_seed = self.run_seed;
         let proxy_name = self.proxy_name.clone();
         let upstream = self.upstream.clone();
+        let downstream = self.downstream.clone();
         let ordinal = self.connection_ordinal.fetch_add(1, Ordering::AcqRel);
         Box::pin(async move {
             let addresses = lookup_host((target.host(), target.port()))
@@ -96,7 +97,6 @@ impl Dialer for ChaosDialer {
             for address in addresses {
                 match timeout(timeout_duration, tokio::net::TcpStream::connect(address)).await {
                     Ok(Ok(stream)) => {
-                        let downstream = upstream.clone();
                         let stream = BidirectionalChaosStream::new_live(
                             stream,
                             upstream,
@@ -177,6 +177,60 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.bytes().await.unwrap().as_ref(), b"ok");
+        task.await.unwrap();
+    }
+
+    #[cfg(feature = "http2")]
+    #[tokio::test]
+    async fn eggfetch_owns_tls_and_http2_over_the_physical_chaos_stream() {
+        use bytes::Bytes;
+        use eggfetch_core::{HttpVersionPolicy, TlsConfig};
+        use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
+        use tokio_rustls::TlsAcceptor;
+
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let certificate = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+        let server_config = rustls::ServerConfig::builder()
+            .with_no_client_auth()
+            .with_single_cert(
+                vec![CertificateDer::from(certificate.cert.der().to_vec())],
+                PrivateKeyDer::from(PrivatePkcs8KeyDer::from(
+                    certificate.key_pair.serialize_der(),
+                )),
+            )
+            .unwrap();
+        let mut server_config = server_config;
+        server_config.alpn_protocols = vec![b"h2".to_vec()];
+        let acceptor = TlsAcceptor::from(std::sync::Arc::new(server_config));
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let task = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let stream = acceptor.accept(stream).await.unwrap();
+            let mut connection = h2::server::handshake(stream).await.unwrap();
+            if let Some(Ok((_request, mut respond))) = connection.accept().await {
+                let response = http::Response::new(());
+                let mut send = respond.send_response(response, false).unwrap();
+                send.send_data(Bytes::from_static(b"h2-ok"), true).unwrap();
+            }
+            connection.graceful_shutdown();
+            while connection.accept().await.is_some() {}
+        });
+
+        let dialer = ChaosDialer::new(42, "h2-test");
+        let client = eggfetch_core::Client::builder()
+            .dialer(dialer)
+            .http_version_policy(HttpVersionPolicy::Http2Only)
+            .tls_config(TlsConfig::default().danger_accept_invalid_certs(true))
+            .build();
+        let mut response = client
+            .get(&format!("https://localhost:{}/", address.port()))
+            .unwrap()
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.bytes().await.unwrap().as_ref(), b"h2-ok");
         task.await.unwrap();
     }
 }
