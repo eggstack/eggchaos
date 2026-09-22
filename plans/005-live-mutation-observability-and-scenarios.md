@@ -1,6 +1,6 @@
 # M005 — Live Mutation, Observability, and Scenarios
 
-Status: blocked  
+Status: active  
 Depends on: M004  
 Successors: M006, M007
 

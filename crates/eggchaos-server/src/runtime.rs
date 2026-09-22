@@ -172,6 +172,7 @@ struct RuntimeState {
     active: Arc<AtomicUsize>,
     connections: Arc<RwLock<HashMap<u64, ConnectionSnapshot>>>,
     cancellations: Arc<RwLock<HashMap<u64, Arc<Notify>>>>,
+    metrics: Arc<crate::admin::MetricsCounters>,
     limits: AdmissionLimits,
 }
 
@@ -298,6 +299,7 @@ impl EggchaosService {
                     })?;
             bound.push((proxy.clone(), listener));
         }
+        let control = crate::ControlState::new(self.proxies.clone());
         let state = RuntimeState {
             shutting_down: Arc::new(AtomicBool::new(false)),
             notify: Arc::new(Notify::new()),
@@ -305,6 +307,7 @@ impl EggchaosService {
             active: Arc::new(AtomicUsize::new(0)),
             connections: Arc::new(RwLock::new(HashMap::new())),
             cancellations: Arc::new(RwLock::new(HashMap::new())),
+            metrics: control.metrics(),
             limits: self.limits,
         };
         let mut addresses = HashMap::new();
@@ -327,7 +330,6 @@ impl EggchaosService {
                 self.relay_buffer,
             )));
         }
-        let control = crate::ControlState::new(self.proxies.clone());
         control
             .attach_runtime(state.connections.clone(), state.cancellations.clone())
             .await;
@@ -411,6 +413,7 @@ async fn listen_loop(
                     drop(client);
                     continue;
                 }
+                state.metrics.accepted.fetch_add(1, Ordering::Relaxed);
                 let id = state.next_id.fetch_add(1, Ordering::AcqRel);
                 let connection_key = ordinal.fetch_add(1, Ordering::AcqRel);
                 state.connections.write().await.insert(id, ConnectionSnapshot { id, proxy: proxy.name.clone(), ordinal: connection_key, peer, upstream: proxy.upstream, state: ConnectionState::Connecting, connection_key, seed: service_seed ^ proxy.seed, generation: 1 });
@@ -486,6 +489,7 @@ async fn run_connection(
 
 fn finish(state: &RuntimeState, id: u64) {
     state.active.fetch_sub(1, Ordering::AcqRel);
+    state.metrics.completed.fetch_add(1, Ordering::Relaxed);
     if let Ok(mut map) = state.connections.try_write() {
         map.remove(&id);
     }

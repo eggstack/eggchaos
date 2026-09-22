@@ -20,6 +20,15 @@ use eggchaos_core::FaultPlan;
 type ConnectionRegistry = Arc<RwLock<HashMap<u64, crate::ConnectionSnapshot>>>;
 type CancellationRegistry = Arc<RwLock<HashMap<u64, Arc<tokio::sync::Notify>>>>;
 
+/// Low-cardinality native metrics counters.
+#[derive(Default)]
+pub struct MetricsCounters {
+    /// Accepted connection total.
+    pub accepted: AtomicU64,
+    /// Completed connection total.
+    pub completed: AtomicU64,
+}
+
 /// Native admin listener security settings.
 #[derive(Debug, Clone)]
 pub struct AdminConfig {
@@ -48,6 +57,7 @@ pub struct ControlState {
     generation: Arc<AtomicU64>,
     connections: Arc<RwLock<Option<ConnectionRegistry>>>,
     cancellations: Arc<RwLock<Option<CancellationRegistry>>>,
+    metrics: Arc<MetricsCounters>,
 }
 
 impl ControlState {
@@ -58,6 +68,7 @@ impl ControlState {
             generation: Arc::new(AtomicU64::new(1)),
             connections: Arc::new(RwLock::new(None)),
             cancellations: Arc::new(RwLock::new(None)),
+            metrics: Arc::new(MetricsCounters::default()),
         };
         if let Ok(mut map) = state.proxies.try_write() {
             for proxy in proxies {
@@ -74,6 +85,13 @@ impl ControlState {
     ) {
         *self.connections.write().await = Some(connections);
         *self.cancellations.write().await = Some(cancellations);
+    }
+    pub(crate) fn metrics(&self) -> Arc<MetricsCounters> {
+        self.metrics.clone()
+    }
+    /// Render low-cardinality Prometheus text.
+    pub fn metrics_text(&self) -> String {
+        format!("# HELP eggchaos_config_generation Current configuration generation\n# TYPE eggchaos_config_generation gauge\neggchaos_config_generation {}\n# HELP eggchaos_connections_accepted_total Accepted connections\n# TYPE eggchaos_connections_accepted_total counter\neggchaos_connections_accepted_total {}\n# HELP eggchaos_connections_completed_total Completed connections\n# TYPE eggchaos_connections_completed_total counter\neggchaos_connections_completed_total {}\n", self.generation(), self.metrics.accepted.load(Ordering::Relaxed), self.metrics.completed.load(Ordering::Relaxed))
     }
     /// Current configuration generation.
     pub fn generation(&self) -> u64 {
@@ -303,18 +321,56 @@ async fn handle_request(
             StatusCode::OK,
             &serde_json::json!({"version": env!("CARGO_PKG_VERSION"), "api": "v1"}),
         ),
-        ("POST", "/v1/reset") => json_response(StatusCode::OK, &serde_json::json!({"generation": state.generation(), "reset": true})),
+        ("POST", "/v1/reset") => json_response(
+            StatusCode::OK,
+            &serde_json::json!({"generation": state.generation(), "reset": true}),
+        ),
         ("GET", "/v1/proxies") => json_response(StatusCode::OK, &state.list().await),
         ("POST", "/v1/scenarios/apply") => match serde_json::from_slice::<crate::Scenario>(&body) {
-            Ok(scenario) => { let state = state.clone(); tokio::spawn(async move { let _ = crate::apply_scenario(state, scenario).await; }); json_response(StatusCode::new(202).unwrap(), &serde_json::json!({"accepted": true})) }
-            Err(error) => json_response(StatusCode::BAD_REQUEST, &ErrorEnvelope { error: ErrorBody { code: "invalid_json", message: &error.to_string() } }),
+            Ok(scenario) => {
+                let state = state.clone();
+                tokio::spawn(async move {
+                    let _ = crate::apply_scenario(state, scenario).await;
+                });
+                json_response(
+                    StatusCode::new(202).unwrap(),
+                    &serde_json::json!({"accepted": true}),
+                )
+            }
+            Err(error) => json_response(
+                StatusCode::BAD_REQUEST,
+                &ErrorEnvelope {
+                    error: ErrorBody {
+                        code: "invalid_json",
+                        message: &error.to_string(),
+                    },
+                },
+            ),
         },
         ("GET", "/v1/connections") => json_response(StatusCode::OK, &state.connections().await),
         ("DELETE", _) if path.starts_with("/v1/connections/") => {
-            let id = path.trim_start_matches("/v1/connections/").parse::<u64>().unwrap_or(0);
-            if state.kill(id).await { json_response(StatusCode::NO_CONTENT, &serde_json::json!({"id": id, "terminated": true})) } else { json_response(StatusCode::NOT_FOUND, &ErrorEnvelope { error: ErrorBody { code: "not_found", message: "connection not found" } }) }
+            let id = path
+                .trim_start_matches("/v1/connections/")
+                .parse::<u64>()
+                .unwrap_or(0);
+            if state.kill(id).await {
+                json_response(
+                    StatusCode::NO_CONTENT,
+                    &serde_json::json!({"id": id, "terminated": true}),
+                )
+            } else {
+                json_response(
+                    StatusCode::NOT_FOUND,
+                    &ErrorEnvelope {
+                        error: ErrorBody {
+                            code: "not_found",
+                            message: "connection not found",
+                        },
+                    },
+                )
+            }
         }
-        ("GET", "/metrics") => text_response("# HELP eggchaos_config_generation Current configuration generation\n# TYPE eggchaos_config_generation gauge\neggchaos_config_generation ".to_owned() + &state.generation().to_string() + "\n"),
+        ("GET", "/metrics") => text_response(state.metrics_text()),
         ("POST", "/v1/proxies") => match serde_json::from_slice::<ProxySpec>(&body) {
             Ok(proxy) => match state.insert(proxy.clone()).await {
                 Ok(generation) => json_response(

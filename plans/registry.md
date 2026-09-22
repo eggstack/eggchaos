@@ -11,7 +11,7 @@ This file is the compact source of truth for active milestone state. Detailed sc
 | M002 | `002-deterministic-stream-fault-engine.md` | closed | M001 | Closed in `plans/closure/M002-deterministic-stream-fault-engine-closure.md` at `d85d25402af4f7c63a45ebb4ebc73b8de727d2e5`. |
 | M003 | `003-fixed-target-proxy-runtime.md` | closed | M002 | Closed in `plans/closure/M003-fixed-target-proxy-runtime-closure.md` at `5dd41027948e7413b595c77f11d7a9e0b31f3785`. |
 | M004 | `004-control-plane-cli-and-config.md` | closed | M003 | Closed in `plans/closure/M004-control-plane-cli-and-config-closure.md` at `14791042aad47dc11d57f84677dcb69ef055d690`. |
-| M005 | `005-live-mutation-observability-and-scenarios.md` | ready | M004 | Versioned TOML/native API/CLI, bounded JSON, EggServe admin, Eggfetch control client, and fail-closed admin defaults are closed. |
+| M005 | `005-live-mutation-observability-and-scenarios.md` | active | M004 | Live generation policies, active connection control, Prometheus text, evidence snapshots, and scenario v1 are implemented; qualification is in progress. |
 | M006 | `006-toxiproxy-v2-12-compatibility.md` | blocked | M005 | Toxiproxy adapter must map onto a stable native engine, not define it. |
 | M007 | `007-eggfetch-inprocess-integration.md` | blocked | M005 | Requires stable live policy handles so pooled physical connections can observe fault updates correctly. |
 | M008 | `008-qualification-release-and-distribution.md` | blocked | M006, M007 | First release gate: compatibility, integration, cross-platform, performance, packaging, and evidence. |
