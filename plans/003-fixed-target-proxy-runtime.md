@@ -1,6 +1,6 @@
 # M003 — Fixed-Target Proxy Runtime
 
-Status: blocked  
+Status: closed  
 Depends on: M002  
 Successor: M004
 

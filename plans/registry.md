@@ -9,8 +9,8 @@ This file is the compact source of truth for active milestone state. Detailed sc
 | M000 | `000-architecture-and-scope-baseline.md` | closed | — | Initial investigation, architecture, references, and handoff sequence registered. |
 | M001 | `001-workspace-bootstrap-and-core-contracts.md` | closed | M000 | Closed in `plans/closure/M001-workspace-bootstrap-and-core-contracts-closure.md` at `309aeff8da9b1d91b36aecd55c190e12d56e537d`. |
 | M002 | `002-deterministic-stream-fault-engine.md` | closed | M001 | Closed in `plans/closure/M002-deterministic-stream-fault-engine-closure.md` at `d85d25402af4f7c63a45ebb4ebc73b8de727d2e5`. |
-| M003 | `003-fixed-target-proxy-runtime.md` | ready | M002 | M002 engine, bounded queue, deterministic RNG, and live-policy foundations are closed. |
-| M004 | `004-control-plane-cli-and-config.md` | blocked | M003 | Requires stable runtime handles/registry and lifecycle semantics. |
+| M003 | `003-fixed-target-proxy-runtime.md` | closed | M002 | Closed in `plans/closure/M003-fixed-target-proxy-runtime-closure.md` at `5dd41027948e7413b595c77f11d7a9e0b31f3785`. |
+| M004 | `004-control-plane-cli-and-config.md` | ready | M003 | Fixed-target service handles, listener ownership, admission limits, relay composition, and drain lifecycle are closed. |
 | M005 | `005-live-mutation-observability-and-scenarios.md` | blocked | M004 | Requires native API/control model to be stable enough for generation changes and active-connection control. |
 | M006 | `006-toxiproxy-v2-12-compatibility.md` | blocked | M005 | Toxiproxy adapter must map onto a stable native engine, not define it. |
 | M007 | `007-eggfetch-inprocess-integration.md` | blocked | M005 | Requires stable live policy handles so pooled physical connections can observe fault updates correctly. |
