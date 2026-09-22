@@ -56,9 +56,12 @@ tag/crates.io publication/GitHub release remain explicit owner decisions
   documented wire/config surfaces; hardening deferred to pre-1.0 and
   stated in closure (no silent freeze).
 - Packaging: `eggchaos-core-0.1.0.crate` builds; publish order is core
-  → eggfetch; server/toxiproxy/cli blocked on upstream `eggserve-*`
-  git deps reaching crates.io (external, recorded). External consumer
-  fixture (`ChaosDialer`-free core surface via path dep): pass.
+  → eggfetch → server/toxiproxy/cli. Post-closure check: `eggserve-*`
+  0.2.0 were found published on crates.io and the workspace was switched
+  from git pins to version-only deps (zero git sources left in
+  `Cargo.lock`); full workspace tests, audit, and deny re-pass on the
+  registry deps, so the graph is order-publishable with no external
+  blocker remaining. External consumer fixture passes.
 - Binaries (from candidate code): macOS x86_64/aarch64, Linux
   x86_64/aarch64 (zigbuild, glibc 2.17), Windows x86_64-gnu — all with
   SHA-256 (see `dist/*.sha256`, git-ignored; reproduced by

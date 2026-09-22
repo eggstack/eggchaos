@@ -387,7 +387,8 @@ dependencies = [
 [[package]]
 name = "eggserve-primitives"
 version = "0.2.0"
-source = "git+https://github.com/eggstack/eggserve.git?rev=859a2bc2fe1d9e6215c122d19cd50f2f070d2da6#859a2bc2fe1d9e6215c122d19cd50f2f070d2da6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8732e77fae06b395f992cb1dd163ca30750e2f44d1fed3824eb8fc4650dafc03"
 dependencies = [
  "bytes",
  "futures-util",
@@ -396,7 +397,8 @@ dependencies = [
 [[package]]
 name = "eggserve-server"
 version = "0.2.0"
-source = "git+https://github.com/eggstack/eggserve.git?rev=859a2bc2fe1d9e6215c122d19cd50f2f070d2da6#859a2bc2fe1d9e6215c122d19cd50f2f070d2da6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "35ce82d6d799d5ebb9cd831e3dcaca61f708f47b96b11c0841dd72cc5dd51d01"
 dependencies = [
  "bytes",
  "eggserve-primitives",
@@ -422,7 +424,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -671,7 +673,7 @@ dependencies = [
  "hyper",
  "libc",
  "pin-project-lite",
- "socket2 0.6.5",
+ "socket2 0.5.10",
  "tokio",
  "tower-service",
  "tracing",
@@ -1148,7 +1150,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1417,7 +1419,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

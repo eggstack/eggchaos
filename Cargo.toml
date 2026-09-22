@@ -36,8 +36,8 @@ clap = { version = "4", features = ["derive", "env"] }
 egress-relay = { package = "eggress-relay", version = "1.0.7" }
 eggfetch-core = { version = "0.2.0", default-features = false, features = ["native-http1", "high-level-url", "json", "tls-rustls", "tls-native-roots"] }
 h2 = "0.4"
-eggserve-primitives = { git = "https://github.com/eggstack/eggserve.git", rev = "859a2bc2fe1d9e6215c122d19cd50f2f070d2da6", version = "0.2.0" }
-eggserve-server = { git = "https://github.com/eggstack/eggserve.git", rev = "859a2bc2fe1d9e6215c122d19cd50f2f070d2da6", version = "0.2.0" }
+eggserve-primitives = { version = "0.2.0" }
+eggserve-server = { version = "0.2.0" }
 http = "1"
 http-body-util = "0.1"
 hyper = { version = "1", features = ["client", "http1", "server"] }
