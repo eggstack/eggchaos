@@ -8,17 +8,32 @@ This file is the compact source of truth for active milestone state. Detailed sc
 | --- | --- | --- | --- | --- |
 | M000 | `000-architecture-and-scope-baseline.md` | closed | — | Initial investigation, architecture, references, and handoff sequence registered. |
 | M001 | `001-workspace-bootstrap-and-core-contracts.md` | closed | M000 | Closed in `plans/closure/M001-workspace-bootstrap-and-core-contracts-closure.md` at `309aeff8da9b1d91b36aecd55c190e12d56e537d`. |
-| M002 | `002-deterministic-stream-fault-engine.md` | closed | M001 | Closed in `plans/closure/M002-deterministic-stream-fault-engine-closure.md` at `d85d25402af4f7c63a45ebb4ebc73b8de727d2e5`. |
-| M003 | `003-fixed-target-proxy-runtime.md` | closed | M002 | Closed in `plans/closure/M003-fixed-target-proxy-runtime-closure.md` at `5dd41027948e7413b595c77f11d7a9e0b31f3785`. |
-| M004 | `004-control-plane-cli-and-config.md` | closed | M003 | Closed in `plans/closure/M004-control-plane-cli-and-config-closure.md` at `14791042aad47dc11d57f84677dcb69ef055d690`. |
-| M005 | `005-live-mutation-observability-and-scenarios.md` | closed | M004 | Closed in `plans/closure/M005-live-mutation-observability-and-scenarios-closure.md` at `250494fc7d408c3f86933f44437d454864519984`. |
-| M006 | `006-toxiproxy-v2-12-compatibility.md` | closed | M005 | Closed in `plans/closure/M006-toxiproxy-v2-12-compatibility-closure.md` at `e3d1d1faaf390f7d2b8b134f8650dc5a385a0110`. |
-| M007 | `007-eggfetch-inprocess-integration.md` | closed | M005 | Closed in `plans/closure/M007-eggfetch-inprocess-integration-closure.md` at `eb52ecd2a2a28e06171bbdf96c3ef4947b8d3eb8`; release-gate evidence gaps are carried explicitly into M008. |
-| M008 | `008-qualification-release-and-distribution.md` | blocked | M006, M007 | Blocked by the named evidence gaps in `plans/closure/M008-qualification-release-and-distribution-blocked.md`: unpublished package dependencies, incomplete local target-matrix execution, and incomplete repeated performance/differential/consumer evidence. Audit and license tooling now pass. |
+| M002 | `002-deterministic-stream-fault-engine.md` | closed | M001 | Historical closure at `d85d25402af4f7c63a45ebb4ebc73b8de727d2e5`; later implementation audit found semantic gaps now assigned to M009. Preserve the historical record rather than rewriting it. |
+| M003 | `003-fixed-target-proxy-runtime.md` | closed | M002 | Historical closure at `5dd41027948e7413b595c77f11d7a9e0b31f3785`; runtime/control lifecycle corrections are assigned to M010. |
+| M004 | `004-control-plane-cli-and-config.md` | closed | M003 | Historical closure at `14791042aad47dc11d57f84677dcb69ef055d690`; incomplete native runtime/API/CLI authority is assigned to M010. |
+| M005 | `005-live-mutation-observability-and-scenarios.md` | closed | M004 | Historical closure at `250494fc7d408c3f86933f44437d454864519984`; state/generation/scenario evidence corrections are assigned to M011. |
+| M006 | `006-toxiproxy-v2-12-compatibility.md` | closed | M005 | Historical closure at `e3d1d1faaf390f7d2b8b134f8650dc5a385a0110`; route/semantic parity completion is assigned to M012. |
+| M007 | `007-eggfetch-inprocess-integration.md` | closed | M005 | Closed at `eb52ecd2a2a28e06171bbdf96c3ef4947b8d3eb8`; M013 will requalify it after core/live-policy corrections. |
+| M008 | `008-qualification-release-and-distribution.md` | blocked | M006, M007, M013 | Release qualification is paused until M013 requalifies the corrective implementation. The earlier blocked record also names package/target/performance/consumer evidence that remains M008 work after correctness is restored. |
+| M009 | `009-core-fault-semantics-corrective.md` | ready | M002 historical implementation | Correct release-baseline fault execution, AsyncWrite buffering, termination signals, token bucket, slicer, blackhole, and limit-data semantics. May run in parallel with M010. |
+| M010 | `010-runtime-control-authority-corrective.md` | ready | M003/M004 historical implementation | Make runtime listener/task state the native control authority; complete real proxy/fault CRUD, reset, CLI, durable cancellation, and termination integration. May run in parallel with M009. |
+| M011 | `011-live-state-scenario-observability-corrective.md` | blocked | M009, M010 | Reconcile canonical/live policy state, atomic generations/seed namespaces, owned scenarios, evidence, metrics, and bounded history. |
+| M012 | `012-toxiproxy-v2-12-parity-corrective.md` | blocked | M009, M010, M011 | Complete exact declared v2.12 route/default/reset/populate/toxic behavior and pinned-oracle differential coverage. |
+| M013 | `013-corrective-requalification-gate.md` | blocked | M009, M010, M011, M012 | Cross-layer corrective qualification gate. Only a clean M013 verdict may reactivate M008. |
+
+## Corrective execution order
+
+The active corrective graph is:
+
+`(M009 || M010) -> M011 -> M012 -> M013 -> M008`
+
+M009 and M010 are independently ready and may be implemented in parallel. M011 is the first join point because live-state qualification depends on both correct fault semantics and a real runtime mutation authority.
+
+Historical M002–M006 closure records are retained as evidence of the earlier implementation state. They are not rewritten or deleted. M009–M013 are corrective successors discovered by a later source/behavior audit.
 
 ## Future roadmap items not yet activated
 
-These are deliberately not assigned executable milestone files yet. They require post-M008 evidence and a new planning pass.
+These remain post-release or separately planned work and must not be pulled into the corrective sequence.
 
 | Area | State | Gate |
 | --- | --- | --- |
@@ -27,14 +42,24 @@ These are deliberately not assigned executable milestone files yet. They require
 | eggreplay timing/fault integration | future | eggreplay stable flow model + M008. |
 | eggprobe controlled impairment experiments | future | eggprobe stable diagnostics contract + M008. |
 | Python/FFI bindings | future | stable Rust API after first release; no parallel networking implementation. |
-| richer scenario scheduler / time-varying fault scripts | future | M005 scenario model proven in real tests. |
-| current-Toxiproxy post-2.12 extensions such as stream-chunk `packet_loss` | future | M006 v2.12 parity closed; semantics documented as chunk loss, not real packet loss. |
+| richer scenario scheduler / time-varying fault scripts | future | M011 corrected scenario model proven and M008 closed. |
+| current-Toxiproxy post-2.12 extensions such as stream-chunk `packet_loss` | future | M012 v2.12 parity requalified and M008 closed. |
 
 ## Dependency-ready view
 
-M008 remains blocked by the named release evidence gaps; no later milestone is activated until those gaps are resolved. The audit/license gate is unblocked, but package publication/staging and the remaining qualification evidence are not.
+Ready now:
 
-When M001 closes, update this registry so M002 becomes `ready`; do not pre-mark later plans ready. The same rule applies transitively.
+- M009 — core fault semantics corrective.
+- M010 — runtime/control authority corrective.
+
+Blocked:
+
+- M011 on M009 + M010.
+- M012 on M009 + M010 + M011.
+- M013 on M009–M012.
+- M008 on M013, after which its remaining release/package/target/performance evidence can resume.
+
+Do not hand M008 to an implementation/release agent while M013 is open.
 
 ## Closure requirements
 
