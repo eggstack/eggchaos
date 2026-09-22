@@ -306,6 +306,19 @@ Create:
 - examples for Redis/Postgres/generic TCP;
 - explicit statement that active structural fault mutation is not fully live until M005 if still true.
 
+## Ordered work packages
+
+Execute in this order:
+
+1. **WP1 — Native command/mutation boundary:** ensure all runtime mutations are available through one typed server authority before exposing HTTP.
+2. **WP2 — TOML schema v1:** implement bounded DTO parsing, full-candidate validation/compilation, startup atomicity, and canonical conversion into native runtime types.
+3. **WP3 — EggServe admin service:** mount versioned native routes on the leaf H1 runtime with body/head/resource bounds and stable JSON error envelopes.
+4. **WP4 — Security posture:** implement loopback default, explicit public-admin opt-in, required authentication, constant-time comparison where appropriate, and redaction.
+5. **WP5 — Eggfetch control client:** add the minimal H1 client profile and typed native API client used by the CLI.
+6. **WP6 — CLI surface:** implement serve/proxy/fault/connection/read/reset commands, stable `--json`, exit codes, and separate human formatting.
+7. **WP7 — End-to-end/API qualification:** run config, concurrency, restart-class, auth, malformed/oversize, and CLI tests against a real ephemeral admin server.
+8. **WP8 — Documentation/closure:** publish config/API/CLI/security references, close M004 with evidence, then activate M005.
+
 ## Acceptance criteria
 
 M004 closes only when:
