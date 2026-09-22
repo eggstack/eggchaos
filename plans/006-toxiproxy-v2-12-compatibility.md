@@ -332,6 +332,19 @@ It should:
 
 Routine Rust unit/integration tests still run independently.
 
+## Ordered work packages
+
+Execute in this order:
+
+1. **WP1 — Pin oracle and capture baseline:** acquire/verify exact Toxiproxy v2.12.0 identity, build the raw HTTP corpus, and record undocumented defaults/status/error behavior before implementing translations.
+2. **WP2 — Compatibility DTO/route layer:** implement proxy/toxic JSON shapes and unversioned v2.12 route table as an adapter over native runtime commands.
+3. **WP3 — Toxic mappings:** translate all seven v2.12 toxics and their units/defaults into native faults without adding a second execution engine.
+4. **WP4 — Populate/reset/version/metrics:** implement remaining daemon behaviors and compatibility metric aliases only where truthful.
+5. **WP5 — Differential behavioral corpus:** run API plus live-data cases against official v2.12 and eggchaos with exact/tolerance comparators.
+6. **WP6 — Client-library smoke:** drive eggchaos with the pinned Go client plus one independent client surface and record versions.
+7. **WP7 — Compatibility matrix/docs:** classify each surface as API-shape, behavioral, intent-compatible, or unsupported; retain post-v2.12 `packet_loss` as out of scope.
+8. **WP8 — Closure pass:** run the pinned qualification command on the candidate commit, archive normalized evidence, and close M006 without activating M008 until M007 also closes.
+
 ## Acceptance criteria
 
 M006 closes only when:
