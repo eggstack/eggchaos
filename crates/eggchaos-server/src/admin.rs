@@ -1,33 +1,12 @@
-use std::{
-    collections::{BTreeMap, HashMap},
-    io,
-    net::SocketAddr,
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc,
-    },
-};
+use std::{io, net::SocketAddr, sync::Arc};
 
 use eggserve_primitives::{Request, RequestBodyPolicy, Response, ResponseBody, StatusCode};
 use eggserve_server::{service_fn_with_policy, RuntimeConfig, Server, ServerHandle, ServiceError};
 use serde::Serialize;
 use thiserror::Error;
-use tokio::{net::TcpListener, sync::RwLock};
+use tokio::net::TcpListener;
 
-use crate::{NativeConfigError, ProxySpec};
-use eggchaos_core::FaultPlan;
-
-type ConnectionRegistry = Arc<RwLock<HashMap<u64, crate::ConnectionSnapshot>>>;
-type CancellationRegistry = Arc<RwLock<HashMap<u64, Arc<tokio::sync::Notify>>>>;
-
-/// Low-cardinality native metrics counters.
-#[derive(Default)]
-pub struct MetricsCounters {
-    /// Accepted connection total.
-    pub accepted: AtomicU64,
-    /// Completed connection total.
-    pub completed: AtomicU64,
-}
+use crate::{ControlError, ControlState, NativeConfigError};
 
 /// Native admin listener security settings.
 #[derive(Debug, Clone)]
@@ -43,139 +22,10 @@ pub struct AdminConfig {
 impl Default for AdminConfig {
     fn default() -> Self {
         Self {
-            bind: "127.0.0.1:8475".parse().unwrap(),
+            bind: "127.0.0.1:8475".parse().expect("loopback admin address"),
             public_admin: false,
             auth_token: None,
         }
-    }
-}
-
-/// Shared typed mutation authority used by native and compatibility APIs.
-#[derive(Clone, Default)]
-pub struct ControlState {
-    proxies: Arc<RwLock<BTreeMap<String, ProxySpec>>>,
-    generation: Arc<AtomicU64>,
-    connections: Arc<RwLock<Option<ConnectionRegistry>>>,
-    cancellations: Arc<RwLock<Option<CancellationRegistry>>>,
-    metrics: Arc<MetricsCounters>,
-}
-
-impl ControlState {
-    /// Create state from validated proxy definitions.
-    pub fn new(proxies: impl IntoIterator<Item = ProxySpec>) -> Self {
-        let state = Self {
-            proxies: Arc::new(RwLock::new(BTreeMap::new())),
-            generation: Arc::new(AtomicU64::new(1)),
-            connections: Arc::new(RwLock::new(None)),
-            cancellations: Arc::new(RwLock::new(None)),
-            metrics: Arc::new(MetricsCounters::default()),
-        };
-        if let Ok(mut map) = state.proxies.try_write() {
-            for proxy in proxies {
-                map.insert(proxy.name.clone(), proxy);
-            }
-        }
-        state
-    }
-    /// Attach runtime-owned active connection and cancellation registries.
-    pub async fn attach_runtime(
-        &self,
-        connections: ConnectionRegistry,
-        cancellations: CancellationRegistry,
-    ) {
-        *self.connections.write().await = Some(connections);
-        *self.cancellations.write().await = Some(cancellations);
-    }
-    pub(crate) fn metrics(&self) -> Arc<MetricsCounters> {
-        self.metrics.clone()
-    }
-    /// Render low-cardinality Prometheus text.
-    pub fn metrics_text(&self) -> String {
-        format!("# HELP eggchaos_config_generation Current configuration generation\n# TYPE eggchaos_config_generation gauge\neggchaos_config_generation {}\n# HELP eggchaos_connections_accepted_total Accepted connections\n# TYPE eggchaos_connections_accepted_total counter\neggchaos_connections_accepted_total {}\n# HELP eggchaos_connections_completed_total Completed connections\n# TYPE eggchaos_connections_completed_total counter\neggchaos_connections_completed_total {}\n", self.generation(), self.metrics.accepted.load(Ordering::Relaxed), self.metrics.completed.load(Ordering::Relaxed))
-    }
-    /// Current configuration generation.
-    pub fn generation(&self) -> u64 {
-        self.generation.load(Ordering::Acquire)
-    }
-    /// Snapshot all proxy definitions.
-    pub async fn list(&self) -> Vec<ProxySpec> {
-        self.proxies.read().await.values().cloned().collect()
-    }
-    /// Snapshot active runtime connections when attached.
-    pub async fn connections(&self) -> Vec<crate::ConnectionSnapshot> {
-        let Some(registry) = self.connections.read().await.clone() else {
-            return Vec::new();
-        };
-        let snapshots = registry.read().await.values().cloned().collect();
-        snapshots
-    }
-    /// Terminate an active connection, if present.
-    pub async fn kill(&self, id: u64) -> bool {
-        let Some(registry) = self.cancellations.read().await.clone() else {
-            return false;
-        };
-        let Some(notify) = registry.write().await.remove(&id) else {
-            return false;
-        };
-        notify.notify_waiters();
-        true
-    }
-    /// Get one proxy definition.
-    pub async fn get(&self, name: &str) -> Option<ProxySpec> {
-        self.proxies.read().await.get(name).cloned()
-    }
-    /// Insert a proxy atomically.
-    pub async fn insert(&self, proxy: ProxySpec) -> Result<u64, AdminError> {
-        let mut map = self.proxies.write().await;
-        if map.contains_key(&proxy.name) {
-            return Err(AdminError::Conflict("proxy already exists".into()));
-        }
-        proxy
-            .upstream_policy
-            .publish(proxy.upstream_faults.clone())
-            .map_err(|e| AdminError::Invalid(e.to_string()))?;
-        proxy
-            .downstream_policy
-            .publish(proxy.downstream_faults.clone())
-            .map_err(|e| AdminError::Invalid(e.to_string()))?;
-        map.insert(proxy.name.clone(), proxy);
-        Ok(self.generation.fetch_add(1, Ordering::AcqRel) + 1)
-    }
-    /// Publish a complete fault-plan generation for an existing proxy.
-    pub async fn publish_plans(
-        &self,
-        name: &str,
-        upstream: FaultPlan,
-        downstream: FaultPlan,
-    ) -> Result<u64, AdminError> {
-        upstream
-            .validate()
-            .map_err(|e| AdminError::Invalid(e.to_string()))?;
-        downstream
-            .validate()
-            .map_err(|e| AdminError::Invalid(e.to_string()))?;
-        let map = self.proxies.read().await;
-        let proxy = map
-            .get(name)
-            .ok_or_else(|| AdminError::Invalid("proxy not found".into()))?;
-        proxy
-            .upstream_policy
-            .publish(upstream)
-            .map_err(|e| AdminError::Invalid(e.to_string()))?;
-        proxy
-            .downstream_policy
-            .publish(downstream)
-            .map_err(|e| AdminError::Invalid(e.to_string()))?;
-        Ok(self.generation.fetch_add(1, Ordering::AcqRel) + 1)
-    }
-    /// Remove a proxy atomically.
-    pub async fn remove(&self, name: &str) -> bool {
-        let mut map = self.proxies.write().await;
-        let existed = map.remove(name).is_some();
-        if existed {
-            self.generation.fetch_add(1, Ordering::AcqRel);
-        }
-        existed
     }
 }
 
@@ -281,6 +131,29 @@ struct ErrorBody<'a> {
     message: &'a str,
 }
 
+fn control_status(error: &ControlError) -> StatusCode {
+    match error {
+        ControlError::NotFound(_) => StatusCode::NOT_FOUND,
+        ControlError::Conflict(_) | ControlError::BindFailed { .. } => {
+            StatusCode::new(409).expect("conflict status")
+        }
+        ControlError::Invalid(_) => StatusCode::BAD_REQUEST,
+        ControlError::RestartFailed { .. } => StatusCode::new(500).expect("server-error status"),
+    }
+}
+
+fn control_error_response(error: &ControlError) -> Response {
+    json_response(
+        control_status(error),
+        &ErrorEnvelope {
+            error: ErrorBody {
+                code: error.code(),
+                message: &error.to_string(),
+            },
+        },
+    )
+}
+
 async fn handle_request(
     request: Request,
     state: ControlState,
@@ -312,128 +185,20 @@ async fn handle_request(
         .read_all()
         .await
         .map_err(|error| ServiceError::rejected(413, error.to_string()))?;
-    let response = match (method.as_str(), path.as_str()) {
-        ("GET", "/v1/health") => json_response(
-            StatusCode::OK,
-            &serde_json::json!({"running": true, "generation": state.generation()}),
-        ),
-        ("GET", "/v1/version") => json_response(
-            StatusCode::OK,
-            &serde_json::json!({"version": env!("CARGO_PKG_VERSION"), "api": "v1"}),
-        ),
-        ("POST", "/v1/reset") => json_response(
-            StatusCode::OK,
-            &serde_json::json!({"generation": state.generation(), "reset": true}),
-        ),
-        ("GET", "/v1/proxies") => json_response(StatusCode::OK, &state.list().await),
-        ("POST", "/v1/scenarios/apply") => match serde_json::from_slice::<crate::Scenario>(&body) {
-            Ok(scenario) => {
-                let state = state.clone();
-                tokio::spawn(async move {
-                    let _ = crate::apply_scenario(state, scenario).await;
-                });
-                json_response(
-                    StatusCode::new(202).unwrap(),
-                    &serde_json::json!({"accepted": true}),
-                )
-            }
-            Err(error) => json_response(
-                StatusCode::BAD_REQUEST,
-                &ErrorEnvelope {
-                    error: ErrorBody {
-                        code: "invalid_json",
-                        message: &error.to_string(),
-                    },
+    let segments: Vec<&str> = path.split('/').filter(|part| !part.is_empty()).collect();
+    let response = match route(&method, &segments, &body, &state).await {
+        RouteOutcome::Response(response) => response,
+        RouteOutcome::ControlError(error) => control_error_response(&error),
+        RouteOutcome::BadJson(error) => json_response(
+            StatusCode::BAD_REQUEST,
+            &ErrorEnvelope {
+                error: ErrorBody {
+                    code: "invalid_json",
+                    message: &error,
                 },
-            ),
-        },
-        ("GET", "/v1/connections") => json_response(StatusCode::OK, &state.connections().await),
-        ("DELETE", _) if path.starts_with("/v1/connections/") => {
-            let id = path
-                .trim_start_matches("/v1/connections/")
-                .parse::<u64>()
-                .unwrap_or(0);
-            if state.kill(id).await {
-                json_response(
-                    StatusCode::NO_CONTENT,
-                    &serde_json::json!({"id": id, "terminated": true}),
-                )
-            } else {
-                json_response(
-                    StatusCode::NOT_FOUND,
-                    &ErrorEnvelope {
-                        error: ErrorBody {
-                            code: "not_found",
-                            message: "connection not found",
-                        },
-                    },
-                )
-            }
-        }
-        ("GET", "/metrics") => text_response(state.metrics_text()),
-        ("POST", "/v1/proxies") => match serde_json::from_slice::<ProxySpec>(&body) {
-            Ok(proxy) => match state.insert(proxy.clone()).await {
-                Ok(generation) => json_response(
-                    StatusCode::CREATED,
-                    &serde_json::json!({"proxy": proxy, "generation": generation}),
-                ),
-                Err(error) => json_response(
-                    StatusCode::new(409).unwrap(),
-                    &ErrorEnvelope {
-                        error: ErrorBody {
-                            code: "conflict",
-                            message: &error.to_string(),
-                        },
-                    },
-                ),
             },
-            Err(error) => json_response(
-                StatusCode::BAD_REQUEST,
-                &ErrorEnvelope {
-                    error: ErrorBody {
-                        code: "invalid_json",
-                        message: &error.to_string(),
-                    },
-                },
-            ),
-        },
-        ("DELETE", _) if path.starts_with("/v1/proxies/") => {
-            let name = path.trim_start_matches("/v1/proxies/");
-            if state.remove(name).await {
-                json_response(
-                    StatusCode::NO_CONTENT,
-                    &serde_json::json!({"generation": state.generation()}),
-                )
-            } else {
-                json_response(
-                    StatusCode::NOT_FOUND,
-                    &ErrorEnvelope {
-                        error: ErrorBody {
-                            code: "not_found",
-                            message: "proxy not found",
-                        },
-                    },
-                )
-            }
-        }
-        ("GET", _) if path.starts_with("/v1/proxies/") => {
-            let name = path
-                .trim_start_matches("/v1/proxies/")
-                .trim_end_matches("/faults");
-            match state.get(name).await {
-                Some(proxy) => json_response(StatusCode::OK, &proxy),
-                None => json_response(
-                    StatusCode::NOT_FOUND,
-                    &ErrorEnvelope {
-                        error: ErrorBody {
-                            code: "not_found",
-                            message: "proxy not found",
-                        },
-                    },
-                ),
-            }
-        }
-        _ => json_response(
+        ),
+        RouteOutcome::NotFound => json_response(
             StatusCode::NOT_FOUND,
             &ErrorEnvelope {
                 error: ErrorBody {
@@ -444,6 +209,182 @@ async fn handle_request(
         ),
     };
     Ok(response)
+}
+
+enum RouteOutcome {
+    Response(Response),
+    ControlError(ControlError),
+    BadJson(String),
+    NotFound,
+}
+
+fn parse_json<T: serde::de::DeserializeOwned>(body: &[u8]) -> Result<T, RouteOutcome> {
+    serde_json::from_slice(body).map_err(|error| RouteOutcome::BadJson(error.to_string()))
+}
+
+async fn route(method: &str, segments: &[&str], body: &[u8], state: &ControlState) -> RouteOutcome {
+    match (method, segments) {
+        ("GET", ["v1", "health"]) => RouteOutcome::Response(json_response(
+            StatusCode::OK,
+            &serde_json::json!({"running": true, "generation": state.generation()}),
+        )),
+        ("GET", ["v1", "version"]) => RouteOutcome::Response(json_response(
+            StatusCode::OK,
+            &serde_json::json!({"version": env!("CARGO_PKG_VERSION"), "api": "v1"}),
+        )),
+        ("GET", ["metrics"]) => RouteOutcome::Response(text_response(state.metrics_text())),
+        ("POST", ["v1", "reset"]) => match state.reset().await {
+            Ok(report) => RouteOutcome::Response(json_response(StatusCode::OK, &report)),
+            Err(error) => RouteOutcome::ControlError(error),
+        },
+        ("GET", ["v1", "proxies"]) => {
+            RouteOutcome::Response(json_response(StatusCode::OK, &state.list().await))
+        }
+        ("POST", ["v1", "proxies"]) => {
+            let spec: crate::ProxySpec = match parse_json(body) {
+                Ok(spec) => spec,
+                Err(outcome) => return outcome,
+            };
+            match state.create_proxy(spec).await {
+                Ok((view, generation)) => RouteOutcome::Response(json_response(
+                    StatusCode::CREATED,
+                    &serde_json::json!({"proxy": view, "generation": generation}),
+                )),
+                Err(error) => RouteOutcome::ControlError(error),
+            }
+        }
+        ("GET", ["v1", "proxies", name]) => match state.get(name).await {
+            Some(view) => RouteOutcome::Response(json_response(StatusCode::OK, &view)),
+            None => RouteOutcome::ControlError(ControlError::NotFound((*name).to_owned())),
+        },
+        ("PATCH", ["v1", "proxies", name]) => {
+            let patch: crate::ProxyPatch = match parse_json(body) {
+                Ok(patch) => patch,
+                Err(outcome) => return outcome,
+            };
+            match state.update_proxy(name, patch).await {
+                Ok((view, generation)) => RouteOutcome::Response(json_response(
+                    StatusCode::OK,
+                    &serde_json::json!({"proxy": view, "generation": generation}),
+                )),
+                Err(error) => RouteOutcome::ControlError(error),
+            }
+        }
+        ("DELETE", ["v1", "proxies", name]) => match state.delete_proxy(name).await {
+            Ok(generation) => RouteOutcome::Response(json_response(
+                StatusCode::OK,
+                &serde_json::json!({"generation": generation, "deleted": true}),
+            )),
+            Err(error) => RouteOutcome::ControlError(error),
+        },
+        ("GET", ["v1", "proxies", name, "faults"]) => match state.list_faults(name).await {
+            Some((upstream, downstream)) => RouteOutcome::Response(json_response(
+                StatusCode::OK,
+                &serde_json::json!({"upstream": upstream, "downstream": downstream}),
+            )),
+            None => RouteOutcome::ControlError(ControlError::NotFound((*name).to_owned())),
+        },
+        ("POST", ["v1", "proxies", name, "faults"]) => {
+            let upsert: crate::FaultUpsert = match parse_json(body) {
+                Ok(upsert) => upsert,
+                Err(outcome) => return outcome,
+            };
+            match state.add_fault(name, upsert).await {
+                Ok((direction, fault, generation)) => RouteOutcome::Response(json_response(
+                    StatusCode::CREATED,
+                    &serde_json::json!({
+                        "direction": direction.as_str(),
+                        "fault": fault,
+                        "generation": generation,
+                    }),
+                )),
+                Err(error) => RouteOutcome::ControlError(error),
+            }
+        }
+        ("GET", ["v1", "proxies", name, "faults", id]) => match state.get_fault(name, id).await {
+            Some((direction, fault)) => RouteOutcome::Response(json_response(
+                StatusCode::OK,
+                &serde_json::json!({"direction": direction.as_str(), "fault": fault}),
+            )),
+            None => {
+                RouteOutcome::ControlError(ControlError::NotFound(format!("fault {id} on {name}")))
+            }
+        },
+        ("PATCH", ["v1", "proxies", name, "faults", id]) => {
+            let patch: crate::FaultPatch = match parse_json(body) {
+                Ok(patch) => patch,
+                Err(outcome) => return outcome,
+            };
+            match state.update_fault(name, id, patch).await {
+                Ok((direction, fault, generation)) => RouteOutcome::Response(json_response(
+                    StatusCode::OK,
+                    &serde_json::json!({
+                        "direction": direction.as_str(),
+                        "fault": fault,
+                        "generation": generation,
+                    }),
+                )),
+                Err(error) => RouteOutcome::ControlError(error),
+            }
+        }
+        ("DELETE", ["v1", "proxies", name, "faults", id]) => {
+            match state.remove_fault(name, id).await {
+                Ok(generation) => RouteOutcome::Response(json_response(
+                    StatusCode::OK,
+                    &serde_json::json!({"generation": generation, "deleted": true}),
+                )),
+                Err(error) => RouteOutcome::ControlError(error),
+            }
+        }
+        ("GET", ["v1", "connections"]) => {
+            RouteOutcome::Response(json_response(StatusCode::OK, &state.connections().await))
+        }
+        ("GET", ["v1", "connections", id]) => match id.parse::<u64>() {
+            Ok(id) => match state.get_connection(id).await {
+                Some(snapshot) => RouteOutcome::Response(json_response(StatusCode::OK, &snapshot)),
+                None => {
+                    RouteOutcome::ControlError(ControlError::NotFound(format!("connection {id}")))
+                }
+            },
+            Err(_) => RouteOutcome::ControlError(ControlError::Invalid(
+                "connection id must be an integer".into(),
+            )),
+        },
+        ("DELETE", ["v1", "connections", id]) => match id.parse::<u64>() {
+            Ok(id) => {
+                if state.kill(id).await {
+                    RouteOutcome::Response(json_response(
+                        StatusCode::OK,
+                        &serde_json::json!({"id": id, "terminated": true}),
+                    ))
+                } else {
+                    RouteOutcome::ControlError(ControlError::NotFound(format!("connection {id}")))
+                }
+            }
+            Err(_) => RouteOutcome::ControlError(ControlError::Invalid(
+                "connection id must be an integer".into(),
+            )),
+        },
+        ("GET", ["v1", "history"]) => {
+            RouteOutcome::Response(json_response(StatusCode::OK, &state.history().await))
+        }
+        ("POST", ["v1", "scenarios", "apply"]) => {
+            match serde_json::from_slice::<crate::Scenario>(body) {
+                Ok(scenario) => {
+                    let state = state.clone();
+                    tokio::spawn(async move {
+                        let _ = crate::apply_scenario(state, scenario).await;
+                    });
+                    RouteOutcome::Response(json_response(
+                        StatusCode::new(202).expect("accepted status"),
+                        &serde_json::json!({"accepted": true}),
+                    ))
+                }
+                Err(error) => RouteOutcome::BadJson(error.to_string()),
+            }
+        }
+        _ => RouteOutcome::NotFound,
+    }
 }
 
 fn constant_time_equal(left: &[u8], right: &[u8]) -> bool {

@@ -7,12 +7,14 @@ mod config;
 mod runtime;
 mod scenario;
 
-pub use admin::{AdminConfig, AdminError, AdminHandle, ControlState, NativeAdmin};
+pub use admin::{AdminConfig, AdminError, AdminHandle, NativeAdmin};
 pub use config::{
     AdminFileConfig, FaultFileConfig, NativeConfig, NativeConfigError, ProxyFileConfig,
 };
 pub use runtime::{
-    AdmissionLimits, ConnectionSnapshot, ConnectionState, EggchaosError, EggchaosService,
-    ProxySpec, ServiceBuilder, ServiceHandle, VERSION,
+    AdmissionLimits, ClosedConnection, ConnectionOutcome, ConnectionSnapshot, ConnectionState,
+    ControlError, ControlState, EggchaosError, EggchaosService, FaultPatch, FaultUpsert,
+    ProxyPatch, ProxySpec, ProxyView, ResetReport, ResetResult, ResettableTcpStream, RuntimeParams,
+    ServiceBuilder, ServiceHandle, TcpResetHandle, VERSION,
 };
 pub use scenario::{apply_scenario, Scenario, ScenarioAction, ScenarioEvent, ScenarioReport};

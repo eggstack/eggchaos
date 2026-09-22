@@ -197,13 +197,48 @@ impl<T> ChaosStream<T> {
     }
 }
 
-impl<T: AsyncRead + Unpin> AsyncRead for ChaosStream<T> {
+/// Read-side pumping requires a bidirectional transport: only a stream
+/// that can also be written can own queued writes worth driving.
+impl<T: AsyncRead + AsyncWrite + Unpin> AsyncRead for ChaosStream<T> {
     fn poll_read(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         buffer: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.inner).poll_read(cx, buffer)
+        let this = self.as_mut().get_mut();
+        if !this.engine.is_empty() {
+            // Read-side pump: the embedding relay never flushes mid-stream,
+            // so a delay fault's queued bytes would sit until connection
+            // close. Polling the write queue on every read drives releasable
+            // bytes toward the inner transport without changing byte
+            // semantics. Pump errors are ignored here; the write path owns
+            // error reporting.
+            let _ = this.engine.poll_flush(cx, &mut this.inner);
+            // A resolved graceful termination surfaces as EOF once the
+            // accepted prefix has drained: the embedding relay observes the
+            // FIN analog and ends, which lets the runtime record drain
+            // evidence. Live inner bytes are never discarded: available data
+            // is delivered first and only a would-be-idle read becomes EOF.
+            // Hard-reset termination is owned by the runtime's abortive
+            // close, so reads keep inner behavior for it.
+            if this.engine.queue_is_empty()
+                && matches!(
+                    this.engine.termination_request(),
+                    Some(TerminationRequest::Graceful)
+                )
+            {
+                let filled_before = buffer.filled().len();
+                match Pin::new(&mut this.inner).poll_read(cx, buffer) {
+                    Poll::Ready(Ok(())) if buffer.filled().len() == filled_before => {
+                        // Inner EOF passes through as EOF.
+                        return Poll::Ready(Ok(()));
+                    }
+                    Poll::Ready(result) => return Poll::Ready(result),
+                    Poll::Pending => return Poll::Ready(Ok(())),
+                }
+            }
+        }
+        Pin::new(&mut this.inner).poll_read(cx, buffer)
     }
 }
 
@@ -214,11 +249,15 @@ impl<T: AsyncWrite + Unpin> AsyncWrite for ChaosStream<T> {
         bytes: &[u8],
     ) -> Poll<io::Result<usize>> {
         let this = self.as_mut().get_mut();
-        if this.engine.is_empty() {
-            return Pin::new(&mut this.inner).poll_write(cx, bytes);
-        }
+        // Live generation must be observed before the empty-engine fast
+        // path: a connection established without faults takes the direct
+        // path, and a later publication still has to transition it to the
+        // faulted engine without reconnecting.
         if this.update_live(cx).is_pending() {
             return Poll::Pending;
+        }
+        if this.engine.is_empty() {
+            return Pin::new(&mut this.inner).poll_write(cx, bytes);
         }
         // Opportunistically drive releasable bytes to free bounded capacity.
         // This arms release timers but never blocks acceptance: ownership
@@ -234,6 +273,12 @@ impl<T: AsyncWrite + Unpin> AsyncWrite for ChaosStream<T> {
         }
         let accepted = this.engine.accept(bytes);
         if accepted > 0 {
+            // Drive already-due bytes immediately: the embedding relay never
+            // flushes mid-stream, so due bytes would otherwise sit queued
+            // until an unrelated read pump or flush. Not-due bytes stay
+            // queued behind their release timers. Errors are owned by the
+            // write path and surface on the next pre-accept drive.
+            let _ = this.engine.poll_flush(cx, &mut this.inner);
             return Poll::Ready(Ok(accepted));
         }
         // Nothing accepted: either bounded capacity is full (the drive above
@@ -268,6 +313,11 @@ impl<T: AsyncWrite + Unpin> AsyncWrite for ChaosStream<T> {
         cx: &mut Context<'_>,
         bufs: &[io::IoSlice<'_>],
     ) -> Poll<io::Result<usize>> {
+        // Observe the live generation before the empty-engine fast path,
+        // mirroring `poll_write`.
+        if self.update_live(cx).is_pending() {
+            return Poll::Pending;
+        }
         if self.engine.is_empty() {
             return Pin::new(&mut self.inner).poll_write_vectored(cx, bufs);
         }
@@ -460,6 +510,12 @@ impl<T: AsyncRead + AsyncWrite + Unpin> AsyncRead for BidirectionalChaosStream<T
             Poll::Ready(Err(error)) => return Poll::Ready(Err(error)),
             Poll::Pending => return Poll::Pending,
         }
+        if !this.upstream.is_empty() {
+            // Read-side pump for the write direction, mirroring
+            // `ChaosStream`: pooled physical connections only make progress
+            // on delay faults when reads drive releasable queued writes.
+            let _ = this.upstream.poll_flush(cx, &mut this.inner);
+        }
         if this.downstream.is_empty() {
             return Pin::new(&mut this.inner).poll_read(cx, buffer);
         }
@@ -522,6 +578,9 @@ impl<T: AsyncRead + AsyncWrite + Unpin> AsyncWrite for BidirectionalChaosStream<
         }
         let accepted = this.upstream.accept(bytes);
         if accepted > 0 {
+            // Drive already-due bytes immediately: the embedding relay never
+            // flushes mid-stream. See `ChaosStream::poll_write`.
+            let _ = this.upstream.poll_flush(cx, &mut this.inner);
             return Poll::Ready(Ok(accepted));
         }
         if this.upstream.termination_request().is_some() && this.upstream.queue_is_empty() {
@@ -980,6 +1039,33 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
+    async fn read_pumps_releasable_queued_writes() {
+        // The embedding relay never flushes mid-stream, so reads drive
+        // releasable queued writes toward the inner transport.
+        let plan = latency_plan(50, 32);
+        let (mut peer, right) = tokio::io::duplex(64);
+        let mut wrapped = ChaosStream::new(right, plan, 7, "p", 1, Direction::Upstream).unwrap();
+        wrapped.write_all(b"abc").await.unwrap();
+        peer.write_all(b"zy").await.unwrap();
+        let mut inbound = [0; 2];
+        wrapped.read_exact(&mut inbound).await.unwrap();
+        assert_eq!(&inbound, b"zy");
+        // The queued write is still held before its deadline.
+        assert_eq!(wrapped.summary().bytes_forwarded, 0);
+        tokio::time::advance(Duration::from_millis(50)).await;
+        peer.write_all(b"!").await.unwrap();
+        // This read pumps the now-releasable queued write even though the
+        // caller never flushed.
+        let mut mark = [0; 1];
+        wrapped.read_exact(&mut mark).await.unwrap();
+        assert_eq!(&mark, b"!");
+        assert_eq!(wrapped.summary().bytes_forwarded, 3);
+        let mut out = [0; 3];
+        peer.read_exact(&mut out).await.unwrap();
+        assert_eq!(&out, b"abc");
+    }
+
+    #[tokio::test(start_paused = true)]
     async fn shutdown_delivers_pending_latency_queue() {
         let plan = latency_plan(100, 32);
         let (mut peer, right) = tokio::io::duplex(32);
@@ -1157,5 +1243,75 @@ mod tests {
         let value = serde_json::to_value(summary).unwrap();
         assert_eq!(value["bytes_forwarded"], 3);
         assert!(value.get("payload").is_none());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn live_publish_from_empty_direct_path_engages_fault() {
+        // A stream created without faults takes the direct write path, but
+        // a later publication must still transition it without reconnecting.
+        let policy = crate::LivePolicy::new(crate::FaultPlan::empty());
+        let (mut peer, right) = tokio::io::duplex(32);
+        let mut wrapped =
+            ChaosStream::new_live(right, policy.clone(), 7, "p", 1, Direction::Upstream).unwrap();
+        wrapped.write_all(b"a").await.unwrap();
+        let mut out = [0; 1];
+        peer.read_exact(&mut out).await.unwrap();
+        assert_eq!(&out, b"a");
+        policy.publish(latency_plan(50, 32)).unwrap();
+        wrapped.write_all(b"b").await.unwrap();
+        // Still held before the deadline: the fault engaged on the live
+        // connection (direct-path writes never buffer).
+        assert_eq!(wrapped.summary().buffered_bytes, 1);
+        assert_eq!(wrapped.summary().bytes_forwarded, 0);
+        tokio::time::advance(Duration::from_millis(50)).await;
+        wrapped.flush().await.unwrap();
+        peer.read_exact(&mut out).await.unwrap();
+        assert_eq!(&out, b"b");
+    }
+
+    #[tokio::test]
+    async fn due_bytes_forward_without_explicit_flush() {
+        // The embedding relay never flushes mid-stream, so already-due
+        // bytes must reach the inner transport on the write path.
+        let plan = crate::FaultPlan::new(vec![fault(
+            "close",
+            crate::FaultKind::SlowClose(crate::SlowCloseConfig {
+                delay: Duration::ZERO,
+            }),
+        )])
+        .unwrap();
+        let (mut peer, right) = tokio::io::duplex(32);
+        let mut wrapped = ChaosStream::new(right, plan, 7, "p", 1, Direction::Upstream).unwrap();
+        wrapped.write_all(b"abc").await.unwrap();
+        let mut out = [0; 3];
+        peer.read_exact(&mut out).await.unwrap();
+        assert_eq!(&out, b"abc");
+    }
+
+    #[tokio::test]
+    async fn graceful_termination_reads_eof_after_drain() {
+        // Once a graceful termination resolves and the accepted prefix has
+        // drained, reads see EOF so an embedding relay ends instead of
+        // idling past its grace period.
+        let plan = crate::FaultPlan::new(vec![fault(
+            "bye",
+            crate::FaultKind::Disconnect(crate::DisconnectConfig {
+                after: Duration::ZERO,
+                hard_reset: false,
+            }),
+        )])
+        .unwrap();
+        let (mut peer, right) = tokio::io::duplex(32);
+        let mut wrapped = ChaosStream::new(right, plan, 7, "p", 1, Direction::Upstream).unwrap();
+        wrapped.write_all(b"abc").await.unwrap();
+        let mut out = [0; 3];
+        peer.read_exact(&mut out).await.unwrap();
+        assert_eq!(&out, b"abc");
+        assert_eq!(
+            wrapped.termination_info().map(|info| info.request),
+            Some(crate::TerminationRequest::Graceful)
+        );
+        let mut mark = [0; 1];
+        assert_eq!(wrapped.read(&mut mark).await.unwrap(), 0);
     }
 }

@@ -203,16 +203,16 @@ impl ToxiproxyAdapter {
             proxies: Arc::new(RwLock::new(BTreeMap::new())),
         }
     }
-    /// List native-backed proxy JSON values.
-    pub async fn list(&self) -> Vec<ProxySpec> {
+    /// List native-backed proxy views.
+    pub async fn list(&self) -> Vec<eggchaos_server::ProxyView> {
         self.state.list().await
     }
     /// Create a proxy using the native authority.
     pub async fn create(&self, proxy: Proxy) -> Result<u64, CompatibilityError> {
         let native = translate_proxy(&proxy)?;
-        let generation = self
+        let (_view, generation) = self
             .state
-            .insert(native)
+            .create_proxy(native)
             .await
             .map_err(|e| CompatibilityError::Invalid(e.to_string()))?;
         self.proxies.write().await.insert(proxy.name.clone(), proxy);
@@ -228,7 +228,7 @@ impl ToxiproxyAdapter {
     }
     /// Delete a compatibility proxy.
     pub async fn delete(&self, name: &str) -> bool {
-        let removed = self.state.remove(name).await;
+        let removed = self.state.delete_proxy(name).await.is_ok();
         if removed {
             self.proxies.write().await.remove(name);
         }
