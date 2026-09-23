@@ -1,6 +1,6 @@
 # Eggchaos Long-Term Roadmap
 
-Status: corrective implementation active; M009 and M010 ready, M008 release qualification paused behind M013.
+Status: M008 and M009–M013 closed; M014 ready for release-state reconciliation, M015 blocked as the final exact-HEAD pre-tag gate.
 
 ## 1. Mission
 
@@ -256,9 +256,9 @@ Cross-platform CI, fuzz/property suites, benchmark/regression budgets, security 
 
 Exit: first release candidate has reproducible evidence and no planning/documentation state claims unsupported closure.
 
-## 11A. Corrective sequence discovered during pre-release audit
+## 11A. Completed corrective sequence discovered during pre-release audit
 
-A later implementation audit after M001–M007 found that several historical milestone closures overstated behavioral completeness. The architecture remains valid, but release work is paused for a bounded corrective sequence.
+A later implementation audit after M001–M007 found that several historical milestone closures overstated behavioral completeness. The architecture remained valid and the bounded M009–M013 corrective sequence subsequently completed, followed by M008 release qualification.
 
 Active graph:
 
@@ -285,9 +285,9 @@ M011 reconciles canonical and live policy state, atomically publishes generation
 
 M012 completes the declared Toxiproxy v2.12 route/default/populate/reset/toxic surface and replaces partial smoke evidence with a pinned-oracle differential corpus.
 
-M013 reruns the corrected stack on one exact commit, including Eggfetch regression qualification, before M008 is allowed to continue release/package/target/performance work.
+M013 reran the corrected stack on one exact commit, including Eggfetch regression qualification, and M008 then completed release/package/target/performance qualification.
 
-Historical closure records are retained and should not be rewritten. The corrective sequence is the current release-readiness authority.
+Historical closure records are retained and should not be rewritten. Because dependency/test/workflow fixes landed after the M008 candidate, M014 reconciles planning/release state and M015 performs the final exact-HEAD pre-tag release qualification. The current remaining pre-tag chain is `M014 -> M015`.
 
 ## 12. Performance targets
 
