@@ -1,8 +1,12 @@
 # M015 — Final Exact-HEAD Release Requalification
 
-Status: ready
+Status: closed
 Depends on: M014
 Role: final pre-tag gate
+
+## Historical closure note
+
+M015 closed with a clean verdict at candidate `cd88b2290047497d6090f86c0389d9d0c3335e6f`; see `plans/closure/M015-final-exact-head-release-requalification-closure.md` (green ordinary CI + green dedicated release workflow with 5/5 artifact jobs, 47/47 Toxiproxy differential, Go/Python smokes, fuzz/security/package gates, performance within budget). No further planned pre-tag implementation work; tag/publish/release remain owner decisions.
 
 ## Objective
 

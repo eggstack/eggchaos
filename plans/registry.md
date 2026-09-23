@@ -1,6 +1,6 @@
 # Eggchaos Plan Registry
 
-Last reconciled: 2026-09-23
+Last reconciled: 2026-09-23 (M015 closure)
 
 This file is the compact source of truth for active milestone state. Detailed scope lives in the numbered plans. Historical closure evidence belongs in `plans/closure/`.
 
@@ -21,7 +21,7 @@ This file is the compact source of truth for active milestone state. Detailed sc
 | M012 | `012-toxiproxy-v2-12-parity-corrective.md` | closed | M009, M010, M011 | Closed at `a040ed7`; evidence in `plans/closure/M012-toxiproxy-v2-12-parity-corrective-closure.md` (47/47 differential vs pinned v2.12.0 oracle, Go + Python client smokes). |
 | M013 | `013-corrective-requalification-gate.md` | closed | M009, M010, M011, M012 | Clean verdict at `9904490`; evidence in `plans/closure/M013-corrective-requalification-gate-closure.md`. M008 was subsequently completed. |
 | M014 | `014-release-state-and-planning-reconciliation.md` | closed | M008, M013 | Closed with reconciliation commit family; evidence in `plans/closure/M014-release-state-and-planning-reconciliation-closure.md`. Post-M008 lineage recorded; M015 is the final exact-HEAD authority. |
-| M015 | `015-final-exact-head-release-requalification.md` | ready | M014 | Final pre-tag exact-HEAD release qualification, including dedicated release workflow and artifact matrix. |
+| M015 | `015-final-exact-head-release-requalification.md` | closed | M014 | Clean verdict at `cd88b22`; evidence in `plans/closure/M015-final-exact-head-release-requalification-closure.md` (ordinary CI + dedicated release workflow green on the exact candidate, 5/5 artifacts with checksums, 47/47 Toxiproxy differential, Go/Python smokes, fuzz/security/package gates, perf within budget). Tag/publish/release remain owner decisions. |
 
 ## Execution state
 
@@ -31,11 +31,11 @@ The corrective implementation chain is complete:
 
 Historical M002–M006 closure records remain preserved as evidence of the earlier implementation state. M009–M013 are the corrective successors that requalified that implementation, and M008 subsequently closed the first release-qualification milestone.
 
-The remaining pre-tag sequence is:
+The pre-tag sequence is complete:
 
-`M015`
+`M000 -> ... -> M015` (all closed)
 
-M014 has reconciled planning/release state and the post-M008 candidate lineage. M015 then qualifies one exact post-cleanup HEAD with the dedicated release workflow and artifact matrix.
+M014 reconciled planning/release state and the post-M008 candidate lineage. M015 qualified the exact HEAD `cd88b22` with the dedicated release workflow and artifact matrix. Tagging, crates.io publication, and GitHub release creation remain explicit owner decisions.
 
 ## Future roadmap items not yet activated
 
@@ -53,14 +53,13 @@ These remain post-release or separately planned work and must not be pulled into
 
 ## Dependency-ready view
 
-Completed: M000–M014 and M008 are closed.
+Completed: M000–M015 and M008 are closed.
 
-Ready now:
-- M015 — final exact-HEAD release requalification.
+Ready now: none in the pre-tag sequence.
 
 Blocked: none in the pre-tag sequence.
 
-After a clean M015 closure there is no further planned pre-tag implementation work; tagging/publishing/release creation remain explicit owner decisions.
+There is no further planned pre-tag implementation work; tagging/publishing/release creation remain explicit owner decisions.
 
 ## Closure requirements
 

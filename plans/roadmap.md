@@ -1,6 +1,6 @@
 # Eggchaos Long-Term Roadmap
 
-Status: M008, M009–M013, and M014 closed; M015 ready as the final exact-HEAD pre-tag gate.
+Status: M008, M009–M015 all closed. The repository is qualified for a v0.1.0 tag; tagging, publication, and release creation remain owner decisions.
 
 ## 1. Mission
 
@@ -287,7 +287,7 @@ M012 completes the declared Toxiproxy v2.12 route/default/populate/reset/toxic s
 
 M013 reran the corrected stack on one exact commit, including Eggfetch regression qualification, and M008 then completed release/package/target/performance qualification.
 
-Historical closure records are retained and should not be rewritten. Because dependency/test/workflow fixes landed after the M008 candidate, M014 (closed) reconciled planning/release state and recorded the post-M008 lineage, and M015 performs the final exact-HEAD pre-tag release qualification. The current remaining pre-tag chain is `M015`.
+Historical closure records are retained and should not be rewritten. Dependency/test/workflow fixes that landed after the M008 candidate were reconciled by the closed M014 (planning/release state and post-M008 lineage) and requalified by the closed M015 (final exact-HEAD pre-tag release qualification at `cd88b22`, including the dedicated release workflow and 5/5 artifact jobs). There is no remaining pre-tag chain.
 
 ## 12. Performance targets
 

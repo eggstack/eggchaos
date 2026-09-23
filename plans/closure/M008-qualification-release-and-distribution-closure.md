@@ -110,7 +110,20 @@ record, is the final pre-tag exact-commit authority:
   planning-only M014/M015 scaffolding and reconciliation of registry,
   planning README, roadmap, and M008 plan state. No production,
   dependency, test, or workflow change.
+- `37dc28b` + `47073c1` — M014 reconciliation and candidate-SHA annotation
+  (planning/docs/policy only, including the `deny.toml` registry-only
+  tightening). No production, dependency-version, test-logic, or workflow
+  change.
+- `2c66f48` — release-workflow repairs (stable-toolchain cargo-fuzz
+  install, aarch64 cross-linker env, macos-14 x86_64 cross-build) and
+  order-aware package proof in `release-smoke.sh`. No production,
+  dependency-version, or test-logic change.
+- `cd88b22` — removed the stale `compat-server` example shadowing the
+  documented `compat_server` (Windows link collision). No library,
+  runtime, or API change.
 
-Ordinary three-platform CI is green on the post-M008 HEAD (see M014
-closure for the exact candidate and run IDs); the dedicated release
-workflow has not yet been rerun on that HEAD. That rerun is M015.
+M015 closed the final exact-HEAD requalification at `cd88b22` (see
+`plans/closure/M015-final-exact-head-release-requalification-closure.md`):
+green ordinary CI plus the green dedicated release workflow with the
+five-target artifact matrix. This lineage note is historical; the M015
+record is the final pre-tag exact-commit authority.
