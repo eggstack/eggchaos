@@ -29,13 +29,58 @@ Proxies: `GET /v1/proxies`, `POST /v1/proxies`,
 Service: `GET /v1/health`, `GET /v1/version`, `POST /v1/reset`,
 `GET /metrics` (Prometheus text, no `/v1` prefix).
 
+## Native v1 request and response schemas
+
+Native mutation bodies use dedicated `/v1` DTOs. Fault duration values in
+JSON are unsigned integer nanoseconds. The `kind` object is identical for
+create, patch, and fault views:
+
+```json
+{"direction":"downstream","id":"latency","probability":1.0,"kind":{"type":"latency","delay_ns":1000000,"jitter_ns":0,"max_buffer_bytes":65536}}
+```
+
+Stable fault `type` values and attributes are: `latency` (`delay_ns` required,
+`jitter_ns` defaults to 0, `max_buffer_bytes` to 65536), `bandwidth`
+(`bytes_per_second` defaults to 1, `burst_bytes` to 65536), `blackhole`
+(`close_after_ns` defaults to null), `limit-data` (`bytes` defaults to 1),
+`slow-close` (`delay_ns` required), `slice` (`average_size` defaults to 1024,
+`variation` and `delay_ns` to 0), and `disconnect` (`after_ns` defaults to 0,
+`hard_reset` to false). Required sizes/rates must be non-zero; probability
+defaults to 1 and must be finite in `0..=1`. Unknown properties are rejected.
+Direction values are `upstream` and `downstream`.
+
+Proxy create and patch use `connect_timeout_ms`; create also accepts `seed`.
+For example:
+
+```json
+{"name":"redis","listen":"127.0.0.1:0","upstream":"127.0.0.1:6379","enabled":true,"connect_timeout_ms":5000,"seed":0}
+```
+
+Proxy response views contain explicit native fault views instead of core
+`FaultKind` Serde output. Scenario documents use version 1, millisecond
+`at_ms` scheduling, and nested `action` objects tagged by `type` (`set-plan`
+or `remove-fault`); faults in `set-plan` use the same kind schema. Scenario run
+status values are lowercase. These DTOs define the native v1 contract
+independently of internal Rust enum layout.
+
 ## CLI command inventory
 
 `eggchaos --admin <url> [--json] <command>`: `serve` (start from
 schema-v1 TOML), `version`, `reset`; `proxy list|get|add|set|remove|
 enable|disable`; `fault list|get|add|set|remove`;
-`connection list|get|kill`. Every command emits one machine-readable JSON
-document with `--json` and exits nonzero on failure.
+`connection list|get|kill`; `scenario apply|get|cancel`; `history`; `metrics`.
+JSON routes emit one machine-readable document with `--json` and exit nonzero
+on failure. Metrics are Prometheus text in human mode and are wrapped as
+`{"body":"..."}` with `--json`.
+
+Pre-release migration: older unpublished native fault bodies used Rust enum
+tags such as `{"Latency":...}` and Rust `Duration` objects, and proxy create
+used `connect_timeout`. Replace those with `kind.type` kebab spellings,
+integer nanosecond attributes, and `connect_timeout_ms`. Proxy create requests
+no longer accept runtime `upstream_faults`/`downstream_faults`; add faults via
+the fault routes. Proxy views expose fault arrays whose entries use the new
+schema. TOML keeps human duration strings and accepts legacy type aliases at
+the config parser edge.
 
 Fault IDs are opaque UTF-8 path components up to the core identity limit. The
 CLI percent-encodes them; the native router splits the raw path first and

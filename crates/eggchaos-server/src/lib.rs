@@ -4,6 +4,7 @@
 
 mod admin;
 mod config;
+mod native;
 mod runtime;
 pub mod scenario;
 
@@ -12,6 +13,14 @@ pub use config::{
     AdminFileConfig, FaultFileConfig, NativeConfig, NativeConfigError, ProxyFileConfig,
 };
 pub use eggchaos_core::{ActiveFault, FAULT_TYPE_NAMES};
+pub use native::{
+    FaultKindV1, FaultPatchV1, FaultUpsertV1, NativeFaultViewV1, NativeProxyPatchV1,
+    NativeProxyRequestV1, NativeProxyViewV1, RuntimeConfigV1, ScenarioActionV1, ScenarioEventV1,
+    ScenarioFaultV1, ScenarioRunV1, ScenarioStatusV1, ScenarioV1,
+    NATIVE_DEFAULT_BANDWIDTH_BURST_BYTES, NATIVE_DEFAULT_BANDWIDTH_BYTES_PER_SECOND,
+    NATIVE_DEFAULT_BUFFER_BYTES, NATIVE_DEFAULT_LIMIT_BYTES, NATIVE_DEFAULT_PROXY_TIMEOUT_MS,
+    NATIVE_DEFAULT_SLICE_AVERAGE_SIZE,
+};
 pub use runtime::{
     AdmissionLimits, ClosedConnection, ConnectionEvidence, ConnectionOutcome, ConnectionSnapshot,
     ConnectionState, ControlError, ControlState, DirectionBytes, EggchaosError, EggchaosService,

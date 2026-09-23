@@ -25,3 +25,30 @@ policy generation carries its own seed namespace: manual updates retain the
 current namespace, while scenario runs publish namespaces derived from
 `(scenario seed, run id, event index)`; see `docs/control-plane.md` for the
 replay limits this implies.
+
+## Runtime and proxy bounds
+
+The optional `[runtime]` table controls existing service bounds. Defaults
+preserve the previous builder values:
+
+| TOML key | Unit | Default | Accepted range |
+| --- | --- | --- | --- |
+| `global_connections` | active connections | `1024` | `1..=1000000` |
+| `history` | retained closed records | `256` | `0..=1000000` |
+| `relay_buffer_bytes` | bytes | `65536` | `1..=16777216` |
+| `termination_grace_ms` | milliseconds | `5000` | `0..=300000` |
+
+Each `[[proxy]]` may set `connect_timeout_ms` (default `5000`, range
+`1..=300000`) and `seed` (default `0`). `max_connections` remains optional;
+the service-wide connection limit bounds active sockets. Latency faults may set `max_buffer_bytes` from
+1 through 67108864. Invalid or out-of-range values fail with a field-specific
+configuration error. Omitting these keys preserves the pre-M017 defaults.
+
+Native HTTP fault duration attributes use integer nanoseconds. TOML retains
+duration strings (`ms`, `us`, or `s`) because configuration files are the
+human-authored surface; both inputs compile through the same typed
+`FaultKindV1` conversion and then the core model.
+
+The service half-close policy is intentionally not configurable in schema v1;
+the runtime keeps its existing `Drain` default until the policy has a stable
+operator-facing spelling and semantics.

@@ -314,34 +314,47 @@ async fn route(method: &str, segments: &[&str], body: &[u8], state: &ControlStat
             Err(error) => RouteOutcome::ControlError(error),
         },
         ("GET", ["v1", "proxies"]) => {
-            RouteOutcome::Response(json_response(StatusCode::OK, &state.list().await))
+            let views: Vec<crate::NativeProxyViewV1> = state
+                .list()
+                .await
+                .into_iter()
+                .map(crate::NativeProxyViewV1::from)
+                .collect();
+            RouteOutcome::Response(json_response(StatusCode::OK, &views))
         }
         ("POST", ["v1", "proxies"]) => {
-            let spec: crate::ProxySpec = match parse_json(body) {
+            let request: crate::NativeProxyRequestV1 = match parse_json(body) {
                 Ok(spec) => spec,
                 Err(outcome) => return outcome,
+            };
+            let spec = match request.into_runtime() {
+                Ok(spec) => spec,
+                Err(error) => return RouteOutcome::ControlError(ControlError::Invalid(error)),
             };
             match state.create_proxy(spec).await {
                 Ok((view, generation)) => RouteOutcome::Response(json_response(
                     StatusCode::CREATED,
-                    &serde_json::json!({"proxy": view, "generation": generation}),
+                    &serde_json::json!({"proxy": crate::NativeProxyViewV1::from(view), "generation": generation}),
                 )),
                 Err(error) => RouteOutcome::ControlError(error),
             }
         }
         ("GET", ["v1", "proxies", name]) => match state.get(name).await {
-            Some(view) => RouteOutcome::Response(json_response(StatusCode::OK, &view)),
+            Some(view) => RouteOutcome::Response(json_response(
+                StatusCode::OK,
+                &crate::NativeProxyViewV1::from(view),
+            )),
             None => RouteOutcome::ControlError(ControlError::NotFound((*name).to_owned())),
         },
         ("PATCH", ["v1", "proxies", name]) => {
-            let patch: crate::ProxyPatch = match parse_json(body) {
+            let patch: crate::NativeProxyPatchV1 = match parse_json(body) {
                 Ok(patch) => patch,
                 Err(outcome) => return outcome,
             };
-            match state.update_proxy(name, patch).await {
+            match state.update_proxy(name, patch.into()).await {
                 Ok((view, generation)) => RouteOutcome::Response(json_response(
                     StatusCode::OK,
-                    &serde_json::json!({"proxy": view, "generation": generation}),
+                    &serde_json::json!({"proxy": crate::NativeProxyViewV1::from(view), "generation": generation}),
                 )),
                 Err(error) => RouteOutcome::ControlError(error),
             }
@@ -356,21 +369,28 @@ async fn route(method: &str, segments: &[&str], body: &[u8], state: &ControlStat
         ("GET", ["v1", "proxies", name, "faults"]) => match state.list_faults(name).await {
             Some((upstream, downstream)) => RouteOutcome::Response(json_response(
                 StatusCode::OK,
-                &serde_json::json!({"upstream": upstream, "downstream": downstream}),
+                &serde_json::json!({
+                    "upstream": upstream.iter().map(crate::NativeFaultViewV1::from).collect::<Vec<_>>(),
+                    "downstream": downstream.iter().map(crate::NativeFaultViewV1::from).collect::<Vec<_>>(),
+                }),
             )),
             None => RouteOutcome::ControlError(ControlError::NotFound((*name).to_owned())),
         },
         ("POST", ["v1", "proxies", name, "faults"]) => {
-            let upsert: crate::FaultUpsert = match parse_json(body) {
+            let upsert: crate::FaultUpsertV1 = match parse_json(body) {
                 Ok(upsert) => upsert,
                 Err(outcome) => return outcome,
+            };
+            let upsert = match upsert.into_runtime() {
+                Ok(upsert) => upsert,
+                Err(error) => return RouteOutcome::ControlError(ControlError::Invalid(error)),
             };
             match state.add_fault(name, upsert).await {
                 Ok((direction, fault, generation)) => RouteOutcome::Response(json_response(
                     StatusCode::CREATED,
                     &serde_json::json!({
                         "direction": direction.as_str(),
-                        "fault": fault,
+                        "fault": crate::NativeFaultViewV1::from(&fault),
                         "generation": generation,
                     }),
                 )),
@@ -380,23 +400,27 @@ async fn route(method: &str, segments: &[&str], body: &[u8], state: &ControlStat
         ("GET", ["v1", "proxies", name, "faults", id]) => match state.get_fault(name, id).await {
             Some((direction, fault)) => RouteOutcome::Response(json_response(
                 StatusCode::OK,
-                &serde_json::json!({"direction": direction.as_str(), "fault": fault}),
+                &serde_json::json!({"direction": direction.as_str(), "fault": crate::NativeFaultViewV1::from(&fault)}),
             )),
             None => {
                 RouteOutcome::ControlError(ControlError::NotFound(format!("fault {id} on {name}")))
             }
         },
         ("PATCH", ["v1", "proxies", name, "faults", id]) => {
-            let patch: crate::FaultPatch = match parse_json(body) {
+            let patch: crate::FaultPatchV1 = match parse_json(body) {
                 Ok(patch) => patch,
                 Err(outcome) => return outcome,
+            };
+            let patch = match patch.into_runtime() {
+                Ok(patch) => patch,
+                Err(error) => return RouteOutcome::ControlError(ControlError::Invalid(error)),
             };
             match state.update_fault(name, id, patch).await {
                 Ok((direction, fault, generation)) => RouteOutcome::Response(json_response(
                     StatusCode::OK,
                     &serde_json::json!({
                         "direction": direction.as_str(),
-                        "fault": fault,
+                        "fault": crate::NativeFaultViewV1::from(&fault),
                         "generation": generation,
                     }),
                 )),
@@ -445,26 +469,28 @@ async fn route(method: &str, segments: &[&str], body: &[u8], state: &ControlStat
             RouteOutcome::Response(json_response(StatusCode::OK, &state.history().await))
         }
         ("POST", ["v1", "scenarios", "apply"]) => {
-            match serde_json::from_slice::<crate::Scenario>(body) {
-                Ok(scenario) => match state.start_scenario(scenario).await {
-                    Ok(record) => RouteOutcome::Response(json_response(
-                        StatusCode::new(202).expect("accepted status"),
-                        &serde_json::json!({
-                            "run_id": record.run_id,
-                            "seed": record.seed,
-                            "status": record.status,
-                        }),
-                    )),
-                    Err(error) => {
-                        RouteOutcome::ControlError(crate::ControlError::Invalid(error.to_string()))
-                    }
+            match serde_json::from_slice::<crate::ScenarioV1>(body) {
+                Ok(scenario) => match scenario.into_runtime() {
+                    Ok(scenario) => match state.start_scenario(scenario).await {
+                        Ok(record) => RouteOutcome::Response(json_response(
+                            StatusCode::new(202).expect("accepted status"),
+                            &crate::ScenarioRunV1::from(record),
+                        )),
+                        Err(error) => RouteOutcome::ControlError(crate::ControlError::Invalid(
+                            error.to_string(),
+                        )),
+                    },
+                    Err(error) => RouteOutcome::ControlError(crate::ControlError::Invalid(error)),
                 },
                 Err(error) => RouteOutcome::BadJson(error.to_string()),
             }
         }
         ("GET", ["v1", "scenarios", id]) => match id.parse::<u64>() {
             Ok(run_id) => match state.get_scenario(run_id).await {
-                Some(record) => RouteOutcome::Response(json_response(StatusCode::OK, &record)),
+                Some(record) => RouteOutcome::Response(json_response(
+                    StatusCode::OK,
+                    &crate::ScenarioRunV1::from(record),
+                )),
                 None => RouteOutcome::ControlError(crate::ControlError::NotFound(format!(
                     "scenario run {run_id}"
                 ))),
@@ -475,7 +501,10 @@ async fn route(method: &str, segments: &[&str], body: &[u8], state: &ControlStat
         },
         ("DELETE", ["v1", "scenarios", id]) => match id.parse::<u64>() {
             Ok(run_id) => match state.cancel_scenario(run_id).await {
-                Some(record) => RouteOutcome::Response(json_response(StatusCode::OK, &record)),
+                Some(record) => RouteOutcome::Response(json_response(
+                    StatusCode::OK,
+                    &crate::ScenarioRunV1::from(record),
+                )),
                 None => RouteOutcome::ControlError(crate::ControlError::NotFound(format!(
                     "scenario run {run_id}"
                 ))),

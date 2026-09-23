@@ -3,8 +3,12 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
-use eggchaos_server::{AdminConfig, NativeAdmin, NativeConfig, ServiceBuilder};
+use eggchaos_server::{
+    AdminConfig, FaultKindV1, NativeAdmin, NativeConfig, ServiceBuilder,
+    NATIVE_DEFAULT_BUFFER_BYTES, NATIVE_DEFAULT_PROXY_TIMEOUT_MS,
+};
 use eggfetch_core::Client;
+use tokio::io::AsyncReadExt;
 
 #[derive(Parser)]
 #[command(
@@ -48,6 +52,15 @@ enum Command {
         #[command(subcommand)]
         command: ConnectionCommand,
     },
+    /// Apply or inspect a deterministic scenario run.
+    Scenario {
+        #[command(subcommand)]
+        command: ScenarioCommand,
+    },
+    /// List retained closed-connection history.
+    History,
+    /// Print Prometheus metrics (`--json` wraps raw text in `{"body":...}`).
+    Metrics,
     /// Print version information.
     Version,
     /// Reset the native control generation.
@@ -67,6 +80,8 @@ enum ProxyCommand {
         listen: SocketAddr,
         #[arg(long)]
         upstream: SocketAddr,
+        #[arg(long)]
+        seed: Option<u64>,
         #[arg(long)]
         max_connections: Option<usize>,
         #[arg(long)]
@@ -171,6 +186,16 @@ enum ConnectionCommand {
     Kill { id: u64 },
 }
 
+#[derive(Subcommand)]
+enum ScenarioCommand {
+    /// Apply a scenario document from a JSON file.
+    Apply { file: PathBuf },
+    /// Get a scenario run record.
+    Get { run_id: u64 },
+    /// Cancel a scenario run.
+    Cancel { run_id: u64 },
+}
+
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
@@ -210,6 +235,50 @@ async fn dispatch(
             Ok(())
         }
         Command::Reset => request(admin, admin_token, "POST", "/v1/reset", None, json).await,
+        Command::History => request(admin, admin_token, "GET", "/v1/history", None, json).await,
+        Command::Metrics => request(admin, admin_token, "GET", "/metrics", None, json).await,
+        Command::Scenario { command } => match command {
+            ScenarioCommand::Apply { file } => {
+                let file = tokio::fs::File::open(file).await?;
+                let mut bytes = Vec::with_capacity(1024 * 1024 + 1);
+                file.take(1024 * 1024 + 1).read_to_end(&mut bytes).await?;
+                if bytes.len() > 1024 * 1024 {
+                    return Err("scenario document exceeds the 1 MiB request limit".into());
+                }
+                let document: serde_json::Value = serde_json::from_slice(&bytes)?;
+                request(
+                    admin,
+                    admin_token,
+                    "POST",
+                    "/v1/scenarios/apply",
+                    Some(document),
+                    json,
+                )
+                .await
+            }
+            ScenarioCommand::Get { run_id } => {
+                request(
+                    admin,
+                    admin_token,
+                    "GET",
+                    &format!("/v1/scenarios/{run_id}"),
+                    None,
+                    json,
+                )
+                .await
+            }
+            ScenarioCommand::Cancel { run_id } => {
+                request(
+                    admin,
+                    admin_token,
+                    "DELETE",
+                    &format!("/v1/scenarios/{run_id}"),
+                    None,
+                    json,
+                )
+                .await
+            }
+        },
         Command::Proxy { command } => match command {
             ProxyCommand::List => {
                 request(admin, admin_token, "GET", "/v1/proxies", None, json).await
@@ -229,6 +298,7 @@ async fn dispatch(
                 name,
                 listen,
                 upstream,
+                seed,
                 max_connections,
                 connect_timeout_ms,
                 disabled,
@@ -238,8 +308,11 @@ async fn dispatch(
                     "listen": listen,
                     "upstream": upstream,
                     "enabled": !disabled,
-                    "connect_timeout": connect_timeout_ms.unwrap_or(5000),
+                    "connect_timeout_ms": connect_timeout_ms.unwrap_or(NATIVE_DEFAULT_PROXY_TIMEOUT_MS),
                 });
+                if let Some(seed) = seed {
+                    body["seed"] = seed.into();
+                }
                 if let Some(limit) = max_connections {
                     body["max_connections"] = limit.into();
                 }
@@ -472,8 +545,10 @@ fn encode_path_component(value: &str) -> String {
     encoded
 }
 
-fn duration_ms_json(millis: u64) -> serde_json::Value {
-    serde_json::json!({"secs": millis / 1000, "nanos": (millis % 1000) * 1_000_000})
+fn duration_ns(millis: u64) -> Result<u64, Box<dyn std::error::Error>> {
+    millis
+        .checked_mul(1_000_000)
+        .ok_or_else(|| "duration in milliseconds exceeds native v1 nanosecond range".into())
 }
 
 fn required<T: Copy>(name: &str, value: Option<T>) -> Result<T, Box<dyn std::error::Error>> {
@@ -484,46 +559,67 @@ fn build_kind(
     kind: &str,
     params: &FaultParams,
 ) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
-    match kind {
-        "latency" => Ok(serde_json::json!({"Latency": {
-            "delay": duration_ms_json(required("delay-ms", params.delay_ms)?),
-            "jitter": duration_ms_json(params.jitter_ms.unwrap_or(0)),
-            "max_buffer_bytes": params.max_buffer_bytes.unwrap_or(64 * 1024),
-        }})),
-        "bandwidth" | "bw" => Ok(serde_json::json!({"Bandwidth": {
-            "bytes_per_second": required("bytes-per-second", params.bytes_per_second)?,
-            "burst_bytes": required("burst-bytes", params.burst_bytes)?,
-        }})),
-        "blackhole" | "hole" => Ok(serde_json::json!({"Blackhole": {
-            "close_after": params.close_after_ms.map(duration_ms_json),
-        }})),
-        "limit-data" | "limit" => Ok(serde_json::json!({"LimitData": {
-            "bytes": required("bytes", params.bytes)?,
-        }})),
-        "slow-close" | "slowclose" => Ok(serde_json::json!({"SlowClose": {
-            "delay": duration_ms_json(required("delay-ms", params.delay_ms)?),
-        }})),
-        "slice" => Ok(serde_json::json!({"Slice": {
-            "average_size": required("average-size", params.average_size)?,
-            "variation": params.variation.unwrap_or(0),
-            "delay": duration_ms_json(params.delay_ms.unwrap_or(0)),
-        }})),
-        "disconnect" => Ok(serde_json::json!({"Disconnect": {
-            "after": duration_ms_json(params.after_ms.unwrap_or(0)),
-            "hard_reset": params.hard_reset,
-        }})),
-        other => Err(format!(
-            "unknown --kind {other:?}: latency, bandwidth, blackhole, limit-data, slow-close, slice, disconnect"
-        )
-        .into()),
-    }
+    let dto = match kind {
+        "latency" => FaultKindV1::Latency {
+            delay_ns: duration_ns(required("delay-ms", params.delay_ms)?)?,
+            jitter_ns: duration_ns(params.jitter_ms.unwrap_or(0))?,
+            max_buffer_bytes: params
+                .max_buffer_bytes
+                .unwrap_or(NATIVE_DEFAULT_BUFFER_BYTES),
+        },
+        "bandwidth" | "bw" => FaultKindV1::Bandwidth {
+            bytes_per_second: required("bytes-per-second", params.bytes_per_second)?,
+            burst_bytes: required("burst-bytes", params.burst_bytes)?,
+        },
+        "blackhole" | "hole" => FaultKindV1::Blackhole {
+            close_after_ns: params.close_after_ms.map(duration_ns).transpose()?,
+        },
+        "limit-data" | "limit" => FaultKindV1::LimitData {
+            bytes: required("bytes", params.bytes)?,
+        },
+        "slow-close" | "slowclose" => FaultKindV1::SlowClose {
+            delay_ns: duration_ns(required("delay-ms", params.delay_ms)?)?,
+        },
+        "slice" => FaultKindV1::Slice {
+            average_size: required("average-size", params.average_size)?,
+            variation: params.variation.unwrap_or(0),
+            delay_ns: duration_ns(params.delay_ms.unwrap_or(0))?,
+        },
+        "disconnect" => FaultKindV1::Disconnect {
+            after_ns: duration_ns(params.after_ms.unwrap_or(0))?,
+            hard_reset: params.hard_reset,
+        },
+        other => {
+            return Err(format!(
+                "unknown --kind {other:?}: latency, bandwidth, blackhole, limit-data, slow-close, slice, disconnect"
+            )
+            .into());
+        }
+    };
+    Ok(serde_json::to_value(dto)?)
 }
 
 async fn serve(path: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     let config = NativeConfig::load(path).await?;
     let proxies = config.compile_proxies()?;
+    let runtime = config.runtime;
     let service = ServiceBuilder::new(config.seed)
         .proxy_all(proxies.clone())
+        .limits(
+            runtime
+                .limits()
+                .map_err(|error| format!("invalid runtime config: {error}"))?,
+        )
+        .relay_buffer(
+            runtime
+                .relay_buffer()
+                .map_err(|error| format!("invalid runtime config: {error}"))?,
+        )
+        .termination_grace(
+            runtime
+                .termination_grace()
+                .map_err(|error| format!("invalid runtime config: {error}"))?,
+        )
         .build()?;
     let handle = service.start().await?;
     let mut admin = NativeAdmin::start(

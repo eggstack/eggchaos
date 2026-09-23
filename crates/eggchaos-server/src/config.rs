@@ -1,13 +1,14 @@
-use std::{net::SocketAddr, num::NonZeroU64, path::Path, time::Duration};
+use std::{net::SocketAddr, path::Path, time::Duration};
 
-use eggchaos_core::{
-    BandwidthConfig, BlackholeConfig, Direction, DisconnectConfig, FaultId, FaultKind, FaultPlan,
-    FaultSpec, LatencyConfig, LimitDataConfig, Probability, SliceConfig, SlowCloseConfig,
-};
+use eggchaos_core::{Direction, FaultId, FaultPlan, FaultSpec, Probability};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::ProxySpec;
+use crate::{
+    FaultKindV1, ProxySpec, RuntimeConfigV1, NATIVE_DEFAULT_BANDWIDTH_BURST_BYTES,
+    NATIVE_DEFAULT_BANDWIDTH_BYTES_PER_SECOND, NATIVE_DEFAULT_BUFFER_BYTES,
+    NATIVE_DEFAULT_LIMIT_BYTES, NATIVE_DEFAULT_PROXY_TIMEOUT_MS, NATIVE_DEFAULT_SLICE_AVERAGE_SIZE,
+};
 
 /// Versioned native TOML configuration.
 #[derive(Clone, Serialize, Deserialize)]
@@ -20,6 +21,9 @@ pub struct NativeConfig {
     /// Admin listener settings.
     #[serde(default)]
     pub admin: AdminFileConfig,
+    /// Service-wide runtime bounds and termination controls.
+    #[serde(default)]
+    pub runtime: RuntimeConfigV1,
     /// Fixed-target proxy definitions.
     #[serde(rename = "proxy", default)]
     pub proxies: Vec<ProxyFileConfig>,
@@ -85,6 +89,12 @@ pub struct ProxyFileConfig {
     pub listen: SocketAddr,
     /// Target address.
     pub upstream: SocketAddr,
+    /// Bounded direct-connect timeout in milliseconds.
+    #[serde(default = "default_connect_timeout_ms")]
+    pub connect_timeout_ms: u64,
+    /// Per-proxy deterministic seed namespace.
+    #[serde(default)]
+    pub seed: u64,
     /// Whether it starts enabled.
     #[serde(default = "default_true")]
     pub enabled: bool,
@@ -97,6 +107,10 @@ pub struct ProxyFileConfig {
 
 fn default_true() -> bool {
     true
+}
+
+fn default_connect_timeout_ms() -> u64 {
+    NATIVE_DEFAULT_PROXY_TIMEOUT_MS
 }
 
 /// A TOML fault DTO with human-friendly units.
@@ -116,6 +130,8 @@ pub struct FaultFileConfig {
     pub delay: Option<String>,
     /// Jitter string.
     pub jitter: Option<String>,
+    /// Maximum bytes buffered by latency, default 64 KiB.
+    pub max_buffer_bytes: Option<u64>,
     /// Rate in bytes/sec.
     pub bytes_per_second: Option<u64>,
     /// Burst bytes.
@@ -165,6 +181,27 @@ impl NativeConfig {
                 message: "too many proxies".into(),
             });
         }
+        config
+            .runtime
+            .limits()
+            .map_err(|message| NativeConfigError::Field {
+                field: "runtime".into(),
+                message,
+            })?;
+        config
+            .runtime
+            .relay_buffer()
+            .map_err(|message| NativeConfigError::Field {
+                field: "runtime.relay_buffer_bytes".into(),
+                message,
+            })?;
+        config
+            .runtime
+            .termination_grace()
+            .map_err(|message| NativeConfigError::Field {
+                field: "runtime.termination_grace_ms".into(),
+                message,
+            })?;
         let mut names = std::collections::HashSet::new();
         for proxy in &config.proxies {
             if !names.insert(&proxy.name) {
@@ -203,6 +240,8 @@ impl ProxyFileConfig {
         let mut proxy = ProxySpec::new(self.name.clone(), self.listen, self.upstream);
         proxy.enabled = self.enabled;
         proxy.max_connections = self.max_connections;
+        proxy.connect_timeout = Duration::from_millis(self.connect_timeout_ms);
+        proxy.seed = self.seed;
         proxy.upstream_faults = FaultPlan::new(upstream).map_err(|e| NativeConfigError::Field {
             field: "fault".into(),
             message: e.to_string(),
@@ -214,6 +253,10 @@ impl ProxyFileConfig {
             })?;
         // Live policies initialize from these plans on import; the native
         // authority owns publication from there.
+        proxy.validate().map_err(|error| NativeConfigError::Field {
+            field: "proxy".into(),
+            message: error.to_string(),
+        })?;
         Ok(proxy)
     }
 }
@@ -240,68 +283,72 @@ impl FaultFileConfig {
                         message,
                     })
             };
-        let kind =
-            match self.kind.as_str() {
-                "latency" => FaultKind::Latency(LatencyConfig {
-                    delay: duration(&self.delay, "fault.delay")?,
-                    jitter: duration(&self.jitter, "fault.jitter")?,
-                    max_buffer_bytes: NonZeroU64::new(64 * 1024).unwrap(),
-                }),
-                "bandwidth" => FaultKind::Bandwidth(BandwidthConfig {
-                    bytes_per_second: NonZeroU64::new(self.bytes_per_second.unwrap_or(1))
-                        .ok_or_else(|| NativeConfigError::Field {
-                            field: "fault.bytes_per_second".into(),
-                            message: "must be non-zero".into(),
-                        })?,
-                    burst_bytes: NonZeroU64::new(self.burst_bytes.unwrap_or(64 * 1024))
-                        .ok_or_else(|| NativeConfigError::Field {
-                            field: "fault.burst_bytes".into(),
-                            message: "must be non-zero".into(),
-                        })?,
-                }),
-                "blackhole" | "timeout" => FaultKind::Blackhole(BlackholeConfig {
-                    close_after: self
-                        .delay
-                        .as_deref()
-                        .map(parse_duration)
-                        .transpose()
-                        .map_err(|message| NativeConfigError::Field {
-                            field: "fault.delay".into(),
-                            message,
-                        })?,
-                }),
-                "limit_data" => FaultKind::LimitData(LimitDataConfig {
-                    bytes: NonZeroU64::new(self.bytes.unwrap_or(1)).ok_or_else(|| {
-                        NativeConfigError::Field {
-                            field: "fault.bytes".into(),
-                            message: "must be non-zero".into(),
-                        }
-                    })?,
-                }),
-                "slow_close" => FaultKind::SlowClose(SlowCloseConfig {
-                    delay: duration(&self.delay, "fault.delay")?,
-                }),
-                "slicer" | "slice" => FaultKind::Slice(SliceConfig {
-                    average_size: NonZeroU64::new(self.average_size.unwrap_or(1024)).ok_or_else(
-                        || NativeConfigError::Field {
-                            field: "fault.average_size".into(),
-                            message: "must be non-zero".into(),
-                        },
-                    )?,
-                    variation: self.variation.unwrap_or(0),
-                    delay: duration(&self.delay, "fault.delay")?,
-                }),
-                "disconnect" | "reset_peer" => FaultKind::Disconnect(DisconnectConfig {
-                    after: duration(&self.delay, "fault.delay")?,
-                    hard_reset: self.hard_reset,
-                }),
-                other => {
-                    return Err(NativeConfigError::Field {
-                        field: "fault.type".into(),
-                        message: format!("unsupported type {other}"),
-                    })
-                }
-            };
+        let to_ns = |value: Duration, field: &str| {
+            u64::try_from(value.as_nanos()).map_err(|_| NativeConfigError::Field {
+                field: field.into(),
+                message: "duration exceeds native v1 nanosecond range".into(),
+            })
+        };
+        let kind = match self.kind.as_str() {
+            "latency" => FaultKindV1::Latency {
+                delay_ns: to_ns(duration(&self.delay, "fault.delay")?, "fault.delay")?,
+                jitter_ns: to_ns(duration(&self.jitter, "fault.jitter")?, "fault.jitter")?,
+                max_buffer_bytes: self.max_buffer_bytes.unwrap_or(NATIVE_DEFAULT_BUFFER_BYTES),
+            },
+            "bandwidth" => FaultKindV1::Bandwidth {
+                bytes_per_second: self
+                    .bytes_per_second
+                    .unwrap_or(NATIVE_DEFAULT_BANDWIDTH_BYTES_PER_SECOND),
+                burst_bytes: self
+                    .burst_bytes
+                    .unwrap_or(NATIVE_DEFAULT_BANDWIDTH_BURST_BYTES),
+            },
+            "blackhole" | "timeout" => FaultKindV1::Blackhole {
+                close_after_ns: self
+                    .delay
+                    .as_deref()
+                    .map(parse_duration)
+                    .transpose()
+                    .map_err(|message| NativeConfigError::Field {
+                        field: "fault.delay".into(),
+                        message,
+                    })?
+                    .map(|value| to_ns(value, "fault.delay"))
+                    .transpose()?,
+            },
+            "limit_data" | "limit-data" => FaultKindV1::LimitData {
+                bytes: self.bytes.unwrap_or(NATIVE_DEFAULT_LIMIT_BYTES),
+            },
+            "slow_close" | "slow-close" => FaultKindV1::SlowClose {
+                delay_ns: to_ns(duration(&self.delay, "fault.delay")?, "fault.delay")?,
+            },
+            "slicer" | "slice" => FaultKindV1::Slice {
+                average_size: self
+                    .average_size
+                    .unwrap_or(NATIVE_DEFAULT_SLICE_AVERAGE_SIZE),
+                variation: self.variation.unwrap_or(0),
+                delay_ns: to_ns(duration(&self.delay, "fault.delay")?, "fault.delay")?,
+            },
+            "disconnect" | "reset_peer" => FaultKindV1::Disconnect {
+                after_ns: to_ns(duration(&self.delay, "fault.delay")?, "fault.delay")?,
+                hard_reset: self.hard_reset,
+            },
+            other => {
+                return Err(NativeConfigError::Field {
+                    field: "fault.type".into(),
+                    message: format!("unsupported type {other}"),
+                })
+            }
+        };
+        let kind = kind.into_runtime().map_err(|message| {
+            let (field, detail) = message
+                .split_once(' ')
+                .unwrap_or(("kind", message.as_str()));
+            NativeConfigError::Field {
+                field: format!("fault.{field}"),
+                message: detail.to_owned(),
+            }
+        })?;
         Ok(FaultSpec {
             id,
             probability,
@@ -407,5 +454,81 @@ burst_bytes = 0
             NativeConfig::parse("version = 1\n[admin]\nauth_token = 'secret-token'\n").unwrap();
         assert!(!format!("{config:?}").contains("secret-token"));
         assert!(format!("{config:?}").contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn schema_v1_runtime_and_proxy_bounds_compile_with_omission_defaults() {
+        let config = NativeConfig::parse(
+            r#"
+version = 1
+[[proxy]]
+name = "redis"
+listen = "127.0.0.1:0"
+upstream = "127.0.0.1:6379"
+"#,
+        )
+        .unwrap();
+        let proxy = config.compile_proxies().unwrap().remove(0);
+        assert_eq!(proxy.connect_timeout, Duration::from_secs(5));
+        assert_eq!(proxy.seed, 0);
+        assert_eq!(config.runtime.global_connections, 1024);
+        assert_eq!(config.runtime.history, 256);
+        assert_eq!(config.runtime.relay_buffer().unwrap().get(), 64 * 1024);
+        assert_eq!(
+            config.runtime.termination_grace().unwrap(),
+            Duration::from_secs(5)
+        );
+    }
+
+    #[test]
+    fn schema_v1_exposes_runtime_bounds_proxy_seed_timeout_and_latency_buffer() {
+        let config = NativeConfig::parse(
+            r#"
+version = 1
+[runtime]
+global_connections = 17
+history = 23
+relay_buffer_bytes = 4096
+termination_grace_ms = 700
+[[proxy]]
+name = "redis"
+listen = "127.0.0.1:0"
+upstream = "127.0.0.1:6379"
+connect_timeout_ms = 1200
+seed = 91
+[[proxy.fault]]
+id = "delay"
+direction = "downstream"
+type = "latency"
+max_buffer_bytes = 1234
+"#,
+        )
+        .unwrap();
+        let proxy = config.compile_proxies().unwrap().remove(0);
+        assert_eq!(config.runtime.global_connections, 17);
+        assert_eq!(config.runtime.history, 23);
+        assert_eq!(config.runtime.relay_buffer().unwrap().get(), 4096);
+        assert_eq!(
+            config.runtime.termination_grace().unwrap(),
+            Duration::from_millis(700)
+        );
+        assert_eq!(proxy.connect_timeout, Duration::from_millis(1200));
+        assert_eq!(proxy.seed, 91);
+        let eggchaos_core::FaultKind::Latency(latency) = proxy.downstream_faults.faults()[0].kind
+        else {
+            panic!("latency config compiled as latency");
+        };
+        assert_eq!(latency.max_buffer_bytes.get(), 1234);
+    }
+
+    #[test]
+    fn schema_v1_rejects_zero_runtime_buffers_and_timeout() {
+        let runtime = NativeConfig::parse("version=1\n[runtime]\nrelay_buffer_bytes=0\n");
+        assert!(runtime
+            .unwrap_err()
+            .to_string()
+            .contains("relay_buffer_bytes"));
+        let timeout = NativeConfig::parse("version=1\n[[proxy]]\nname='p'\nlisten='127.0.0.1:0'\nupstream='127.0.0.1:1'\nconnect_timeout_ms=0\n");
+        assert!(timeout.unwrap_err().to_string().contains("connect timeout"));
     }
 }

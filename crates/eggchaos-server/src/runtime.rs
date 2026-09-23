@@ -28,6 +28,10 @@ use tokio_util::sync::CancellationToken;
 
 /// Server crate version.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+const MAX_CONNECTION_LIMIT: usize = 1_000_000;
+const MAX_HISTORY_LIMIT: usize = 1_000_000;
+const MAX_RELAY_BUFFER_BYTES: usize = 16 * 1024 * 1024;
+const MAX_CONTROL_TIMEOUT_MS: u128 = 300_000;
 
 /// A validated fixed-target proxy definition.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -92,7 +96,7 @@ impl ProxySpec {
             downstream_policy: LivePolicy::default(),
             enabled: true,
             max_connections: None,
-            connect_timeout: Duration::from_secs(5),
+            connect_timeout: Duration::from_millis(crate::native::NATIVE_DEFAULT_PROXY_TIMEOUT_MS),
             seed: 0,
         }
     }
@@ -127,6 +131,11 @@ impl ProxySpec {
         if self.connect_timeout.is_zero() {
             return Err(EggchaosError::InvalidProxy(
                 "connect timeout must be non-zero".into(),
+            ));
+        }
+        if self.connect_timeout.as_millis() > MAX_CONTROL_TIMEOUT_MS {
+            return Err(EggchaosError::InvalidProxy(
+                "connect timeout must be at most 300000 ms".into(),
             ));
         }
         Ok(())
@@ -781,8 +790,9 @@ impl Default for RuntimeParams {
             seed: 0,
             limits: AdmissionLimits::default(),
             half_close: HalfClosePolicy::Drain,
-            relay_buffer: NonZeroUsize::new(64 * 1024).expect("non-zero buffer"),
-            term_grace: Duration::from_secs(5),
+            relay_buffer: NonZeroUsize::new(crate::native::NATIVE_DEFAULT_BUFFER_BYTES as usize)
+                .expect("non-zero buffer"),
+            term_grace: Duration::from_millis(crate::native::NATIVE_DEFAULT_PROXY_TIMEOUT_MS),
         }
     }
 }
@@ -2157,8 +2167,9 @@ impl ServiceBuilder {
             proxies: Vec::new(),
             limits: AdmissionLimits::default(),
             half_close: HalfClosePolicy::Drain,
-            relay_buffer: NonZeroUsize::new(64 * 1024).expect("non-zero buffer"),
-            term_grace: Duration::from_secs(5),
+            relay_buffer: NonZeroUsize::new(crate::native::NATIVE_DEFAULT_BUFFER_BYTES as usize)
+                .expect("non-zero buffer"),
+            term_grace: Duration::from_millis(crate::native::NATIVE_DEFAULT_PROXY_TIMEOUT_MS),
         }
     }
     /// Add a fixed-target proxy.
@@ -2200,9 +2211,19 @@ impl ServiceBuilder {
                 return Err(EggchaosError::DuplicateProxy(proxy.name.clone()));
             }
         }
-        if self.limits.global_connections == 0 {
+        if self.limits.global_connections == 0
+            || self.limits.global_connections > MAX_CONNECTION_LIMIT
+            || self.limits.history > MAX_HISTORY_LIMIT
+        {
             return Err(EggchaosError::InvalidProxy(
-                "global connection limit must be non-zero".into(),
+                "runtime connection/history limit is outside the supported range".into(),
+            ));
+        }
+        if self.relay_buffer.get() > MAX_RELAY_BUFFER_BYTES
+            || self.term_grace.as_millis() > MAX_CONTROL_TIMEOUT_MS
+        {
+            return Err(EggchaosError::InvalidProxy(
+                "runtime buffer/grace setting is outside the supported range".into(),
             ));
         }
         Ok(EggchaosService {

@@ -28,6 +28,13 @@ Owner: `crates/eggchaos-server/src/scenario.rs`.
   - `RemoveFault { proxy, direction, id }` — remove one fault from a
     directional plan.
 
+The `/v1/scenarios/apply` body uses `ScenarioV1` from `native.rs`, not the
+internal Serde layout. Each event has `at_ms` plus a nested `action` object
+tagged by kebab-case `type` (`set-plan` or `remove-fault`). `set-plan` faults
+use the explicit `FaultKindV1` schema shared with fault CRUD; duration
+attributes are integer nanoseconds. Scenario responses use `ScenarioRunV1`
+and lowercase status values.
+
 ### 1.2 Validation (`validate_scenario`, `scenario.rs:103-128`)
 
 The document validates entirely before a run begins; the run task never
@@ -298,7 +305,7 @@ Owners: `runtime.rs:627-760` (counters/tables), `runtime.rs:1007-1114`
 
 ### 2.4 Admin inspection routes
 
-Owner: `crates/eggchaos-server/src/admin.rs:225-412`; contract summary in
+Owner: `crates/eggchaos-server/src/admin.rs` + `native.rs`; contract summary in
 `docs/control-plane.md` (§Route inventory, §Scenarios).
 
 | Method + path | Handler | Payload |
@@ -307,9 +314,9 @@ Owner: `crates/eggchaos-server/src/admin.rs:225-412`; contract summary in
 | `GET /v1/connections/{id}` | `state.get_connection(id)` | one snapshot, or `not_found`; non-integer ID is `invalid` |
 | `DELETE /v1/connections/{id}` | `state.kill(id)` | `{id, terminated: true}` or `not_found` |
 | `GET /v1/history` | `state.history().await` | bounded `Vec<ClosedConnection>` |
-| `POST /v1/scenarios/apply` | `state.start_scenario(scenario)` | `202 {run_id, seed, status}`; invalid body is a bounded JSON error |
-| `GET /v1/scenarios/{run_id}` | `state.get_scenario(run_id)` | full `ScenarioRunRecord` (status, applied, failure, trail) or `not_found` |
-| `DELETE /v1/scenarios/{run_id}` | `state.cancel_scenario(run_id)` | latest record (moves active runs to `Cancelling`) |
+| `POST /v1/scenarios/apply` | parse `ScenarioV1`, then `state.start_scenario` | `202 ScenarioRunV1`; invalid body is a bounded JSON error |
+| `GET /v1/scenarios/{run_id}` | `state.get_scenario(run_id)` | full `ScenarioRunV1` (lowercase status, applied, failure, trail) or `not_found` |
+| `DELETE /v1/scenarios/{run_id}` | `state.cancel_scenario(run_id)` | latest `ScenarioRunV1` (active status moves to `cancelling`) |
 | `GET /metrics` | `state.metrics_text().await` | Prometheus text, no `/v1` prefix, `text/plain; version=0.0.4` |
 | `GET /v1/health`, `GET /v1/version`, `POST /v1/reset` | service routes | liveness/generation, build version, reset report |
 

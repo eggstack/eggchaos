@@ -8,6 +8,7 @@ use tokio::net::{TcpListener, TcpStream};
 
 fn cli(admin: SocketAddr, args: &[&str]) -> (bool, String) {
     let output = Command::new(env!("CARGO_BIN_EXE_eggchaos"))
+        .env_remove("EGGCHAOS_ADMIN_TOKEN")
         .arg("--admin")
         .arg(format!("http://{admin}"))
         .arg("--json")
@@ -22,6 +23,7 @@ fn cli(admin: SocketAddr, args: &[&str]) -> (bool, String) {
 
 fn cli_token(admin: SocketAddr, token: &str, args: &[&str]) -> (bool, String, String) {
     let output = Command::new(env!("CARGO_BIN_EXE_eggchaos"))
+        .env("EGGCHAOS_ADMIN_TOKEN", "wrong-secret")
         .arg("--admin")
         .arg(format!("http://{admin}"))
         .arg("--admin-token")
@@ -150,6 +152,48 @@ async fn cli_json_create_fault_kill_reset_end_to_end() {
     let killed: serde_json::Value = serde_json::from_str(&out).unwrap();
     assert_eq!(killed["terminated"], true);
     drop(held);
+
+    let history_deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        let (ok, out) = cli(admin_addr, &["history"]);
+        assert!(ok, "{out}");
+        if !serde_json::from_str::<serde_json::Value>(&out)
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .is_empty()
+        {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < history_deadline,
+            "history record appears"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let (ok, out) = cli(admin_addr, &["metrics"]);
+    assert!(ok, "{out}");
+    let metrics: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert!(metrics["body"].as_str().unwrap().contains("# HELP"));
+
+    let scenario_path =
+        std::env::temp_dir().join(format!("eggchaos-scenario-{}.json", std::process::id()));
+    std::fs::write(&scenario_path, r#"{"version":1,"seed":7,"events":[]}"#).unwrap();
+    let scenario_path_str = scenario_path.to_str().unwrap();
+    let (ok, out) = cli(admin_addr, &["scenario", "apply", scenario_path_str]);
+    let _ = std::fs::remove_file(&scenario_path);
+    assert!(ok, "{out}");
+    let applied: serde_json::Value = serde_json::from_str(&out).unwrap();
+    let run_id = applied["run_id"].as_u64().unwrap().to_string();
+    for args in [
+        vec!["scenario", "get", &run_id],
+        vec!["scenario", "cancel", &run_id],
+    ] {
+        let (ok, out) = cli(admin_addr, &args);
+        assert!(ok, "{out}");
+        let record: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(record["run_id"], run_id.parse::<u64>().unwrap());
+    }
 
     // Reset through the CLI empties fault plans.
     let (ok, _) = cli(admin_addr, &["reset"]);

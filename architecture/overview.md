@@ -62,7 +62,8 @@ release TOML, pinned v2.12 oracle baseline + Go/Python client smokes),
    admin HTTP (`admin.rs` on `eggserve-server` + `eggserve-primitives`),
    file config (`config.rs` schema-v1 TOML), CLI (`eggchaos-cli`), Toxiproxy
    adapter, and scenario driver are all translators into that authority — never
-   alternate stores.
+   alternate stores. The native HTTP contract is explicit in `native.rs` and
+   does not serialize internal fault enum layout as its mutation schema.
 7. Observability is evidence-first: `StreamEvidence` / `EngineEvidence` /
    `ConnectionEvidence` / `RngEvidence`, `ConnectionSnapshot`, `MetricsCounters`,
    bounded scenario run records. No payload capture; histories and queues are

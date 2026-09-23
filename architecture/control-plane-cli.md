@@ -7,6 +7,7 @@ Evidence-first deep dive for the native control surface. Authority is code;
 spec. All paths below are relative to the workspace root.
 
 Sources: `crates/eggchaos-server/src/admin.rs`,
+`crates/eggchaos-server/src/native.rs`,
 `crates/eggchaos-server/src/runtime.rs`,
 `crates/eggchaos-server/src/config.rs`,
 `crates/eggchaos-server/src/lib.rs`,
@@ -115,23 +116,23 @@ empty-filtered; proxy/fault names travel as single path segments.
 | `GET` | `/v1/version` | `200 {"version":"<cargo>","api":"v1"}` | `env!("CARGO_PKG_VERSION")` |
 | `GET` | `/metrics` | `200` Prometheus text | no `/v1` prefix |
 | `POST` | `/v1/reset` | `200 ResetReport` | see §4 |
-| `GET` | `/v1/proxies` | `200 ProxyView[]` | `state.list()` |
-| `POST` | `/v1/proxies` | `201 {"proxy":view,"generation":N}` | body `ProxySpec`; bind-before-register |
-| `GET` | `/v1/proxies/{name}` | `200 ProxyView` / `404` | |
-| `PATCH` | `/v1/proxies/{name}` | `200 {"proxy":view,"generation":N}` | body `ProxyPatch`; restart-class for listen/upstream |
+| `GET` | `/v1/proxies` | `200 NativeProxyViewV1[]` | `state.list()` converted to native DTOs |
+| `POST` | `/v1/proxies` | `201 {"proxy":view,"generation":N}` | body `NativeProxyRequestV1`; bind-before-register |
+| `GET` | `/v1/proxies/{name}` | `200 NativeProxyViewV1` / `404` | |
+| `PATCH` | `/v1/proxies/{name}` | `200 {"proxy":view,"generation":N}` | body `NativeProxyPatchV1`; restart-class for listen/upstream |
 | `DELETE` | `/v1/proxies/{name}` | `200 {"generation":N,"deleted":true}` | stops listener, terminates conns |
 | `GET` | `/v1/proxies/{name}/faults` | `200 {"upstream":[...],"downstream":[...]}` | from live snapshots |
-| `POST` | `/v1/proxies/{name}/faults` | `201 {"direction":..,"fault":..,"generation":N}` | body `FaultUpsert` |
+| `POST` | `/v1/proxies/{name}/faults` | `201 {"direction":..,"fault":..,"generation":N}` | body `FaultUpsertV1`; lowercase typed `kind.type` |
 | `GET` | `/v1/proxies/{name}/faults/{id}` | `200 {"direction":..,"fault":..}` | upstream searched first |
-| `PATCH` | `/v1/proxies/{name}/faults/{id}` | `200 {"direction":..,"fault":..,"generation":N}` | body `FaultPatch` |
+| `PATCH` | `/v1/proxies/{name}/faults/{id}` | `200 {"direction":..,"fault":..,"generation":N}` | body `FaultPatchV1`; same kind DTO as create |
 | `DELETE` | `/v1/proxies/{name}/faults/{id}` | `200 {"generation":N,"deleted":true}` | either direction |
 | `GET` | `/v1/connections` | `200 ConnectionSnapshot[]` | live evidence merged at read time |
 | `GET` | `/v1/connections/{id}` | `200` / `400` non-integer / `404` | `connection id must be an integer` |
 | `DELETE` | `/v1/connections/{id}` | `200 {"id":N,"terminated":true}` / `404` | `kill()`; level-triggered cancel |
 | `GET` | `/v1/history` | `200 ClosedConnection[]` | bounded, newest last |
-| `POST` | `/v1/scenarios/apply` | `202 {"run_id":..,"seed":..,"status":..}` | invalid doc maps to `ControlError::Invalid` |
-| `GET` | `/v1/scenarios/{run_id}` | `200 ScenarioRunRecord` / `400` / `404` | |
-| `DELETE` | `/v1/scenarios/{run_id}` | `200 ScenarioRunRecord` / `400` / `404` | cancel |
+| `POST` | `/v1/scenarios/apply` | `202 ScenarioRunV1` | body `ScenarioV1`; invalid doc maps to `ControlError::Invalid` |
+| `GET` | `/v1/scenarios/{run_id}` | `200 ScenarioRunV1` / `400` / `404` | lowercase status values |
+| `DELETE` | `/v1/scenarios/{run_id}` | `200 ScenarioRunV1` / `400` / `404` | cancel |
 
 Scenario/metrics semantics belong to
 `scenario-observability.md`; this file records only the route/status
@@ -139,7 +140,7 @@ contract. `docs/control-plane.md:14-26` carries the same inventory in prose.
 
 ## 2. Schema-v1 TOML config
 
-Types in `crates/eggchaos-server/src/config.rs:12-112`; re-exported by
+Types in `crates/eggchaos-server/src/config.rs` and `native.rs`; re-exported by
 `crates/eggchaos-server/src/lib.rs:11-13`.
 
 ### 2.1 `NativeConfig`
@@ -166,7 +167,8 @@ modulo proxy addresses).
 - `seed: u64` — `#[serde(default)]`, i.e. `0` when omitted. Feeds
   `ServiceBuilder::new(seed)` and the `(service seed XOR proxy seed)`
   namespace (`runtime.rs:138-142`).
-- `admin: AdminFileConfig`, `proxies: Vec<ProxyFileConfig>` under `[[proxy]]`.
+- `admin: AdminFileConfig`, optional `runtime: RuntimeConfigV1`, and
+  `proxies: Vec<ProxyFileConfig>` under `[[proxy]]`.
 
 ### 2.2 `AdminFileConfig` (`config.rs:28-53`)
 
@@ -189,13 +191,13 @@ Prefer env/file indirection for the token in deployment (field comment,
 | `upstream` | `SocketAddr` | required; fixed target |
 | `enabled` | `bool` | default `true` (`default_true`) |
 | `max_connections` | `Option<usize>` | default `None` (no per-proxy cap) |
+| `connect_timeout_ms` | `u64` milliseconds | default `5000`, range `1..=300000` |
+| `seed` | `u64` | default `0` |
 | `fault` | `Vec<FaultFileConfig>` | `[[proxy.fault]]`, default empty |
 
-Note: file proxies have **no** `connect_timeout` field. `compile()`
-starts from `ProxySpec::new` (`runtime.rs:82-98`), so file-loaded proxies
-always get `connect_timeout = 5s` until changed via `PATCH
-/v1/proxies/{name}` (`connect_timeout_ms`). The API/CLI default for new
-proxies is `5000 ms` (`main.rs:221`).
+Schema-v1 TOML and native API/CLI use the same `connect_timeout_ms` spelling
+and millisecond unit. Omitted config values retain the former 5-second
+default.
 
 ### 2.4 `FaultFileConfig` (`config.rs:78-112`)
 
@@ -207,12 +209,34 @@ Human-friendly units; `direction: Direction` (`upstream` = client→target,
 | `probability` | `f64` finite `0..=1` | `1.0` |
 | `delay` | duration string `"<n>ms\|us\|s"` | `ZERO` (absent) |
 | `jitter` | duration string | `ZERO` |
+| `max_buffer_bytes` | `u64`, `1..=67108864` | `65536` |
 | `bytes_per_second` | `u64`, non-zero | `1` |
 | `burst_bytes` | `u64` | `64*1024` |
 | `bytes` | `u64`, non-zero | `1` |
 | `average_size` | `u64`, non-zero | `1024` |
 | `variation` | `u64` | `0` |
 | `hard_reset` | `bool` | `false` |
+
+The service half-close policy is not configurable in schema v1; the runtime
+continues to use its existing `Drain` setting until the policy has a stable
+operator contract.
+
+### 2.5 `RuntimeConfigV1`
+
+Optional `[runtime]` bounds preserve existing defaults when omitted:
+
+| TOML key | Unit | Default | Accepted range |
+| --- | --- | --- | --- |
+| `global_connections` | active connections | `1024` | `1..=1000000` |
+| `history` | retained closed records | `256` | `0..=1000000` |
+| `relay_buffer_bytes` | bytes | `65536` | `1..=16777216` |
+| `termination_grace_ms` | milliseconds | `5000` | `0..=300000` |
+
+Native HTTP fault durations use integer nanoseconds. Fault `kind.type` spellings
+are kebab-case and independent of core enum Serde. The pre-release API
+migration from the prior unpublished Rust enum tags/`Duration` objects and
+proxy-create `connect_timeout` spelling is documented in
+`docs/control-plane.md`.
 
 Duration parser (`config.rs:285-304`): trims, requires `ms`/`us`/`s`
 suffix, `u64` number, checked `nanos` multiply. Anything else is
@@ -264,6 +288,8 @@ Crate: `crates/eggchaos-cli/Cargo.toml:1-21` — `eggchaos-cli` depends on
 Global flags (`main.rs:9-24`):
 
 - `--admin <url>`, default `http://127.0.0.1:8475`.
+- `--admin-token <token>` overrides `EGGCHAOS_ADMIN_TOKEN`; omitted means no
+  Authorization header.
 - `--json`: emit one machine-readable JSON document; also switches error
   shape (see §3.3).
 
@@ -278,7 +304,7 @@ Global flags (`main.rs:9-24`):
 | `reset` | `POST /v1/reset` | |
 | `proxy list` | `GET /v1/proxies` | |
 | `proxy get <name>` | `GET /v1/proxies/{name}` | |
-| `proxy add <name> --listen --upstream [--max-connections] [--connect-timeout-ms] [--disabled]` | `POST /v1/proxies` | `listen`, `upstream` required `SocketAddr`; body `{"name","listen","upstream","enabled":!disabled,"connect_timeout":ms default 5000, ["max_connections"]}` (`main.rs:208-227`) |
+| `proxy add <name> --listen --upstream [--max-connections] [--connect-timeout-ms] [--seed] [--disabled]` | `POST /v1/proxies` | `listen`, `upstream` required `SocketAddr`; body uses `connect_timeout_ms` (default 5000), optional `max_connections` and `seed` |
 | `proxy set <name> [--listen] [--upstream] [--max-connections \| --clear-max-connections] [--connect-timeout-ms] [--enable \| --disable]` | `PATCH /v1/proxies/{name}` | at least one field required else `proxy set requires at least one field to change`; `enable`/`disable` map to `{"enabled":bool}`; `clear_max_connections` sends `"max_connections":null`; timeout key is `connect_timeout_ms` (`main.rs:228-284`) |
 | `proxy remove <name>` | `DELETE /v1/proxies/{name}` | |
 | `proxy enable <name>` | `PATCH ... {"enabled":true}` | |
@@ -291,33 +317,39 @@ Global flags (`main.rs:9-24`):
 | `connection list` | `GET /v1/connections` | |
 | `connection get <id:u64>` | `GET /v1/connections/{id}` | |
 | `connection kill <id:u64>` | `DELETE /v1/connections/{id}` | |
+| `scenario apply <file>` | `POST /v1/scenarios/apply` | JSON `ScenarioV1` file, at most 1 MiB |
+| `scenario get <run_id:u64>` | `GET /v1/scenarios/{run_id}` | |
+| `scenario cancel <run_id:u64>` | `DELETE /v1/scenarios/{run_id}` | |
+| `history` | `GET /v1/history` | |
+| `metrics` | `GET /metrics` | raw text in human mode; `{"body":"..."}` in JSON mode |
 
 `FaultParams` (`main.rs:101-129`): `--kind`, `--delay-ms`, `--jitter-ms`,
 `--max-buffer-bytes`, `--bytes-per-second`, `--burst-bytes`,
 `--close-after-ms`, `--bytes`, `--average-size`, `--variation`,
 `--after-ms`, `--hard-reset` (bool flag).
 
-`build_kind` (`main.rs:423-460`):
+`build_kind` (`main.rs`):
 
 - `latency` requires `--delay-ms`; optional `--jitter-ms` (0),
-  `--max-buffer-bytes` (65536). Emits `{"Latency":{"delay":{secs,nanos},"jitter":..,"max_buffer_bytes":..}}`.
+  `--max-buffer-bytes` (65536). Emits `{"type":"latency","delay_ns":...,"jitter_ns":...,"max_buffer_bytes":...}`.
 - `bandwidth`\|`bw` requires `--bytes-per-second`, `--burst-bytes`.
-- `blackhole`\|`hole` optional `--close-after-ms` → `{"close_after": {secs,nanos} | null}`.
+- `blackhole`\|`hole` optional `--close-after-ms` → nullable `close_after_ns`.
 - `limit-data`\|`limit` requires `--bytes`.
 - `slow-close`\|`slowclose` requires `--delay-ms`.
 - `slice` requires `--average-size`; optional `--variation` (0),
   `--delay-ms` (0).
 - `disconnect` optional `--after-ms` (0), `--hard-reset`.
 - else `unknown --kind ...`.
-- Durations encode as `{"secs": ms/1000, "nanos": (ms%1000)*1e6}`
-  (`duration_ms_json`, `main.rs:415-417`); this matches `ProxySpec`'s
-  `duration_millis` serde (`runtime.rs:70-80`).
+- All native fault durations are encoded as integer nanoseconds. The
+  `FaultKindV1` DTO owns the explicit lowercase `type` spelling and is reused
+  by config conversion and native HTTP create/patch/response conversion.
 - Missing required param → `--kind requires --<name>` (`required`,
   `main.rs:419-421`).
 
-Note the naming split: TOML `type` uses `limit_data`/`slow_close` style
-(`config.rs`), CLI `--kind` uses kebab (`limit-data`, `slow-close`) plus
-aliases; both converge on `eggchaos_core::FaultKind` variants.
+TOML accepts legacy `limit_data`/`slow_close`, `slicer`, `timeout`, and
+`reset_peer` aliases at its parser edge. Native HTTP always uses the explicit
+kebab-case `FaultKindV1` schema; the CLI converts to this schema and never
+serializes the core `FaultKind` enum.
 
 ### 3.2 `eggfetch-core` HTTP client path
 
@@ -326,27 +358,31 @@ aliases; both converge on `eggchaos_core::FaultKind` variants.
 1. `Client::builder().build()`.
 2. `client.get/post/patch/delete(&format!("{base}{path}"))?`; optional
    `.json(&body)?` for POST/PATCH.
-3. `send().await?`, `status()`, `bytes().await?`.
-4. Print: `--json` → compact `serde_json::to_string`; otherwise pretty.
-   Non-JSON bodies fall back to `{"body": "<utf8-lossy>"}` when parsing fails.
-5. `!status.is_success()` → `Err("admin returned {status}")` → exit `1`.
+3. If a token is configured, attach `Authorization: Bearer <token>`; explicit
+   `--admin-token` overrides `EGGCHAOS_ADMIN_TOKEN`.
+4. `send().await`, `status()`, `bytes().await`. Transport errors are reported
+   generically so malformed credentials cannot appear in diagnostics.
+5. Non-success status returns an error before printing; top-level dispatch
+   emits one bounded CLI error document in JSON mode.
+6. On success, `--json` emits compact JSON; human mode prints text/pretty JSON.
+   Prometheus text becomes `{"body":"..."}` in JSON mode.
 
 The CLI is a thin translator; like the Toxiproxy adapter it holds no proxy
 state — every mutation goes through `ControlState` over HTTP.
 
 ### 3.3 `--json` contract and error shape
 
-- Every command emits **one** JSON document on stdout (`print_value`,
-  `main.rs:521-527`). `version`/`reset`/CRUD all follow this; e2e asserts
+- Every JSON command emits **one** JSON document on stdout. `version`/`reset`/
+  CRUD/scenario/history/metrics follow this; metrics wraps raw text. E2E asserts
   parseable single docs (`cli_e2e.rs:9-21,99-143`).
-- Human mode prints pretty JSON to stdout; `--json` prints compact JSON.
+- Human mode prints pretty JSON for JSON responses and raw Prometheus text for
+  metrics; `--json` prints compact JSON.
 - Top-level dispatch error (`main.rs:172-186`): `--json` prints
   `{"error":{"code":"request_failed","message":"..."}}` on stdout and exits
   `1`; otherwise `eprintln!("eggchaos: {error}")` and exits `1`.
-- Server-side envelopes keep their own `code` (`not_found`, `conflict`,
-  `invalid`, `bind_failed`, `restart_failed`, `invalid_json`,
-  `unauthorized`); the CLI wraps transport/HTTP-status failures as
-  `request_failed`. Nonzero exit on any failure (`docs/control-plane.md:28-34`).
+- Server-side error payloads are not printed a second time on failure. The CLI
+  wraps HTTP-status/transport failures as `request_failed`; nonzero exit on
+  any failure (`docs/control-plane.md`).
 
 ### 3.4 `serve` boot sequence
 

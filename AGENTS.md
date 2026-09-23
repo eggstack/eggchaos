@@ -11,7 +11,7 @@ eggchaos-eggfetch -> core (implements `eggfetch_core::Dialer`)
 ```
 
 - `eggchaos-core` (`crates/eggchaos-core/src/`): protocol-neutral `FaultPlan` + `ChaosStream<T>` write-side state machine. Knows nothing about HTTP, listeners, CLI, Toxiproxy, Eggfetch. Empty plan delegates without allocating queue/timer.
-- `eggchaos-server`: fixed-target TCP listeners only (never a forward proxy). `eggress-relay` owns bidirectional copy + half-close — do not fork its semantics. Admin H1 runtime is `eggserve-server` + `eggserve-primitives`.
+- `eggchaos-server`: fixed-target TCP listeners only (never a forward proxy). `eggress-relay` owns bidirectional copy + half-close — do not fork its semantics. Admin H1 runtime is `eggserve-server` + `eggserve-primitives`; `native.rs` owns the explicit `/v1` DTO/conversion boundary.
 - `eggchaos-cli`: thin adapter; control HTTP via `eggfetch-core` (minimal features). Never a second networking/state path.
 - `eggchaos-toxiproxy`: v2.12 REST adapter over native `ControlState`. `eggchaos-eggfetch`: physical-stream `Dialer`; Eggfetch keeps HTTP/TLS/SNI/pooling. Per-request chaos is out of scope.
 - `benchmarks/` and `fuzz/` are separate crates/workspaces with their own manifests — don't run them via workspace commands.
@@ -60,7 +60,7 @@ Qualification scripts (release workflow): `scripts/qualify_fuzz.sh`, `scripts/qu
 
 ## Planning state
 
-M000–M016 and M008 are closed milestones. The 2026-09-23 post-M015 corrective chain is `M016 (closed) -> M017 (ready) -> M018 (blocked) -> M019 (blocked)`. M015 remains historical qualification for `cd88b22`, but it is no longer the final tag authority. No tag, crates.io publish, or GitHub release should occur until M019 closes. Do not rewrite `plans/closure/` / `plans/archive/` history.
+M000–M016 and M008 are closed milestones. The 2026-09-23 post-M015 corrective chain is `M016 (closed) -> M017 (active) -> M018 (blocked) -> M019 (blocked)`. M015 remains historical qualification for `cd88b22`, but it is no longer the final tag authority. No tag, crates.io publish, or GitHub release should occur until M019 closes. Do not rewrite `plans/closure/` / `plans/archive/` history.
 
 If the owner asks for new work: `plans/roadmap.md` is the architecture authority, `plans/reference/` holds parity/verification contracts (not status), ADRs live in `plans/adrs/`. Any new numbered plan needs objective, baseline/deps, scope + non-goals, affected crates, ordered work packages, invariants/failure semantics, test commands, acceptance criteria, stop conditions, closure evidence, and follow-on rules — and must update `plans/registry.md` in the same change. Never mark `closed` from source inspection; closure requires running the plan's tests on the exact candidate plus external/differential evidence where declared.
 
