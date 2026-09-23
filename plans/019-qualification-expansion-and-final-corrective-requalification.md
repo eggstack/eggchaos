@@ -1,6 +1,6 @@
 # M019 — Qualification Expansion and Final Corrective Requalification
 
-Status: blocked
+Status: active
 Depends on: M016, M017, M018
 Role: final pre-tag corrective qualification gate
 

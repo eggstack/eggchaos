@@ -1,6 +1,6 @@
 # Eggchaos Plan Registry
 
-Last reconciled: 2026-09-23 (M017 closed; M018 activated)
+Last reconciled: 2026-09-23 (M018 closed; M019 activated)
 
 This file is the compact source of truth for active milestone state. Detailed scope lives in the numbered plans. Historical closure evidence belongs in `plans/closure/`.
 
@@ -24,8 +24,8 @@ This file is the compact source of truth for active milestone state. Detailed sc
 | M015 | `015-final-exact-head-release-requalification.md` | closed | M014 | Clean historical verdict at `cd88b22`; evidence in `plans/closure/M015-final-exact-head-release-requalification-closure.md`. A later audit activated M016–M019, so M015 is no longer the final tag authority. |
 | M016 | `016-pre-release-correctness-and-secure-control-hardening.md` | closed | M015 | Clean closure at `5bb1f81`; evidence in `plans/closure/M016-pre-release-correctness-and-secure-control-hardening-closure.md`. |
 | M017 | `017-native-control-contract-and-operator-surface-consolidation.md` | closed | M016 | Closed at `58c4345`; evidence in `plans/closure/M017-native-control-contract-and-operator-surface-consolidation-closure.md`. Pinned Toxiproxy differential remains incomplete and is an explicit M019 gate. |
-| M018 | `018-runtime-modularization-and-dependency-hygiene.md` | active | M017 | Activated after M017. Decompose the monolithic server runtime without changing authority/semantics and remove unused direct dependencies. |
-| M019 | `019-qualification-expansion-and-final-corrective-requalification.md` | blocked | M016, M017, M018 | Final pre-tag successor gate: strict pinned-oracle release qualification, expanded fuzz/differential evidence, full exact-HEAD CI/artifacts/security/package/performance requalification. |
+| M018 | `018-runtime-modularization-and-dependency-hygiene.md` | closed | M017 | Closed at `7e33d03`; evidence in `plans/closure/M018-runtime-modularization-and-dependency-hygiene-closure.md`. Runtime authority and public root exports preserved; six unused direct deps removed. |
+| M019 | `019-qualification-expansion-and-final-corrective-requalification.md` | active | M016, M017, M018 | Activated after M018. Final pre-tag successor gate: strict pinned-oracle qualification, expanded fuzz/differential evidence, exact-HEAD CI/artifacts/security/package/performance requalification. |
 
 ## Execution state
 
@@ -59,9 +59,9 @@ These remain post-release or separately planned work and must not be pulled into
 
 Completed historical work: M000–M015 and M008 are closed.
 
-Active: M018.
+Active: M019.
 
-Blocked: M019 on M016/M017/M018.
+Blocked: none.
 
 Current pre-tag execution order: `M016 (closed) -> M017 -> M018 -> M019`. Do not tag/publish/create the release before M019 closes.
 
