@@ -19,17 +19,23 @@ This file is the compact source of truth for active milestone state. Detailed sc
 | M010 | `010-runtime-control-authority-corrective.md` | closed | M003/M004 historical implementation | Closed in `plans/closure/M010-runtime-control-authority-corrective-closure.md` at `3961e968e98948cfab1d0c99d3503ba1624e2e6`. |
 | M011 | `011-live-state-scenario-observability-corrective.md` | closed | M009, M010 | Closed in `plans/closure/M011-live-state-scenario-observability-corrective-closure.md`. |
 | M012 | `012-toxiproxy-v2-12-parity-corrective.md` | closed | M009, M010, M011 | Closed at `a040ed7`; evidence in `plans/closure/M012-toxiproxy-v2-12-parity-corrective-closure.md` (47/47 differential vs pinned v2.12.0 oracle, Go + Python client smokes). |
-| M013 | `013-corrective-requalification-gate.md` | closed | M009, M010, M011, M012 | Clean verdict at `9904490`; evidence in `plans/closure/M013-corrective-requalification-gate-closure.md`. M008 reactivated for release work. |
+| M013 | `013-corrective-requalification-gate.md` | closed | M009, M010, M011, M012 | Clean verdict at `9904490`; evidence in `plans/closure/M013-corrective-requalification-gate-closure.md`. M008 was subsequently completed. |
+| M014 | `014-release-state-and-planning-reconciliation.md` | ready | M008, M013 | Reconcile stale milestone/release wording and document the post-M008 candidate lineage before the final exact-HEAD gate. |
+| M015 | `015-final-exact-head-release-requalification.md` | blocked | M014 | Final pre-tag exact-HEAD release qualification, including dedicated release workflow and artifact matrix. |
 
-## Corrective execution order
+## Execution state
 
-The active corrective graph is:
+The corrective implementation chain is complete:
 
 `(M009 || M010) -> M011 -> M012 -> M013 -> M008`
 
-M009 and M010 are independently ready and may be implemented in parallel. M011 is the first join point because live-state qualification depends on both correct fault semantics and a real runtime mutation authority.
+Historical M002–M006 closure records remain preserved as evidence of the earlier implementation state. M009–M013 are the corrective successors that requalified that implementation, and M008 subsequently closed the first release-qualification milestone.
 
-Historical M002–M006 closure records are retained as evidence of the earlier implementation state. They are not rewritten or deleted. M009–M013 are corrective successors discovered by a later source/behavior audit.
+The remaining pre-tag sequence is:
+
+`M014 -> M015`
+
+M014 reconciles planning/release state and the post-M008 candidate lineage. M015 then qualifies one exact post-cleanup HEAD with the dedicated release workflow and artifact matrix.
 
 ## Future roadmap items not yet activated
 
@@ -47,8 +53,15 @@ These remain post-release or separately planned work and must not be pulled into
 
 ## Dependency-ready view
 
-Completed corrective chain: M009, M010, M011, M012, M013 are closed.
-M008 is active (release qualification).
+Completed: M000–M013 and M008 are closed.
+
+Ready now:
+- M014 — release-state and planning reconciliation.
+
+Blocked:
+- M015 on M014.
+
+After a clean M015 closure there is no further planned pre-tag implementation work; tagging/publishing/release creation remain explicit owner decisions.
 
 ## Closure requirements
 
