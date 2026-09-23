@@ -1,8 +1,12 @@
 # M008 — Qualification, Release, and Distribution
 
-Status: active
+Status: closed
 Depends on: M006, M007, M013  
 Role: first release gate
+
+## Historical closure note
+
+M008 closed at candidate `645a761723f6fe10fda0975c74e33343e2700764`; see `plans/closure/M008-qualification-release-and-distribution-closure.md`. Later dependency/test/workflow commits are not retroactively part of that exact-candidate evidence. M014 reconciles their lineage and M015 performs the final exact-HEAD pre-tag qualification.
 
 ## Objective
 
