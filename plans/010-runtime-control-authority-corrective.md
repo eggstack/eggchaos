@@ -1,9 +1,13 @@
 # M010 — Runtime and Control Authority Corrective
 
-Status: ready  
-Depends on: M003/M004 historical implementation  
-Parallel with: M009  
+Status: closed
+Depends on: M003/M004 historical implementation
+Parallel with: M009
 Successor gate: M011
+
+## Historical closure note
+
+M010 closed at candidate `3961e968e98948cfab1d0c99d3503ba1624e2e6`; see `plans/closure/M010-runtime-control-authority-corrective-closure.md`. Status retained as completed history; M014 reconciles planning state and M015 is the final pre-tag authority.
 
 ## Objective
 

@@ -1,6 +1,6 @@
 # M015 — Final Exact-HEAD Release Requalification
 
-Status: blocked
+Status: ready
 Depends on: M014
 Role: final pre-tag gate
 

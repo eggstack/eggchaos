@@ -1,8 +1,12 @@
 # M011 — Live State, Scenario, and Observability Corrective
 
-Status: blocked  
-Depends on: M009, M010  
+Status: closed
+Depends on: M009, M010
 Successor: M012
+
+## Historical closure note
+
+M011 closed at candidate `acd0883`; see `plans/closure/M011-live-state-scenario-observability-corrective-closure.md`. Status retained as completed history; M014 reconciles planning state and M015 is the final pre-tag authority.
 
 ## Objective
 

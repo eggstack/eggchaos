@@ -1,8 +1,12 @@
 # M013 — Corrective Requalification Gate
 
-Status: blocked  
-Depends on: M009, M010, M011, M012  
+Status: closed
+Depends on: M009, M010, M011, M012
 Successor: M008 resumes
+
+## Historical closure note
+
+M013 closed with a clean verdict at candidate `9904490`; see `plans/closure/M013-corrective-requalification-gate-closure.md`. Status retained as completed history; M014 reconciles planning state and M015 is the final pre-tag authority.
 
 ## Objective
 

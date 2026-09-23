@@ -7,8 +7,11 @@ semantics are documented in the [roadmap](plans/roadmap.md).
 The workspace provides the validated native fault model, deterministic
 SplitMix64-v1 identity derivation, bounded live mutation, a fixed-target relay,
 native JSON/TOML control, Toxiproxy v2.12 translation, and an Eggfetch
-physical-stream `Dialer` adapter. The first-release qualification gate remains
-open until cross-platform, packaging, and release evidence is complete.
+physical-stream `Dialer` adapter. M008 closed as the first release-qualification
+milestone at candidate `645a761`; M014 reconciles the post-M008 lineage and
+M015 is the sole final exact-HEAD pre-tag qualification gate. No `v0.1.0` tag,
+crates.io publication, or GitHub release exists yet; those remain explicit
+owner decisions after M015.
 
 Eggchaos is not a general forward proxy, packet-loss simulator, TLS MITM, UDP
 impairment engine, or arbitrary CONNECT/SOCKS router. Stream slicing and loss

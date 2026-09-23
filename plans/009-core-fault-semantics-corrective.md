@@ -1,9 +1,13 @@
 # M009 — Core Fault Semantics Corrective
 
-Status: ready  
-Depends on: M002 historical implementation  
-Parallel with: M010  
+Status: closed
+Depends on: M002 historical implementation
+Parallel with: M010
 Successor gate: M011
+
+## Historical closure note
+
+M009 closed at candidate `8c1373e90129e68e96379fc3277fade8ce087abd`; see `plans/closure/M009-core-fault-semantics-corrective-closure.md`. Status retained as completed history; M014 reconciles planning state and M015 is the final pre-tag authority.
 
 ## Objective
 

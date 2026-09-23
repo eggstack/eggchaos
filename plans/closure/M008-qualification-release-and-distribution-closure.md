@@ -83,5 +83,34 @@ tag/crates.io publication/GitHub release remain explicit owner decisions
 
 No `v0.1.0` tag created, nothing published to crates.io, no GitHub
 release drafted — the candidate is qualified and the order is validated
-(core → eggfetch; server chain awaits upstream eggserve publication).
-Say the word and I will tag/publish in the documented sequence.
+(core → eggfetch → server/toxiproxy/cli, with `eggserve-*` 0.2.0 resolved
+from the crates.io registry and zero git sources in `Cargo.lock`).
+
+## Post-M008 lineage note (M014; historical candidate preserved above)
+
+M008 evidence above remains tied to `645a761` and is not rewritten.
+Later commits are not retroactively release-qualified; M015, not this
+record, is the final pre-tag exact-commit authority:
+
+- `c42a198` — planning-only M008 closure bookkeeping (closure record,
+  registry, performance-record formatting). No production, dependency,
+  test, or workflow change.
+- `00d1ee4` — dependency: `eggserve-*` git pins switched to crates.io
+  `0.2.0` version-only deps; `Cargo.lock` registry-only (zero git
+  sources). Planning note updated. Full workspace tests, audit, and
+  deny re-passed on the registry graph.
+- `22136c0` — test/workflow hardening: bounded H2 test awaits with
+  explicit timeout phases and `timeout-minutes` caps on CI/release
+  jobs. No production fault, runtime, or API change.
+- `a8933f3` — test-only deterministic H2 server-close fix (bounded
+  5 s drain, then drop `connection` to close the transport regardless
+  of pooled-client peer behavior). No production fault, runtime, or
+  API change.
+- `233202a`, `92f1f7a`, `5565c54`, `6f2eebd`, `33880db`, `e237daa` —
+  planning-only M014/M015 scaffolding and reconciliation of registry,
+  planning README, roadmap, and M008 plan state. No production,
+  dependency, test, or workflow change.
+
+Ordinary three-platform CI is green on the post-M008 HEAD (see M014
+closure for the exact candidate and run IDs); the dedicated release
+workflow has not yet been rerun on that HEAD. That rerun is M015.

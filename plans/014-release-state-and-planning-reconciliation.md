@@ -1,8 +1,12 @@
 # M014 — Release State and Planning Reconciliation
 
-Status: ready
+Status: closed
 Depends on: M008, M013
 Successor: M015
+
+## Historical closure note
+
+M014 closed with the reconciliation commit family described in `plans/closure/M014-release-state-and-planning-reconciliation-closure.md`. Status retained as completed history; M015 is the final pre-tag exact-HEAD authority.
 
 ## Objective
 

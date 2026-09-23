@@ -1,6 +1,6 @@
 # Eggchaos Plan Registry
 
-Last reconciled: 2026-09-22
+Last reconciled: 2026-09-23
 
 This file is the compact source of truth for active milestone state. Detailed scope lives in the numbered plans. Historical closure evidence belongs in `plans/closure/`.
 
@@ -20,8 +20,8 @@ This file is the compact source of truth for active milestone state. Detailed sc
 | M011 | `011-live-state-scenario-observability-corrective.md` | closed | M009, M010 | Closed in `plans/closure/M011-live-state-scenario-observability-corrective-closure.md`. |
 | M012 | `012-toxiproxy-v2-12-parity-corrective.md` | closed | M009, M010, M011 | Closed at `a040ed7`; evidence in `plans/closure/M012-toxiproxy-v2-12-parity-corrective-closure.md` (47/47 differential vs pinned v2.12.0 oracle, Go + Python client smokes). |
 | M013 | `013-corrective-requalification-gate.md` | closed | M009, M010, M011, M012 | Clean verdict at `9904490`; evidence in `plans/closure/M013-corrective-requalification-gate-closure.md`. M008 was subsequently completed. |
-| M014 | `014-release-state-and-planning-reconciliation.md` | ready | M008, M013 | Reconcile stale milestone/release wording and document the post-M008 candidate lineage before the final exact-HEAD gate. |
-| M015 | `015-final-exact-head-release-requalification.md` | blocked | M014 | Final pre-tag exact-HEAD release qualification, including dedicated release workflow and artifact matrix. |
+| M014 | `014-release-state-and-planning-reconciliation.md` | closed | M008, M013 | Closed with reconciliation commit family; evidence in `plans/closure/M014-release-state-and-planning-reconciliation-closure.md`. Post-M008 lineage recorded; M015 is the final exact-HEAD authority. |
+| M015 | `015-final-exact-head-release-requalification.md` | ready | M014 | Final pre-tag exact-HEAD release qualification, including dedicated release workflow and artifact matrix. |
 
 ## Execution state
 
@@ -33,9 +33,9 @@ Historical M002–M006 closure records remain preserved as evidence of the earli
 
 The remaining pre-tag sequence is:
 
-`M014 -> M015`
+`M015`
 
-M014 reconciles planning/release state and the post-M008 candidate lineage. M015 then qualifies one exact post-cleanup HEAD with the dedicated release workflow and artifact matrix.
+M014 has reconciled planning/release state and the post-M008 candidate lineage. M015 then qualifies one exact post-cleanup HEAD with the dedicated release workflow and artifact matrix.
 
 ## Future roadmap items not yet activated
 
@@ -53,13 +53,12 @@ These remain post-release or separately planned work and must not be pulled into
 
 ## Dependency-ready view
 
-Completed: M000–M013 and M008 are closed.
+Completed: M000–M014 and M008 are closed.
 
 Ready now:
-- M014 — release-state and planning reconciliation.
+- M015 — final exact-HEAD release requalification.
 
-Blocked:
-- M015 on M014.
+Blocked: none in the pre-tag sequence.
 
 After a clean M015 closure there is no further planned pre-tag implementation work; tagging/publishing/release creation remain explicit owner decisions.
 

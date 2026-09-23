@@ -20,13 +20,13 @@ Eggchaos is intended to be a small Rust-native successor to the useful core of T
 
 ## Current execution order
 
-The original implementation and corrective chains are complete. M008 is closed as the first release-qualification milestone, and M009–M013 are closed corrective/requalification successors.
+The original implementation and corrective chains are complete. M008 is closed as the first release-qualification milestone, M009–M013 are closed corrective/requalification successors, and M014 is closed as the release-state/planning reconciliation.
 
 The remaining pre-tag sequence is:
 
-`M014 -> M015`
+`M015`
 
-M014 is ready now. It reconciles stale planning/release state and records the exact post-M008 candidate lineage. M015 is blocked on M014 and is the final exact-HEAD pre-tag qualification gate, including the dedicated release workflow and artifact matrix.
+M015 is ready now and is the final exact-HEAD pre-tag qualification gate, including the dedicated release workflow and artifact matrix.
 
 Historical M002–M013 and M008 closure records remain preserved at their real candidate commits. M015 does not rewrite them; it establishes the final current release-candidate authority after post-M008 changes.
 

@@ -1,8 +1,12 @@
 # M012 — Toxiproxy v2.12 Parity Corrective
 
-Status: blocked  
-Depends on: M009, M010, M011  
+Status: closed
+Depends on: M009, M010, M011
 Successor: M013
+
+## Historical closure note
+
+M012 closed at candidate `a040ed7`; see `plans/closure/M012-toxiproxy-v2-12-parity-corrective-closure.md` (47/47 differential vs pinned v2.12.0 oracle, Go + Python client smokes). Status retained as completed history; M014 reconciles planning state and M015 is the final pre-tag authority.
 
 ## Objective
 
