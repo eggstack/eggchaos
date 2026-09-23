@@ -1,7 +1,7 @@
 # M014 Closure — Release State and Planning Reconciliation
 
 Milestone: M014 (`014-release-state-and-planning-reconciliation.md`)
-Candidate: M014 reconciliation commit family on `main` (planning/docs/policy only; no production fault, runtime, or API change). Code baseline `e237daae92d42b3dc7898803fecf33cdcf0f78e7` with green ordinary CI; reconciliation changes verified by local full gates plus the stale-state grep gates below. The exact reconciliation commit SHA is recorded in the registry transition and `git log` (this closure follows in the same change family).
+Candidate: reconciliation commit `37dc28bb44d74b5488264ae8db8be5ff05787879` (planning/docs/policy only; no production fault, runtime, or API change). Code baseline `e237daae92d42b3dc7898803fecf33cdcf0f78e7` with green ordinary CI; reconciliation changes verified by local full gates plus the stale-state grep gates below. This closure record follows in the same change family; the planning-only candidate-SHA annotation itself does not change code.
 Implementation commits: reconciliation edits + this closure record (planning records only, plus one `deny.toml` policy tightening).
 Commands executed: see Verification.
 Platforms: darwin/arm64 local gates; Linux/macOS/Windows ordinary CI.
