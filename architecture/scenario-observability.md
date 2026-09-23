@@ -1,0 +1,420 @@
+# Scenarios and observability
+
+Deep dive for the deterministic scenario driver and the evidence-first
+observability surface. See [architecture overview](overview.md) for the
+workspace map; this document covers `scenario.rs` plus the
+evidence/snapshot/metrics types it publishes through.
+
+> Evidence-first: every claim below names the file that owns it. No payload
+> bytes are captured anywhere in this surface.
+
+## 1. Scenario model
+
+Owner: `crates/eggchaos-server/src/scenario.rs`.
+
+### 1.1 Document types
+
+- `Scenario { version, seed, events }` (`scenario.rs:11-19`): deterministic,
+  bounded scenario document.
+  - `version` must be `1`; anything else is rejected in `validate_scenario`.
+  - `seed: u64` is recorded in the run record and mixed into every published
+    policy seed namespace (see §1.5).
+  - `events: Vec<ScenarioEvent>` is capped at 1024 entries.
+- `ScenarioEvent { at_ms, action }` (`scenario.rs:23-28`): one
+  monotonic-time event. `at_ms` is milliseconds from scenario start.
+- `ScenarioAction` (`scenario.rs:32-45`): the only two v1 actions:
+  - `SetPlan { proxy, direction, faults }` — replace one directional plan
+    as a barrier generation.
+  - `RemoveFault { proxy, direction, id }` — remove one fault from a
+    directional plan.
+
+### 1.2 Validation (`validate_scenario`, `scenario.rs:103-128`)
+
+The document validates entirely before a run begins; the run task never
+starts for an invalid document:
+
+1. `version == 1`, else `InvalidProxy("unsupported scenario version")`.
+2. `events.len() <= 1024`, else `InvalidProxy("too many scenario events")`.
+3. `at_ms` non-decreasing in document order (`event.at_ms < previous` fails
+   with `"scenario events must be ordered"`). Equal timestamps are allowed;
+   the wait between them is zero.
+4. Per-action `validate_action` (`scenario.rs:130-171`):
+   - `SetPlan`: `FaultPlan::new(faults)` must succeed (native plan
+     invariants), proxy must exist via `snapshot_policies`.
+   - `RemoveFault`: `FaultId::new(id)` must parse, proxy must exist, and the
+     named fault must already be present on the target direction's base plan,
+     else `"scenario fault {id} not present on {proxy}"`.
+
+### 1.3 Driver (`drive_scenario_run`, `scenario.rs:178-311`)
+
+`ControlState::start_scenario` (`runtime.rs:1941-2009`) validates, assigns
+`run_id` from `next_run_id` (starting at 1), inserts a `Pending` record,
+creates a `shutdown_token.child_token()`, and spawns `drive_scenario_run`
+on the supervised `scenario_tasks` JoinSet — never detached. The driver:
+
+1. Marks the run `Running`.
+2. For each `(index, event)` in order, waits
+   `event.at_ms.saturating_sub(previous)` via `tokio::time::sleep`, raced
+   against `token.cancelled()` in a `biased` `select!`. Cancellation wins
+   immediately, marks `Cancelled`, drops the token, and returns
+   (`scenario.rs:192-204`).
+3. Snapshots the **currently live** plans at fire time
+   (`snapshot_policies`, `scenario.rs:214`), clones them, and applies the
+   action to the in-memory copy — never a stale snapshot. `RemoveFault`
+   re-checks presence at fire time; a fault removed manually since
+   validation fails the run here.
+4. Publishes **only the target direction** with an expected-generation guard
+   (`publish_direction_expected`, `scenario.rs:262-276`; authority at
+   `runtime.rs:1888-1919`). The other direction keeps its plan, generation,
+   and namespace untouched.
+5. On success appends a `ScenarioEventResult` to the trail and increments
+   `applied`. On any failure calls `fail_run` and returns — fail-fast, see
+   §1.6.
+6. After all events, marks `Completed` and drops the token.
+
+`previous` tracks `at_ms`, so waits are deltas, not absolute sleeps.
+
+### 1.4 Barrier generations and conflict semantics
+
+Each event is a barrier generation in the `LivePolicy` sense:
+
+- `ChaosStream::update_live` (`stream.rs:497-536`) drains already-accepted
+  preserving bytes before swapping the engine; already-discarded blackhole
+  bytes stay discarded. The `pending_generation` marker is visible to
+  evidence readers while draining. Termination handles are shared across the
+  swap (first request wins).
+- Publish paths are compare-and-swap on the expected generation.
+  `publish_direction_expected` maps `PublishError::Conflict` to
+  `ControlError::Conflict` with `conflict_message`
+  (`runtime.rs:2660-2665`): `"proxy {p} policy moved from generation {e}
+  to {f} during the operation; retry from current state"`.
+- Consequence: a concurrent manual publication between scenario events does
+  **not** get silently overwritten. The scenario event's expected base is
+  stale, the publish returns `Conflict`, and the run fails fast with
+  `"scenario event failed: conflict: ..."` instead of rolling state back.
+  This is the documented contract in `docs/control-plane.md` (§Scenarios)
+  and the driver header (`scenario.rs:173-177`).
+- `GET` proxy views never mix generations: plan, generation, and seed
+  namespace come from one atomic `LivePolicy::snapshot()` per direction
+  (`runtime.rs:908-931`).
+
+### 1.5 Derived seed namespaces (`derive_policy_seed`)
+
+Owner: `crates/eggchaos-core/src/rng.rs:54-63`.
+
+Each event derives its namespace purely as
+`derive_policy_seed(scenario.seed, run_id, index)` (`scenario.rs:261`).
+Manual control updates retain the current namespace; only scenario events
+(and explicit publish callers) set a new one. The published namespace feeds
+fault-local RNG compilation for every connection that observes the policy,
+so the scenario seed participates in deterministic engine decisions.
+
+Covered by `scenario_seed_drives_published_namespaces` and
+`scenario_namespaces_replay_independent_of_scheduling`
+(`runtime.rs:4285-4408`): different seeds publish different namespaces for
+the same event identity; same seed + identity under different `at_ms`
+timing publishes the same namespaces.
+
+### 1.6 Run lifecycle, fail-fast, cancellation
+
+`ScenarioRunStatus` (`scenario.rs:49-62`):
+
+```text
+Pending -> Running -> Completed
+               |  \-> Failed (fail-fast, failure: Some(_))
+               \---> Cancelling -> Cancelled
+```
+
+- `Pending`: validated, waiting for the first event (initial record in
+  `start_scenario`).
+- `Running`: set by the driver on entry.
+- `Cancelling`: set by `cancel_scenario` (`runtime.rs:2024-2040`) when a
+  token exists and the record is `Pending`/`Running`. Cancelling a finished
+  run returns its final record unchanged; unknown IDs return `None`.
+- `Cancelled`: set by the driver when the token fires before the next
+  event. `remove_scenario_token` cleans up.
+- `Completed`: all events applied.
+- `Failed`: stopped early by the first failed event. `fail_run`
+  (`scenario.rs:313-321`) records `failure: Some(message)` and drops the
+  token. Failure sources: proxy deleted since validation
+  (`"scenario proxy {p} not found"`), plan invalid at fire time, fault
+  absent at fire time, publish conflict/invalid.
+
+Fail-fast means the trail stops at the failure: `applied` counts only
+successful events, no rollback of already-published generations, no skipped
+events. Observable via `scenario_failure_is_observable_not_discarded`
+(`runtime.rs:4488-4523`): delete the proxy mid-run, the run reports
+`Failed` with the proxy name in `failure`.
+
+Cancellation bounds:
+
+- `cancel_scenario` cancels the per-run child token; the driver's biased
+  select returns without sleeping out the remaining `at_ms`.
+  `scenario_cancel_during_sleep_returns_boundedly` uses `at_ms: 30_000`
+  and asserts termination well under 10 s (`runtime.rs:4411-4452`).
+- Service shutdown cascades: run tokens are children of `shutdown_token`,
+  and `shutdown_and_join` joins `scenario_tasks`, so no run outlives the
+  service. `service_shutdown_cancels_active_scenarios`
+  (`runtime.rs:4455-4485`) asserts a sleeping run ends `Cancelled`.
+- At most 32 run records are retained (`MAX_SCENARIO_RUNS`,
+  `runtime.rs:1881`). `start_scenario` fails fast with
+  `Conflict("too many active scenario runs")` at the active cap, and
+  otherwise prunes oldest *finished* runs first; active runs are never
+  evicted to make room.
+
+### 1.7 Run records (no payloads, bounded)
+
+`ScenarioEventResult` (`scenario.rs:66-83`): per-event evidence —
+`index`, `at_ms`, `action` (`"set-plan"` / `"remove-fault"` summary string),
+`proxy`, `direction`, `global_generation`, `upstream_generation`,
+`downstream_generation`. No fault bodies, no byte payloads.
+
+`ScenarioRunRecord` (`scenario.rs:87-100`): `run_id`, `seed`, `status`,
+`applied`, `failure: Option<String>` (short detail only), `trail:
+Vec<ScenarioEventResult>`. The trail is bounded by the 1024-event document
+cap; runs are bounded by the 32-record retention cap. Serialization never
+contains payload bytes (`connection_evidence_contains_no_payload_bytes`,
+`runtime.rs:4714-4734`, asserts the same for connection/history JSON).
+
+## 2. Observability
+
+### 2.1 Stream / engine / RNG evidence
+
+Owners: `crates/eggchaos-core/src/stream.rs`, `engine.rs`, `rng.rs`.
+
+- `StreamEvidence` (`stream.rs:65-168`): lock-shared live evidence per
+  direction, read by the runtime without locking the stream. Atomics for
+  `observed_generation`, `pending_generation` (0 = none),
+  `seed_namespace`, byte counts, high-water mark, `transitions`,
+  per-fault-type `activations[7]`; a `Mutex<(Vec<ActiveFault>, bool)>` for
+  fault identities. `refresh_policy` stores the published snapshot's
+  generation/namespace/identities; `mirror_engine` copies `DirectionEngine`
+  counters after each drive; `note_direct` counts no-fault direct-path
+  bytes immediately so evidence never lags a completed write.
+- `EngineEvidence` (`engine.rs:128-163`): direction-local counters —
+  `bytes_accepted/forwarded/discarded`, `segments`, `slices`,
+  `buffered_bytes`, `high_water_bytes`, `injected_delay_ms`,
+  `throttled_delay_ms`, `termination`, `activations[7]`, `rng_version`.
+  Activation semantics are documented per stage (preserving stages count
+  per engaged `accept`; blackhole per discarding call; termination stages
+  once on first publish; slow-close once on enforced positive delay).
+- `RngEvidence { version, seed }` (`rng.rs:9-14`): replay metadata for a
+  connection-local deterministic RNG. `RngVersion` is surfaced in
+  `DirectionSummary` and `ConnectionSnapshot.rng_version`.
+- `ActiveFault { id, fault_type }` (`stream.rs:54-59`): connection-active
+  fault identity for evidence only. `fault_type` uses the low-cardinality
+  `FAULT_TYPE_NAMES` spelling. Retained list is capped at
+  `MAX_EVIDENCE_FAULTS = 128` (`stream.rs:50`) with a `truncated` flag —
+  the `(Vec<ActiveFault>, bool)` shape.
+- `DirectionSummary` (`stream.rs:21-47`): serializable per-direction rollup
+  — byte counters (including transparent direct-path bytes), segment/slice
+  counts, buffer/high-water, delay totals, `activations[7]`, `termination`,
+  `rng_version`. `evidence_serializes_without_payloads`
+  (`stream.rs:1459+`) pins the no-payload contract.
+
+### 2.2 Connection snapshots and history
+
+Owner: `crates/eggchaos-server/src/runtime.rs:163-317`.
+
+- `ConnectionSnapshot` (`runtime.rs:181-238`): safe operational summary.
+  Accept-time identity (`id`, `proxy`, `ordinal`, `peer`, `upstream`,
+  `connection_key`, `seed = service_seed ^ proxy_seed`, `generation`,
+  `accepted_*_generation/seed`) is frozen at registration
+  (`accept_connection`, `runtime.rs:2349-2444`); `observed_*` /
+  `pending_*` / counters / fault lists report live stream state merged at
+  read time via `merge_evidence` (`runtime.rs:2670-2720`), or final state in
+  history records. `DirectionBytes { accepted, forwarded, discarded }`
+  per direction; `*_faults_truncated` mirrors the 128-entry evidence bound.
+- `ConnectionEvidence { upstream, downstream: Arc<StreamEvidence> }`
+  (`runtime.rs:253-258`): registered before relaying starts
+  (`runtime.rs:2824-2830`) so snapshots report from the first read.
+  `ControlState::connections()` / `get_connection()`
+  (`runtime.rs:1146-1159`) merge live evidence at read time; connections
+  without registered evidence report accept-time values.
+- `ConnectionOutcome` (`runtime.rs:275-302`): final classification —
+  `RelayCompleted`, `ConnectFailed(String)`, `KilledByOperator`,
+  `ServiceShutdown`, `ProxyRemoved`, `GracefulTermination { drained }`,
+  `HardReset { client, upstream: ResetResult }`, `RelayError(String)`.
+  Coarse class order is pinned by `OUTCOME_CLASS_NAMES`
+  (`runtime.rs:661-670`) for the `outcomes[8]` metrics array.
+  `ResetResult` (`runtime.rs:262-271`): `Applied` / `Failed(String)` /
+  `Unsupported(String)` — wire-level RST observation stays
+  platform-dependent; the recorded value is the socket-API outcome.
+- `ClosedConnection { snapshot (state == Closed), outcome,
+  upstream_termination, downstream_termination, detail }`
+  (`runtime.rs:306-317`): bounded retained final record. `detail` is a
+  short machine-safe string (relay report, failure, truncation note).
+  Retention is bounded by `AdmissionLimits.history` (default 256,
+  `runtime.rs:148-161`); `history == 0` disables retention but keeps
+  metrics (`history_bound_zero_disables_retention_but_keeps_metrics`,
+  `runtime.rs:4526-4562`). Eviction is oldest-first (`record_close`,
+  `runtime.rs:2464-2507`); `take_connection` guarantees exactly-once
+  accounting across concurrent finish/purge paths.
+
+### 2.3 Per-proxy metrics and Prometheus surface
+
+Owners: `runtime.rs:627-760` (counters/tables), `runtime.rs:1007-1114`
+(`metrics_text`), `docs/control-plane.md` (§Metrics).
+
+- `MetricsCounters` (`runtime.rs:629-658`): `accepted / completed /
+  rejected` totals, `outcomes[8]`, `graceful_requests /
+  hard_reset_requests`, `reset_applied / reset_unsupported / reset_failed`,
+  `bytes_accepted / forwarded / discarded`, `transitions`, plus
+  `tables: StdMutex<MetricTables>`. Totals derive from final stream
+  evidence in `aggregate_close_metrics` (`runtime.rs:2512-2596`), so
+  counters always agree with the history records they summarize.
+- `MetricTables` (`runtime.rs:692-746`): bounded low-cardinality tables
+  with overflow buckets. `MAX_METRIC_PROXIES = 1024`,
+  `MAX_METRIC_ACTIVATIONS = 8192` (`runtime.rs:673-675`). Per-proxy
+  `PerProxyMetrics { accepted, completed, bytes[2][3] }`; activations keyed
+  by `(proxy, direction, fault_type)`. Overflow proxies fold into a
+  `_overflow` series; overflow activations fold into
+  `{proxy="_overflow",direction="_overflow",fault_type="_overflow"}`.
+- `metrics_text()` renders Prometheus text exposition:
+  - `eggchaos_config_generation` (gauge), `eggchaos_connections_accepted /
+    completed / rejected_total`, `eggchaos_connections_active` (live gauge).
+  - `eggchaos_connection_outcomes_total{outcome}` (8 coarse classes),
+    `eggchaos_termination_requests_total{request="graceful|hard_reset"}`,
+    `eggchaos_reset_results_total{result="applied|unsupported|failed"}`,
+    `eggchaos_bytes_total{flow}`, `eggchaos_policy_transitions_total`.
+  - Per-proxy `eggchaos_proxy_connections_accepted/completed_total{proxy}`,
+    `eggchaos_proxy_bytes_total{proxy,direction,flow}`,
+    `eggchaos_fault_activations_total{proxy,direction,fault_type}`.
+  - Live gauges from policies + live evidence:
+    `eggchaos_proxy_connections_active{proxy}`,
+    `eggchaos_proxy_policy_generation{proxy,direction}`,
+    `eggchaos_proxy_queue_bytes{proxy,direction}` (accepted minus
+    forwarded+discarded, summed over live evidence).
+- Label discipline: the only label keys are `proxy`, `direction`, `flow`,
+  `outcome`, `request`, `result`, `fault_type` — pinned by
+  `metrics_use_only_bounded_label_keys` (`runtime.rs:4669-4711`). Labels
+  never carry connection IDs, peer addresses, scenario run IDs, arbitrary
+  fault IDs, or hostnames. Directions and fault types are fixed
+  vocabularies; proxy names come from the capped table.
+- Reconciliation is exact in the deterministic fixture
+  (`metrics_reconcile_with_deterministic_fixture`,
+  `runtime.rs:4565-4666`): 3 graceful echoes + 1 operator kill assert
+  accepted/completed/outcome/termination/byte/activation series verbatim.
+
+### 2.4 Admin inspection routes
+
+Owner: `crates/eggchaos-server/src/admin.rs:225-412`; contract summary in
+`docs/control-plane.md` (§Route inventory, §Scenarios).
+
+| Method + path | Handler | Payload |
+| --- | --- | --- |
+| `GET /v1/connections` | `state.connections().await` | `Vec<ConnectionSnapshot>` with live evidence merged |
+| `GET /v1/connections/{id}` | `state.get_connection(id)` | one snapshot, or `not_found`; non-integer ID is `invalid` |
+| `DELETE /v1/connections/{id}` | `state.kill(id)` | `{id, terminated: true}` or `not_found` |
+| `GET /v1/history` | `state.history().await` | bounded `Vec<ClosedConnection>` |
+| `POST /v1/scenarios/apply` | `state.start_scenario(scenario)` | `202 {run_id, seed, status}`; invalid body is a bounded JSON error |
+| `GET /v1/scenarios/{run_id}` | `state.get_scenario(run_id)` | full `ScenarioRunRecord` (status, applied, failure, trail) or `not_found` |
+| `DELETE /v1/scenarios/{run_id}` | `state.cancel_scenario(run_id)` | latest record (moves active runs to `Cancelling`) |
+| `GET /metrics` | `state.metrics_text().await` | Prometheus text, no `/v1` prefix, `text/plain; version=0.0.4` |
+| `GET /v1/health`, `GET /v1/version`, `POST /v1/reset` | service routes | liveness/generation, build version, reset report |
+
+Request bodies are capped at 1 MiB (`admin.rs:92-105`); the EggServe H1
+runtime owns parsing/body bounds/connection lifecycle while eggchaos owns
+only route dispatch and typed JSON conversion (`docs/control-plane.md:9-12`).
+
+## 3. Replay limits
+
+From `docs/control-plane.md` (§Scenarios) and the `rng.rs` / `scenario.rs`
+headers — what is and is not reproducible:
+
+- **Reproducible: policy state and per-key decisions.** The same document
+  (`version`, `seed`, ordered `at_ms` + actions) reproduces the same seed
+  namespaces, therefore the same fault decisions for the same connection
+  keys. Derivation is a pure function of `(scenario seed, run id, event
+  index)` (`rng.rs:46-63`); it never depends on task scheduling, wall time,
+  or connection order. Golden vectors pin the derivation
+  (`rng.rs:118-124`: `derive_policy_seed(7,1,0)`,
+  `derive_policy_seed(7,1,1)`, sensitivity to each component).
+- **Not reproducible: live connection timing.** Connection keys are
+  proxy-local accept ordinals (`ordinal`, `runtime.rs:2375`), so they
+  depend on accept order. Scheduling interleavings, wall-clock sleeps
+  between events, dial latency, relay pump timing, and which connections
+  are alive when an event fires are not part of the seed. Re-running a
+  document replays namespaces exactly but not live timing — replay is exact
+  for policy state, not for connection-timing behavior.
+- **Manual mutations move the base.** Events apply against live plans at
+  fire time (`scenario_remove_builds_on_current_state`,
+  `runtime.rs:4024-4081`: removal builds on current B-state). A manual
+  change between events changes what the next event applies to; a
+  conflicting concurrent publication fails the run (conflict, §1.4) instead
+  of rolling state back.
+
+## 4. Review checklist
+
+For any change touching `scenario.rs`, evidence types, `merge_evidence`,
+`aggregate_close_metrics`, `metrics_text`, or the admin inspection routes:
+
+- [ ] Scenario document bounds preserved: `version == 1`, `<= 1024` events,
+  monotonic `at_ms`, per-action validation (proxy exists, plan valid,
+  removed fault present). No new action without a version bump plan.
+- [ ] Driver still applies to **live** plans with a single-direction
+  expected-generation publish; the untouched direction's plan/generation/
+  namespace is unchanged in the trail assertion.
+- [ ] Seed participation intact: namespace is exactly
+  `derive_policy_seed(seed, run_id, index)`; manual publishes retain the
+  namespace; golden vectors in `rng.rs` still pass.
+- [ ] Lifecycle complete: `Pending → Running → Completed/Failed`, `Cancelling
+  → Cancelled`, token removed on every terminal path, shutdown joins runs.
+  No detached scenario task.
+- [ ] Fail-fast, not rollback: first failure sets `Failed` + `failure` and
+  stops; concurrent manual publish surfaces `conflict`, never silent
+  overwrite.
+- [ ] Bounds on all retained state: `MAX_SCENARIO_RUNS (32)`,
+  `MAX_EVIDENCE_FAULTS (128)` + truncated flags, `MetricTables` caps +
+  overflow buckets, `AdmissionLimits.history` honored.
+- [ ] No payloads in evidence/metrics/history: identities, counters,
+  generations, namespaces, coarse outcomes only. Label keys stay within the
+  pinned set; no connection/peer/run/fault-ID/hostname labels.
+- [ ] Metrics reconcile: global counters agree with closed-connection
+  evidence; per-proxy/activation tables agree; live gauges (active,
+  policy generation, queue bytes) read from policies + live evidence.
+- [ ] Barrier semantics hold: old-generation preserving bytes drain before
+  swap; `pending_*` is observable mid-drain; termination survives the swap
+  (first wins).
+
+## 5. Verification
+
+Minimum for closure (see `docs/control-plane.md` and the `AGENTS.md`
+verification discipline):
+
+```sh
+cargo test -p eggchaos-server scenario
+cargo test -p eggchaos-server metric
+cargo test -p eggchaos-server --lib
+cargo fmt --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace --all-features
+```
+
+Relevant tests (all in `crates/eggchaos-server/src/runtime.rs` unless
+noted):
+
+- Scenario driver: `scenario_remove_builds_on_current_state`,
+  `scenario_seed_drives_published_namespaces`,
+  `scenario_namespaces_replay_independent_of_scheduling`,
+  `scenario_cancel_during_sleep_returns_boundedly`,
+  `service_shutdown_cancels_active_scenarios`,
+  `scenario_failure_is_observable_not_discarded`,
+  `stale_base_publication_conflicts_instead_of_overwriting`,
+  `transition_pending_while_buffer_drains`,
+  `accepted_and_current_generations_update_on_traffic`.
+- Metrics/evidence: `metrics_reconcile_with_deterministic_fixture`,
+  `metrics_use_only_bounded_label_keys`,
+  `history_bound_zero_disables_retention_but_keeps_metrics`,
+  `connection_evidence_contains_no_payload_bytes`,
+  `closed_history_honors_configured_bound`; engine-side
+  `evidence_serializes_without_payloads` (`stream.rs`), RNG golden vectors
+  (`rng.rs:106-124`).
+- Deterministic Tokio-time policy: prefer `#[tokio::test(start_paused =
+  true)]` with `tokio::time::advance` (as the `stream.rs` latency/bandwidth
+  tests do). Any wall-clock timing assertion must carry a justified
+  tolerance window and must not be the sole evidence for correctness.
+  Tests that poll live state use bounded `tokio::time::timeout` loops
+  (e.g. `wait_scenario`, `runtime.rs:4736-4756`), never unbounded waits.
+- Record any platform or external-oracle gap as incomplete evidence; do
+  not substitute source inspection for execution.
