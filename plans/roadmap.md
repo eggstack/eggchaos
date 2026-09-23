@@ -1,6 +1,6 @@
 # Eggchaos Long-Term Roadmap
 
-Status: M008 and M009–M016 are closed work. M017 is ready, M018–M019 remain blocked on predecessors, and the repository is not cleared for a v0.1.0 tag until M019 closes.
+Status: M008 and M009–M017 are closed work. M018 is active, M019 remains blocked on predecessors, and the repository is not cleared for a v0.1.0 tag until M019 closes.
 
 ## 1. Mission
 
