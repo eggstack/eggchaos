@@ -1,6 +1,6 @@
 # Eggchaos Long-Term Roadmap
 
-Status: M008 and M009–M018 are closed work. M019 is active, and the repository is not cleared for a v0.1.0 tag until M019 closes.
+Status: M008 and M009–M019 are closed work. M019 passed final pre-tag qualification at `ca527db`; the owner may proceed with the v0.1.0 tag and separate publication/release actions.
 
 ## 1. Mission
 
@@ -306,7 +306,7 @@ M017 makes the native `/v1` wire contract explicit rather than coupling CLI/API 
 
 M018 is maintenance-only structural hardening: preserve one `RuntimeInner`/`ControlState` authority while decomposing the oversized server runtime into cohesive modules and removing unused direct dependencies.
 
-M019 is the new final pre-tag authority. It makes the pinned Toxiproxy oracle mandatory in release mode, expands fuzz/differential evidence, reruns Eggfetch/security/package/artifact/performance gates, and closes only on one exact post-hardening candidate. Tagging/publication/release creation remain deferred until M019 closes.
+M019 is the final pre-tag authority. It makes the pinned Toxiproxy oracle mandatory in release mode, expands fuzz/differential evidence, and reruns Eggfetch/security/package/artifact/performance gates. It closed on exact candidate `ca527db`; no further corrective milestone is blocked.
 
 ## 12. Performance targets
 

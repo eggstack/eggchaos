@@ -24,9 +24,9 @@ M000–M015 and M008 remain closed historical work. A 2026-09-23 post-M015 repos
 
 `M016 correctness/security -> M017 native contract/operator surface -> M018 runtime modularization -> M019 final corrective requalification`
 
-M016, M017, and M018 are closed. M019 is active. M017's pinned Toxiproxy oracle evidence is explicitly incomplete and must be completed by M019. Tagging, crates.io publication, and GitHub release creation are deferred until M019 closes.
+M016–M019 are closed. M019 completed the pinned Toxiproxy oracle gate and is the final exact-candidate release qualification authority. The owner may proceed with the v0.1.0 tag, crates.io publication, and GitHub release as separate release actions.
 
-Historical closure records remain preserved at their real candidate commits. M015 remains valid qualification evidence for `cd88b22`; M019 will become the final current release-candidate authority only after the new chain is implemented and independently qualified.
+Historical closure records remain preserved at their real candidate commits. M015 remains valid qualification evidence for `cd88b22`; M019 is the final current release-candidate authority at `ca527db`.
 
 ## Status rules
 

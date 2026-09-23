@@ -1,6 +1,6 @@
 # Eggchaos Plan Registry
 
-Last reconciled: 2026-09-23 (M018 closed; M019 activated)
+Last reconciled: 2026-09-23 (M019 closed; final pre-tag gate passed)
 
 This file is the compact source of truth for active milestone state. Detailed scope lives in the numbered plans. Historical closure evidence belongs in `plans/closure/`.
 
@@ -25,7 +25,7 @@ This file is the compact source of truth for active milestone state. Detailed sc
 | M016 | `016-pre-release-correctness-and-secure-control-hardening.md` | closed | M015 | Clean closure at `5bb1f81`; evidence in `plans/closure/M016-pre-release-correctness-and-secure-control-hardening-closure.md`. |
 | M017 | `017-native-control-contract-and-operator-surface-consolidation.md` | closed | M016 | Closed at `58c4345`; evidence in `plans/closure/M017-native-control-contract-and-operator-surface-consolidation-closure.md`. Pinned Toxiproxy differential remains incomplete and is an explicit M019 gate. |
 | M018 | `018-runtime-modularization-and-dependency-hygiene.md` | closed | M017 | Closed at `7e33d03`; evidence in `plans/closure/M018-runtime-modularization-and-dependency-hygiene-closure.md`. Runtime authority and public root exports preserved; six unused direct deps removed. |
-| M019 | `019-qualification-expansion-and-final-corrective-requalification.md` | active | M016, M017, M018 | Activated after M018. Final pre-tag successor gate: strict pinned-oracle qualification, expanded fuzz/differential evidence, exact-HEAD CI/artifacts/security/package/performance requalification. |
+| M019 | `019-qualification-expansion-and-final-corrective-requalification.md` | closed | M016, M017, M018 | Closed at `ca527db`; evidence in `plans/closure/M019-qualification-expansion-and-final-corrective-requalification-closure.md`. Final pre-tag gate passed on exact candidate across local/remote CI, pinned oracle, fuzz, Eggfetch, artifacts, security, package, and performance evidence. |
 
 ## Execution state
 
@@ -39,7 +39,7 @@ The historical pre-tag sequence through M015 is complete. M016 has now closed cl
 
 `M016 -> M017 -> M018 -> M019`
 
-M015 qualified `cd88b22` and remains valid historical evidence. Because M016–M018 will change release-relevant code and M019 strengthens/re-runs qualification, `cd88b22` is no longer the final tag candidate. Tagging, crates.io publication, and GitHub release creation are deferred until M019 closes.
+M015 qualified `cd88b22` and remains valid historical evidence. M016–M019 changed/requalified release-relevant code, so `cd88b22` is not the final candidate. M019 closed at `ca527db`; the owner may proceed with tagging, crates.io publication, and GitHub release creation as separate actions.
 
 ## Future roadmap items not yet activated
 
@@ -59,11 +59,11 @@ These remain post-release or separately planned work and must not be pulled into
 
 Completed historical work: M000–M015 and M008 are closed.
 
-Active: M019.
+Active: none.
 
 Blocked: none.
 
-Current pre-tag execution order: `M016 (closed) -> M017 -> M018 -> M019`. Do not tag/publish/create the release before M019 closes.
+Current pre-tag execution order: `M016 (closed) -> M017 (closed) -> M018 (closed) -> M019 (closed)`. No corrective successor is blocked. The owner may proceed with the v0.1.0 tag, crates.io publication, and GitHub release as separate release actions.
 
 ## Closure requirements
 

@@ -6,10 +6,10 @@ workflows (`.github/workflows/`), dependency/supply-chain policy
 (`Cargo.toml`, `deny.toml`, `rust-toolchain.toml`), shipped artifacts
 (`dist/`), and the `plans/` governance authority that gates any release.
 
-Pre-release `0.1.0`. Milestones M000–M018 plus M008 are closed; M019
-is the active corrective gate. Tagging, crates.io publication, and GitHub release creation remain
-explicit owner decisions (`plans/registry.md`, `plans/README.md`,
-`plans/015-final-exact-head-release-requalification.md`).
+Pre-release `0.1.0`. Milestones M000–M019 plus M008 are closed. M019
+passed its final corrective qualification on `ca527db`. Tagging, crates.io
+publication, and GitHub release creation remain explicit owner actions
+(`plans/registry.md`, `plans/README.md`, `plans/019-qualification-expansion-and-final-corrective-requalification.md`).
 
 ## 1. Scripts catalog (`scripts/`)
 
