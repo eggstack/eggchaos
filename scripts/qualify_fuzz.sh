@@ -2,5 +2,8 @@
 set -eu
 
 runs="${EGGCHAOS_FUZZ_RUNS:-10000}"
-(cd fuzz && cargo fuzz run plan_json --sanitizer none -- -runs="$runs")
-printf '%s\n' '{"fuzz":"pass","target":"plan_json"}'
+for target in plan_json native_config native_control_json fault_evidence_json policy_transitions toxiproxy_attributes; do
+  (cd fuzz && cargo fuzz run "$target" --sanitizer none -- -runs="$runs")
+  printf '{"fuzz":"pass","target":"%s","runs":%s}\n' "$target" "$runs"
+done
+printf '%s\n' '{"fuzz":"pass","targets":6}'

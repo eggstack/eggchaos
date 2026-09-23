@@ -64,9 +64,9 @@ Change qualification tooling so release mode cannot succeed with unavailable/wro
 Required behavior:
 
 - local developer mode may retain an explicit non-strict option that reports `incomplete`;
-- release workflow must enable strict mode;
+- release workflow must enable `EGGCHAOS_REQUIRE_TOXIPROXY_ORACLE=1`;
 - strict mode exits nonzero if the oracle is missing, wrong version, wrong checksum, or differential execution does not produce a clean verdict;
-- workflow obtains the pinned v2.12.0 binary from a reproducible source or a repository-maintained acquisition script;
+- workflow obtains the pinned v2.12.0 binary from `scripts/fetch_toxiproxy_v2_12.sh`;
 - verify the expected SHA-256 recorded in the existing parity/closure evidence before execution;
 - do not trust a random `toxiproxy-server` on `PATH` in strict release mode.
 
@@ -76,11 +76,13 @@ Record provenance in docs/scripts.
 
 Add focused bounded fuzz/property targets for at least:
 
-- schema-v1 TOML/native config parse + compile;
-- native control JSON DTO parse/validate/round-trip from M017;
-- fault plan/evidence serialization round-trip;
-- fault transition/publication sequences or the narrowest deterministic state-machine input surface feasible without network timing;
-- Toxiproxy toxic attribute translation maps.
+- `native_config`: schema-v1 TOML parse + compile;
+- `native_control_json`: M017 request DTO parse + round-trip;
+- `fault_evidence_json`: plan/snapshot/closed evidence serialization round-trip;
+- `policy_transitions`: deterministic `LivePolicy` expected-generation publish/conflict sequences;
+- `toxiproxy_attributes`: toxic attribute translation maps.
+
+The existing `plan_json` target remains.
 
 Prefer small deterministic targets with stable invariants over one giant integration fuzzer.
 
@@ -96,7 +98,7 @@ Attempt oracle-backed cases for:
 
 Comparators must distinguish exact byte semantics from wall-clock tolerance. Do not claim Go scheduler/random chunk identity if the native implementation intentionally differs.
 
-If a comparator is inherently unstable or semantics are intentionally divergent, update the parity matrix to a precise `intent compatible` limitation with evidence explaining why, rather than leaving a vague `incomplete` claim.
+If a comparator is inherently unstable or semantics are intentionally divergent, update the parity matrix to a precise `intent compatible` limitation with measured tolerances and evidence, rather than leaving a vague `incomplete` claim. Current bounded cases preserve bytes and apply timing windows; exact Go slice chunk sequences and sustained bandwidth completion times are not claimed.
 
 ### WP4 — Full ordinary CI and integration gates
 
@@ -167,7 +169,7 @@ cargo audit --deny warnings
 cargo deny check advisories licenses bans sources
 EGGCHAOS_FUZZ_RUNS=10000 ./scripts/qualify_fuzz.sh
 ./scripts/qualify_eggfetch.sh
-EGGCHAOS_REQUIRE_TOXIPROXY_ORACLE=1 TOXIPROXY_SERVER=/path/to/pinned/v2.12.0 ./scripts/qualify_toxiproxy_v2_12.sh
+TOXIPROXY_SERVER="$(./scripts/fetch_toxiproxy_v2_12.sh)" EGGCHAOS_REQUIRE_TOXIPROXY_ORACLE=1 ./scripts/qualify_toxiproxy_v2_12.sh
 ./scripts/release-smoke.sh
 ./scripts/benchmark.sh
 ```

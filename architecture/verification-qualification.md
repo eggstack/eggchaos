@@ -299,11 +299,14 @@ never replace missing execution with "the code looks correct." A blocked
 milestone names the dependency; a closed milestone points at the closure
 record or exact verification evidence.
 
-Concrete applications: the toxiproxy qualify script and `differential.rs`
-report `incomplete` (exit 0, test pass) without the pinned `2.12.0` binary;
-bandwidth/slicer/slow_close data-plane timing differential is recorded
-incomplete (native-tested, tolerance-classified — M008/M012); foreign-arch
-artifact execution smoke is build-verified + checksummed only (M008/M015);
+Concrete applications: developer mode of the Toxiproxy qualify script and
+`differential.rs` report `incomplete` without a verified pinned `2.12.0`
+binary. Release mode is strict and fails unless the architecture-specific
+SHA-256 and version pass and a clean differential summary is emitted.
+Bandwidth/slicer/slow_close now have oracle-backed byte and tolerance-based
+timing cases; the recorded measurements and intentional timing limits are in
+`plans/reference/toxiproxy-parity.md`. Foreign-arch artifact execution smoke
+is build-verified + checksummed only (M008/M015);
 closure notes use the fixed format (milestone, candidate + implementation
 commits, commands, platforms, oracle/version, artifacts, limitations, verdict,
 registry transition, next activation).

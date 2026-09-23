@@ -50,11 +50,11 @@ oracle; success bodies are `application/json` (version carries the oracle's
 | Toxic | Level | Notes |
 | --- | --- | --- |
 | `latency` | behaviorally compatible | ms/jitter mapping; byte preservation + delay differential-verified (200 ms configured, >=150 ms observed, exact bytes) |
-| `bandwidth` | intent compatible | rate unit KiB/s confirmed (`bytes_per_second/1024` round-trips); sustained-throughput differential timing **incomplete** (not run against the oracle); exact Go chunk scheduling not claimed |
-| `slow_close` | intent compatible | delay mapping; close-timing differential **incomplete** |
+| `bandwidth` | intent compatible | rate unit KiB/s; oracle/native both preserve 1 MiB and pace within 1–10 s and a 3x relative timing window. Darwin ARM64 sample at `rate=256`: oracle 4.156 s, native 1.898 s. Distinct Go/native write scheduling means exact sustained timing is not claimed; native was faster in this sample. |
+| `slow_close` | intent compatible | 300 ms close delay observed after exact echo bytes; Darwin ARM64 sample: oracle 302.432 ms, native 302.184 ms; accepts ≥200 ms (100 ms tolerance). |
 | `timeout` | behaviorally compatible | timeout=0 maps to indefinite `Blackhole { close_after: None }`; blocking + post-removal flow differential-verified |
 | `reset_peer` | intent compatible | maps to delayed `Disconnect { hard_reset: true }`; termination observed on darwin/arm64 in the differential run, but RST vs FIN is platform-dependent and not asserted |
-| `slicer` | intent compatible | average/variation/delay mapping onto deterministic native slicer; exact Go random sequence not claimed; byte-level differential **incomplete** |
+| `slicer` | intent compatible | 64 KiB byte preservation and pacing observed with average 256 / delay 1000 µs; Darwin ARM64 sample: oracle 320.382 ms, native 256.933 ms. Timing comparator uses ≥20 ms and ≤3x between implementations; exact Go random sequence/chunk boundaries are not claimed. |
 | `limit_data` | behaviorally compatible | exact 100/1000-byte boundary + termination differential-verified |
 
 Defaults: omitted attributes zero-fill per type (differential-verified);

@@ -247,15 +247,31 @@ The initial roadmap intentionally does not invent a no-fault overhead percentage
 
 ## 9. Robustness and fuzzing
 
-Fuzz/property targets should cover:
+Bounded `cargo-fuzz` targets are kept in `fuzz/fuzz_targets/` and run by
+`scripts/qualify_fuzz.sh`. The current target map is:
+
+| Target | Surface |
+| --- | --- |
+| `plan_json` | Ordered fault-plan JSON parse, validation, and round-trip. |
+| `native_config` | Schema-v1 TOML parse and typed proxy compilation. |
+| `native_control_json` | Native v1 DTO parse, semantic validation, and serialization round-trip. |
+| `fault_evidence_json` | Fault plan, active snapshot, and closed-connection evidence serialization. |
+| `policy_transitions` | Deterministic publication generations and stale-base conflict sequences. |
+| `toxiproxy_attributes` | Toxic attribute parse and compatibility conversion normalization. |
+
+Targets collectively exercise the required properties:
 
 - config/JSON/TOML parser values;
 - ordered fault-plan validation;
-- duration/rate arithmetic;
-- partial writes and arbitrary poll fragmentation;
-- fault transition sequences;
-- evidence serialization;
+- bounded duration/rate/config arithmetic;
+- typed DTO validation and round-trips;
+- deterministic fault transition/publication sequences;
+- snapshot and closed evidence serialization;
 - compatibility JSON attribute maps.
+
+Partial writes and arbitrary poll fragmentation remain covered by deterministic
+core property/unit tests rather than fuzz targets, since those require a
+constructed asynchronous stream surface.
 
 Property tests should emphasize byte conservation for preserving fault combinations.
 

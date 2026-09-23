@@ -5,7 +5,7 @@ entirely by native state: every view derives from `ControlState` snapshots
 and every mutation goes through the native control authority, so
 compatibility presentation cannot drift from what the runtime executes.
 
-Supported surface (all differential-verified against pinned v2.12.0):
+Supported API surface (route and shape corpus differential-verified against pinned v2.12.0):
 
 - proxy CRUD plus `POST /proxies/{proxy}` and `PATCH` updates;
 - `POST /populate` with oracle keep/replace/create/skip semantics;
@@ -25,8 +25,12 @@ Deliberate, documented divergences (see
 - non-socket `upstream` values and out-of-charset proxy names are rejected
   with a clear 400 (native fixed-target and path-segment invariants);
 - `reset_peer` termination is platform-qualified (RST vs FIN not asserted);
-- bandwidth/slicer/slow_close data-plane timing differential is incomplete;
-  `GET /metrics` matches the oracle (plain-text 404 without metrics flags).
+- bandwidth, slow_close, and slicer data-plane byte/timing cases now run in
+  the oracle corpus with explicit tolerances. The Darwin ARM64 measurement and
+  limits are recorded in `plans/reference/toxiproxy-parity.md`; native
+  bandwidth was faster than the oracle in the recorded 1 MiB sample, so exact
+  sustained timing is not claimed. `GET /metrics` matches the oracle
+  (plain-text 404 without metrics flags).
 
 Toxicity is a deterministic per-connection activation probability. Slicer
 behavior is stream segmentation, not IP packet loss. The adapter does not
@@ -35,4 +39,7 @@ claim current-Toxiproxy `main` extensions such as `packet_loss`.
 Run a standalone compat server with
 `cargo run -p eggchaos-toxiproxy --example compat_server -- 127.0.0.1:8474`
 (loopback by default). Qualification:
-`TOXIPROXY_SERVER=/path/to/pinned/v2.12.0 ./scripts/qualify_toxiproxy_v2_12.sh`.
+`scripts/fetch_toxiproxy_v2_12.sh` acquires the official architecture-matched
+binary and verifies its pinned SHA-256. For a mandatory run, set
+`TOXIPROXY_SERVER` to that path and run
+`EGGCHAOS_REQUIRE_TOXIPROXY_ORACLE=1 ./scripts/qualify_toxiproxy_v2_12.sh`.

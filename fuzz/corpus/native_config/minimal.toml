@@ -1,0 +1,6 @@
+version = 1
+
+[[proxies]]
+name = "fuzz"
+listen = "127.0.0.1:0"
+upstream = "127.0.0.1:80"

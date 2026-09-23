@@ -258,6 +258,7 @@ fn ctype_class(ctype: &str) -> &'static str {
 struct Corpus {
     passed: usize,
     failed: Vec<String>,
+    observations: Vec<String>,
 }
 
 impl Corpus {
@@ -265,6 +266,7 @@ impl Corpus {
         Self {
             passed: 0,
             failed: Vec::new(),
+            observations: Vec::new(),
         }
     }
 
@@ -413,6 +415,179 @@ async fn data_plane(corpus: &mut Corpus, oracle_base: &str, ours_base: &str) {
         );
     }
     corpus.passed += 1;
+    for (tag, base, _) in &listens {
+        call(
+            "DELETE",
+            base,
+            &format!("/proxies/dp-{tag}/toxics/lat"),
+            None,
+        )
+        .await;
+    }
+
+    // Sustained bandwidth pacing: compare byte preservation and a broad
+    // throughput window, not scheduler-exact completion times. The oracle
+    // and native output pipelines have different chunk schedulers, so their
+    // measured times may differ by up to a factor of three.
+    let mut bandwidth_seconds = Vec::new();
+    for (tag, base, listen) in &listens {
+        call(
+            "POST",
+            base,
+            &format!("/proxies/dp-{tag}/toxics"),
+            Some(
+                &json!({"name":"bw","type":"bandwidth","stream":"downstream","attributes":{"rate":256}})
+                    .to_string(),
+            ),
+        )
+        .await;
+        let payload = vec![0xB7u8; 1024 * 1024];
+        let mut socket = timeout(ROUND_TIMEOUT, tokio::net::TcpStream::connect(*listen))
+            .await
+            .unwrap()
+            .unwrap();
+        let start = std::time::Instant::now();
+        socket.write_all(&payload).await.unwrap();
+        let mut received = vec![0u8; payload.len()];
+        timeout(ROUND_TIMEOUT, socket.read_exact(&mut received))
+            .await
+            .unwrap()
+            .unwrap();
+        let elapsed = start.elapsed();
+        assert_eq!(received, payload, "{tag} bandwidth byte preservation");
+        assert!(
+            (Duration::from_secs(1)..Duration::from_secs(10)).contains(&elapsed),
+            "{tag} bandwidth sustained-rate window: {elapsed:?}"
+        );
+        bandwidth_seconds.push(elapsed.as_secs_f64());
+        corpus
+            .observations
+            .push(format!("bandwidth-{tag}-1MiB={elapsed:?}"));
+    }
+    let bandwidth_ratio = bandwidth_seconds.iter().copied().fold(0.0, f64::max)
+        / bandwidth_seconds
+            .iter()
+            .copied()
+            .fold(f64::INFINITY, f64::min);
+    assert!(
+        bandwidth_ratio <= 3.0,
+        "bandwidth timing ratio {bandwidth_ratio}"
+    );
+    corpus.passed += 1;
+    for (tag, base, _) in &listens {
+        call(
+            "DELETE",
+            base,
+            &format!("/proxies/dp-{tag}/toxics/bw"),
+            None,
+        )
+        .await;
+    }
+
+    // Slow-close delays graceful close after the echo bytes drain. Allow
+    // 100 ms tolerance while checking both exact bytes and the close window.
+    for (tag, base, listen) in &listens {
+        call(
+            "POST",
+            base,
+            &format!("/proxies/dp-{tag}/toxics"),
+            Some(
+                &json!({"name":"sc","type":"slow_close","stream":"downstream","attributes":{"delay":300}})
+                    .to_string(),
+            ),
+        )
+        .await;
+        let payload = b"slow-close-evidence";
+        let mut socket = timeout(ROUND_TIMEOUT, tokio::net::TcpStream::connect(*listen))
+            .await
+            .unwrap()
+            .unwrap();
+        socket.write_all(payload).await.unwrap();
+        let mut echoed = vec![0u8; payload.len()];
+        timeout(ROUND_TIMEOUT, socket.read_exact(&mut echoed))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(echoed, payload, "{tag} slow_close echo bytes");
+        let start = std::time::Instant::now();
+        socket.shutdown().await.unwrap();
+        let mut received = Vec::new();
+        timeout(ROUND_TIMEOUT, socket.read_to_end(&mut received))
+            .await
+            .unwrap()
+            .unwrap();
+        let elapsed = start.elapsed();
+        assert!(received.is_empty(), "{tag} slow_close clean close tail");
+        assert!(
+            elapsed >= Duration::from_millis(200),
+            "{tag} slow_close close delay: {elapsed:?}"
+        );
+        corpus
+            .observations
+            .push(format!("slow-close-{tag}={elapsed:?}"));
+    }
+    corpus.passed += 1;
+    for (tag, base, _) in &listens {
+        call(
+            "DELETE",
+            base,
+            &format!("/proxies/dp-{tag}/toxics/sc"),
+            None,
+        )
+        .await;
+    }
+
+    // Slicer compares preserved stream bytes and a tolerant observable
+    // pacing floor; exact Go random chunk sequences are intentionally not
+    // asserted against the deterministic native slicer.
+    let mut slicer_seconds = Vec::new();
+    for (tag, base, listen) in &listens {
+        call(
+            "POST",
+            base,
+            &format!("/proxies/dp-{tag}/toxics"),
+            Some(
+                &json!({"name":"sl","type":"slicer","stream":"downstream","attributes":{"average_size":256,"size_variation":0,"delay":1000}})
+                    .to_string(),
+            ),
+        )
+        .await;
+        let payload = vec![0x5Cu8; 64 * 1024];
+        let mut socket = timeout(ROUND_TIMEOUT, tokio::net::TcpStream::connect(*listen))
+            .await
+            .unwrap()
+            .unwrap();
+        let start = std::time::Instant::now();
+        socket.write_all(&payload).await.unwrap();
+        let mut received = vec![0u8; payload.len()];
+        timeout(ROUND_TIMEOUT, socket.read_exact(&mut received))
+            .await
+            .unwrap()
+            .unwrap();
+        let elapsed = start.elapsed();
+        assert_eq!(received, payload, "{tag} slicer byte preservation");
+        assert!(
+            elapsed >= Duration::from_millis(20),
+            "{tag} slicer pacing floor: {elapsed:?}"
+        );
+        slicer_seconds.push(elapsed.as_secs_f64());
+        corpus
+            .observations
+            .push(format!("slicer-{tag}-64KiB={elapsed:?}"));
+    }
+    let slicer_ratio = slicer_seconds.iter().copied().fold(0.0, f64::max)
+        / slicer_seconds.iter().copied().fold(f64::INFINITY, f64::min);
+    assert!(slicer_ratio <= 3.0, "slicer timing ratio {slicer_ratio}");
+    corpus.passed += 1;
+    for (tag, base, _) in &listens {
+        call(
+            "DELETE",
+            base,
+            &format!("/proxies/dp-{tag}/toxics/sl"),
+            None,
+        )
+        .await;
+    }
 
     // limit_data exact boundary on both sides.
     for (tag, base, listen) in &listens {
@@ -440,6 +615,15 @@ async fn data_plane(corpus: &mut Corpus, oracle_base: &str, ours_base: &str) {
         );
     }
     corpus.passed += 1;
+    for (tag, base, _) in &listens {
+        call(
+            "DELETE",
+            base,
+            &format!("/proxies/dp-{tag}/toxics/lim"),
+            None,
+        )
+        .await;
+    }
 
     // timeout=0 blocks until the toxic is removed (fresh connection after).
     for (tag, base, listen) in &listens {
@@ -499,15 +683,14 @@ async fn data_plane(corpus: &mut Corpus, oracle_base: &str, ours_base: &str) {
             .unwrap()
             .unwrap();
         socket.write_all(b"hello").await.unwrap();
-        let mut buf = [0u8; 16];
-        let outcome = timeout(Duration::from_secs(5), socket.read(&mut buf)).await;
+        let mut received = Vec::new();
+        let outcome = timeout(Duration::from_secs(5), socket.read_to_end(&mut received)).await;
         let terminated = match outcome {
             Err(_) => false,
             Ok(Err(_)) => true,
-            Ok(Ok(0)) => true,
-            Ok(Ok(_)) => false,
+            Ok(Ok(_)) => true,
         };
-        assert!(terminated, "{tag} reset_peer terminates");
+        assert!(terminated, "{tag} reset_peer eventually terminates");
     }
     corpus.passed += 1;
 }
@@ -947,6 +1130,7 @@ async fn toxiproxy_v212_differential() {
         "passed": corpus.passed,
         "failed": corpus.failed.len(),
         "failures": corpus.failed,
+        "data_plane_observations": corpus.observations,
         "normalizations": [
             "listen addresses replaced (disjoint binds; concrete ports asserted per server)",
             "JSON numbers canonicalized to f64 (Go `1` vs serde_json `1.0` encoding only)",

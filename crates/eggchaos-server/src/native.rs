@@ -6,8 +6,8 @@ use std::{
 };
 
 use eggchaos_core::{
-    BandwidthConfig, BlackholeConfig, DisconnectConfig, FaultKind, LatencyConfig, LimitDataConfig,
-    SliceConfig, SlowCloseConfig,
+    BandwidthConfig, BlackholeConfig, DisconnectConfig, FaultId, FaultKind, FaultPlan, FaultSpec,
+    LatencyConfig, LimitDataConfig, Probability, SliceConfig, SlowCloseConfig,
 };
 use serde::{Deserialize, Serialize};
 
@@ -80,6 +80,14 @@ pub struct NativeProxyRequestV1 {
 }
 
 impl NativeProxyRequestV1 {
+    /// Validate field bounds and the compiled proxy definition.
+    pub fn validate(&self) -> Result<(), String> {
+        self.clone()
+            .into_runtime()?
+            .validate()
+            .map_err(|error| error.to_string())
+    }
+
     pub(crate) fn into_runtime(self) -> Result<ProxySpec, String> {
         if self.connect_timeout_ms == 0 || self.connect_timeout_ms > MAX_TIMEOUT_MS {
             return Err(format!(
@@ -110,6 +118,21 @@ pub struct NativeProxyPatchV1 {
     pub max_connections: Option<Option<usize>>,
     /// Replacement connect timeout in milliseconds.
     pub connect_timeout_ms: Option<u64>,
+}
+
+impl NativeProxyPatchV1 {
+    /// Validate supplied timeout bounds before a patch is applied.
+    pub fn validate(&self) -> Result<(), String> {
+        if self
+            .connect_timeout_ms
+            .is_some_and(|timeout| timeout == 0 || timeout > MAX_TIMEOUT_MS)
+        {
+            return Err(format!(
+                "connect_timeout_ms must be in 1..={MAX_TIMEOUT_MS}"
+            ));
+        }
+        Ok(())
+    }
 }
 
 impl From<NativeProxyPatchV1> for ProxyPatch {
@@ -176,6 +199,20 @@ pub enum FaultKindV1 {
 }
 
 impl FaultKindV1 {
+    /// Validate this typed fault configuration before publication.
+    pub fn validate(&self) -> Result<(), String> {
+        let kind = self.clone().into_runtime()?;
+        let id = FaultId::new("validation").map_err(|error| error.to_string())?;
+        let probability = Probability::new(1.0).map_err(|error| error.to_string())?;
+        FaultPlan::new(vec![FaultSpec {
+            id,
+            probability,
+            kind,
+        }])
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+    }
+
     pub(crate) fn into_runtime(self) -> Result<FaultKind, String> {
         let nonzero = |field: &str, value| {
             NonZeroU64::new(value).ok_or_else(|| format!("{field} must be non-zero"))
@@ -283,6 +320,13 @@ pub struct FaultUpsertV1 {
 }
 
 impl FaultUpsertV1 {
+    /// Validate the identifier, probability, and typed fault configuration.
+    pub fn validate(&self) -> Result<(), String> {
+        FaultId::new(self.id.clone()).map_err(|error| error.to_string())?;
+        Probability::new(self.probability).map_err(|error| error.to_string())?;
+        self.kind.validate()
+    }
+
     pub(crate) fn into_runtime(self) -> Result<FaultUpsert, String> {
         Ok(FaultUpsert {
             direction: self.direction,
@@ -304,6 +348,17 @@ pub struct FaultPatchV1 {
 }
 
 impl FaultPatchV1 {
+    /// Validate any supplied probability and replacement fault configuration.
+    pub fn validate(&self) -> Result<(), String> {
+        if let Some(probability) = self.probability {
+            Probability::new(probability).map_err(|error| error.to_string())?;
+        }
+        if let Some(kind) = &self.kind {
+            kind.validate()?;
+        }
+        Ok(())
+    }
+
     pub(crate) fn into_runtime(self) -> Result<FaultPatch, String> {
         Ok(FaultPatch {
             probability: self.probability,
@@ -533,6 +588,33 @@ pub struct ScenarioFaultV1 {
 }
 
 impl ScenarioV1 {
+    /// Validate version, event ordering/limits, fault identities, and kinds.
+    pub fn validate(&self) -> Result<(), String> {
+        let scenario = self.clone().into_runtime()?;
+        if scenario.version != 1 {
+            return Err("unsupported scenario version".into());
+        }
+        if scenario.events.len() > 1024 {
+            return Err("too many scenario events".into());
+        }
+        let mut previous = 0;
+        for event in &scenario.events {
+            if event.at_ms < previous {
+                return Err("scenario events must be ordered".into());
+            }
+            previous = event.at_ms;
+            match &event.action {
+                crate::ScenarioAction::SetPlan { faults, .. } => {
+                    FaultPlan::new(faults.clone()).map_err(|error| error.to_string())?;
+                }
+                crate::ScenarioAction::RemoveFault { id, .. } => {
+                    FaultId::new(id.clone()).map_err(|error| error.to_string())?;
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn into_runtime(self) -> Result<crate::Scenario, String> {
         let mut events = Vec::with_capacity(self.events.len());
         for event in self.events {

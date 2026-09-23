@@ -6,6 +6,8 @@ Captured live against the pinned oracle on 2026-09-22. All probes used
 ## Oracle identity
 
 - Download URL: `https://github.com/Shopify/toxiproxy/releases/download/v2.12.0/toxiproxy-server-darwin-arm64`
+- Official release checksum manifest: `https://github.com/Shopify/toxiproxy/releases/download/v2.12.0/checksums.txt`. Acquisition is architecture-specific and the expected hash is pinned in `scripts/toxiproxy_v2_12_expected_sha256.sh`.
+- Pinned server binary SHA-256 values used by the release lane: Linux x86_64 `556d891134a3c582dc1e1a3f7335fd55142e5965769855a00b944e13e48302fc`; Linux aarch64 `53e770c1c3035b5a9f1bc629fce537db1f95f62b26f4ebe6e756afd701cf077c`; Darwin arm64 `aa299966b52f16a8594f1cd0d1e9049dc2e8fe2c04a90c19860e2719b2b95d15`; Darwin x86_64 `9625bba4bd96117eedae49f982aba4c2f462b268dd406c9ff18186f9b1ef8afe`.
 - `toxiproxy-server -version` prints `toxiproxy-server version 2.12.0`
 - `-port` values above 65535 are rejected by the oracle CLI itself
   (e.g. `-port 84740` fails with `listen tcp: address 84740: invalid port`).

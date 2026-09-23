@@ -9,12 +9,51 @@ cargo-fuzz = true
 
 [dependencies]
 eggchaos-core = { path = "../crates/eggchaos-core" }
+eggchaos-server = { path = "../crates/eggchaos-server" }
+eggchaos-toxiproxy = { path = "../crates/eggchaos-toxiproxy" }
 libfuzzer-sys = "0.4"
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+toml = "0.9"
 
 [[bin]]
 name = "plan_json"
 path = "fuzz_targets/plan_json.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "native_config"
+path = "fuzz_targets/native_config.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "native_control_json"
+path = "fuzz_targets/native_control_json.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fault_evidence_json"
+path = "fuzz_targets/fault_evidence_json.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "policy_transitions"
+path = "fuzz_targets/policy_transitions.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "toxiproxy_attributes"
+path = "fuzz_targets/toxiproxy_attributes.rs"
 test = false
 doc = false
 bench = false
