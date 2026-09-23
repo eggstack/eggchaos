@@ -19,7 +19,14 @@ jobs:
           components: rustfmt, clippy
       - run: cargo install cargo-audit --locked --version 0.22.2
       - run: cargo install cargo-deny --locked --version 0.20.2
-      - run: cargo install cargo-fuzz --locked --version 0.13.2
+      # cargo-fuzz 0.13.2's transitive cargo-platform@0.3.3 requires rustc
+      # 1.91 to compile, so it cannot be built by the pinned 1.89.0 MSRV
+      # toolchain (observed: exit 101 in CI). Build the cargo-fuzz binary
+      # itself with current stable; the fuzz target it drives still builds
+      # and runs under the pinned 1.89.0 toolchain (--sanitizer none needs
+      # no nightly features, as proven by local MSRV runs).
+      - run: rustup toolchain install stable --profile minimal
+      - run: RUSTUP_TOOLCHAIN=stable cargo install cargo-fuzz --locked --version 0.13.2
       - run: ./scripts/release-smoke.sh
       - run: EGGCHAOS_FUZZ_RUNS=10000 ./scripts/qualify_fuzz.sh
       - run: ./scripts/qualify_toxiproxy_v2_12.sh
@@ -30,6 +37,13 @@ jobs:
     # Release builds (notably Windows) must also fail loudly, never
     # occupy a runner indefinitely.
     timeout-minutes: 45
+    # The aarch64 Linux cross build must use the cross linker installed
+    # below; the host /usr/bin/ld cannot link aarch64 objects (observed:
+    # "file in wrong format"). macOS x86_64 builds cross-compile from an
+    # ARM64 host (macos-13 Intel runners are retired); rustc + Xcode clang
+    # handle -arch x86_64 for the --target build.
+    env:
+      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
     strategy:
       fail-fast: false
       matrix:
@@ -38,7 +52,7 @@ jobs:
             target: x86_64-unknown-linux-gnu
           - os: ubuntu-22.04
             target: aarch64-unknown-linux-gnu
-          - os: macos-13
+          - os: macos-14
             target: x86_64-apple-darwin
           - os: macos-14
             target: aarch64-apple-darwin
