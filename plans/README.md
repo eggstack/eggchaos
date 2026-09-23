@@ -11,7 +11,7 @@ Eggchaos is intended to be a small Rust-native successor to the useful core of T
 | `roadmap.md` | Long-term architecture, sequencing, release stages, and future extensions. |
 | `registry.md` | Current milestone status and dependency source of truth. |
 | `000-architecture-and-scope-baseline.md` | Investigated baseline, reuse decisions, scope boundaries, and initial dependency graph. |
-| `001-*.md` ... `015-*.md` | Bounded implementation, corrective, cleanup, and qualification handoffs in execution order. |
+| `001-*.md` ... `019-*.md` | Bounded implementation, corrective, cleanup, and qualification handoffs in execution order. |
 | `adrs/` | Durable architecture decisions that should not be silently changed by implementation. |
 | `reference/toxiproxy-parity.md` | Compatibility target and semantic mapping. |
 | `reference/verification-matrix.md` | Required evidence across faults, platforms, APIs, and performance. |
@@ -20,11 +20,13 @@ Eggchaos is intended to be a small Rust-native successor to the useful core of T
 
 ## Current execution order
 
-The implementation, corrective, reconciliation, and requalification chains are complete. M008 is closed as the first release-qualification milestone, M009–M013 are closed corrective/requalification successors, M014 is closed as the release-state/planning reconciliation, and M015 is closed as the final exact-HEAD pre-tag qualification gate.
+M000–M015 and M008 remain closed historical work. A 2026-09-23 post-M015 repository audit found additional correctness, secure-control, contract-maintenance, and qualification gaps, so a new release-blocking chain is registered:
 
-There is no remaining pre-tag implementation sequence. Tagging, crates.io publication, and GitHub release creation remain explicit owner decisions.
+`M016 correctness/security -> M017 native contract/operator surface -> M018 runtime modularization -> M019 final corrective requalification`
 
-Historical M002–M013 and M008 closure records remain preserved at their real candidate commits. M015 does not rewrite them; it establishes the final current release-candidate authority after post-M008 changes.
+M016 is ready. M017–M019 remain blocked until their prerequisites close. Tagging, crates.io publication, and GitHub release creation are deferred until M019 closes.
+
+Historical closure records remain preserved at their real candidate commits. M015 remains valid qualification evidence for `cd88b22`; M019 will become the final current release-candidate authority only after the new chain is implemented and independently qualified.
 
 ## Status rules
 

@@ -1,6 +1,6 @@
 # Eggchaos Long-Term Roadmap
 
-Status: M008, M009–M015 all closed. The repository is qualified for a v0.1.0 tag; tagging, publication, and release creation remain owner decisions.
+Status: M008 and M009–M015 are closed historical work. A 2026-09-23 post-M015 audit activated M016–M019; the repository is not currently cleared for a v0.1.0 tag until M019 closes.
 
 ## 1. Mission
 
@@ -287,7 +287,26 @@ M012 completes the declared Toxiproxy v2.12 route/default/populate/reset/toxic s
 
 M013 reran the corrected stack on one exact commit, including Eggfetch regression qualification, and M008 then completed release/package/target/performance qualification.
 
-Historical closure records are retained and should not be rewritten. Dependency/test/workflow fixes that landed after the M008 candidate were reconciled by the closed M014 (planning/release state and post-M008 lineage) and requalified by the closed M015 (final exact-HEAD pre-tag release qualification at `cd88b22`, including the dedicated release workflow and 5/5 artifact jobs). There is no remaining pre-tag chain.
+Historical closure records are retained and should not be rewritten. Dependency/test/workflow fixes that landed after the M008 candidate were reconciled by the closed M014 and requalified by the closed M015 at `cd88b22`.
+
+## 11B. Post-M015 corrective/hardening sequence
+
+A 2026-09-23 repository audit after M015 found additional issues that warrant a bounded successor chain before tagging. This does not invalidate M015's historical evidence; it means the release-relevant tree will change and must be qualified again.
+
+```text
+M016 correctness + secure control
+  -> M017 native contract + operator surface
+  -> M018 runtime modularization + dependency hygiene
+  -> M019 expanded qualification + final exact-HEAD gate
+```
+
+M016 repairs concrete release blockers: panic-free user configuration validation, authenticated CLI access to secured admin endpoints, secret redaction, and reliable native identifier path round trips.
+
+M017 makes the native `/v1` wire contract explicit rather than coupling CLI/API behavior to internal Rust Serde layout, consolidates native fault input conversion, exposes important existing runtime bounds through schema-v1 configuration, and adds CLI access to existing scenario/history/metrics operations.
+
+M018 is maintenance-only structural hardening: preserve one `RuntimeInner`/`ControlState` authority while decomposing the oversized server runtime into cohesive modules and removing unused direct dependencies.
+
+M019 is the new final pre-tag authority. It makes the pinned Toxiproxy oracle mandatory in release mode, expands fuzz/differential evidence, reruns Eggfetch/security/package/artifact/performance gates, and closes only on one exact post-hardening candidate. Tagging/publication/release creation remain deferred until M019 closes.
 
 ## 12. Performance targets
 

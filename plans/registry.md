@@ -1,6 +1,6 @@
 # Eggchaos Plan Registry
 
-Last reconciled: 2026-09-23 (M015 closure)
+Last reconciled: 2026-09-23 (post-M015 corrective audit; M016–M019 registered)
 
 This file is the compact source of truth for active milestone state. Detailed scope lives in the numbered plans. Historical closure evidence belongs in `plans/closure/`.
 
@@ -21,7 +21,11 @@ This file is the compact source of truth for active milestone state. Detailed sc
 | M012 | `012-toxiproxy-v2-12-parity-corrective.md` | closed | M009, M010, M011 | Closed at `a040ed7`; evidence in `plans/closure/M012-toxiproxy-v2-12-parity-corrective-closure.md` (47/47 differential vs pinned v2.12.0 oracle, Go + Python client smokes). |
 | M013 | `013-corrective-requalification-gate.md` | closed | M009, M010, M011, M012 | Clean verdict at `9904490`; evidence in `plans/closure/M013-corrective-requalification-gate-closure.md`. M008 was subsequently completed. |
 | M014 | `014-release-state-and-planning-reconciliation.md` | closed | M008, M013 | Closed with reconciliation commit family; evidence in `plans/closure/M014-release-state-and-planning-reconciliation-closure.md`. Post-M008 lineage recorded; M015 is the final exact-HEAD authority. |
-| M015 | `015-final-exact-head-release-requalification.md` | closed | M014 | Clean verdict at `cd88b22`; evidence in `plans/closure/M015-final-exact-head-release-requalification-closure.md` (ordinary CI + dedicated release workflow green on the exact candidate, 5/5 artifacts with checksums, 47/47 Toxiproxy differential, Go/Python smokes, fuzz/security/package gates, perf within budget). Tag/publish/release remain owner decisions. |
+| M015 | `015-final-exact-head-release-requalification.md` | closed | M014 | Clean historical verdict at `cd88b22`; evidence in `plans/closure/M015-final-exact-head-release-requalification-closure.md`. A later audit activated M016–M019, so M015 is no longer the final tag authority. |
+| M016 | `016-pre-release-correctness-and-secure-control-hardening.md` | ready | M015 | Post-M015 audit corrective: eliminate user-input config panic, make authenticated admin operable from CLI, redact secrets, and make opaque fault IDs safely addressable over native HTTP. Release-blocking. |
+| M017 | `017-native-control-contract-and-operator-surface-consolidation.md` | blocked | M016 | Activate after M016. Replace incidental internal-Serde wire coupling with explicit native DTOs, consolidate native fault input conversion, align TOML/runtime fields, and complete CLI coverage for existing native routes. |
+| M018 | `018-runtime-modularization-and-dependency-hygiene.md` | blocked | M017 | Activate after M017. Decompose the monolithic server runtime without changing authority/semantics and remove unused direct dependencies. |
+| M019 | `019-qualification-expansion-and-final-corrective-requalification.md` | blocked | M016, M017, M018 | Final pre-tag successor gate: strict pinned-oracle release qualification, expanded fuzz/differential evidence, full exact-HEAD CI/artifacts/security/package/performance requalification. |
 
 ## Execution state
 
@@ -31,11 +35,11 @@ The corrective implementation chain is complete:
 
 Historical M002–M006 closure records remain preserved as evidence of the earlier implementation state. M009–M013 are the corrective successors that requalified that implementation, and M008 subsequently closed the first release-qualification milestone.
 
-The pre-tag sequence is complete:
+The historical pre-tag sequence through M015 is complete, but a post-M015 audit activated a new release-blocking successor chain:
 
-`M000 -> ... -> M015` (all closed)
+`M016 -> M017 -> M018 -> M019`
 
-M014 reconciled planning/release state and the post-M008 candidate lineage. M015 qualified the exact HEAD `cd88b22` with the dedicated release workflow and artifact matrix. Tagging, crates.io publication, and GitHub release creation remain explicit owner decisions.
+M015 qualified `cd88b22` and remains valid historical evidence. Because M016–M018 will change release-relevant code and M019 strengthens/re-runs qualification, `cd88b22` is no longer the final tag candidate. Tagging, crates.io publication, and GitHub release creation are deferred until M019 closes.
 
 ## Future roadmap items not yet activated
 
@@ -53,13 +57,13 @@ These remain post-release or separately planned work and must not be pulled into
 
 ## Dependency-ready view
 
-Completed: M000–M015 and M008 are closed.
+Completed historical work: M000–M015 and M008 are closed.
 
-Ready now: none in the pre-tag sequence.
+Ready now: M016.
 
-Blocked: none in the pre-tag sequence.
+Blocked: M017 on M016; M018 on M017; M019 on M016/M017/M018.
 
-There is no further planned pre-tag implementation work; tagging/publishing/release creation remain explicit owner decisions.
+Current pre-tag execution order: `M016 -> M017 -> M018 -> M019`. Do not tag/publish/create the release before M019 closes.
 
 ## Closure requirements
 

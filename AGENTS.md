@@ -60,7 +60,7 @@ Qualification scripts (release workflow): `scripts/qualify_fuzz.sh`, `scripts/qu
 
 ## Planning state
 
-M000–M015 and M008 are all `closed` (`plans/registry.md`, reconciled 2026-09-23 at `cd88b22`). No tag, crates.io publish, or GitHub release exists — those are explicit owner decisions. There is no active pre-tag work; do not start new milestones unprompted or rewrite `plans/closure/` / `plans/archive/` history.
+M000–M015 and M008 are historical `closed` milestones. A 2026-09-23 post-M015 audit activated the release-blocking corrective chain `M016 -> M017 -> M018 -> M019`: M016 is `ready`; M017–M019 are blocked on their predecessors. M015 remains historical qualification for `cd88b22`, but it is no longer the final tag authority after the newly registered work. No tag, crates.io publish, or GitHub release should occur until M019 closes. Do not rewrite `plans/closure/` / `plans/archive/` history.
 
 If the owner asks for new work: `plans/roadmap.md` is the architecture authority, `plans/reference/` holds parity/verification contracts (not status), ADRs live in `plans/adrs/`. Any new numbered plan needs objective, baseline/deps, scope + non-goals, affected crates, ordered work packages, invariants/failure semantics, test commands, acceptance criteria, stop conditions, closure evidence, and follow-on rules — and must update `plans/registry.md` in the same change. Never mark `closed` from source inspection; closure requires running the plan's tests on the exact candidate plus external/differential evidence where declared.
 
