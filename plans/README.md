@@ -26,8 +26,6 @@ There is no remaining pre-tag implementation sequence. Tagging, crates.io public
 
 Historical M002–M013 and M008 closure records remain preserved at their real candidate commits. M015 does not rewrite them; it establishes the final current release-candidate authority after post-M008 changes.
 
-Tagging, crates.io publication, and GitHub release creation remain explicit owner decisions after M015.
-
 ## Status rules
 
 The registry uses the following states: `ready`, `blocked`, `active`, `implemented-awaiting-evidence`, `closed`, and `superseded`.
