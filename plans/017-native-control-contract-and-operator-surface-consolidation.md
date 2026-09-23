@@ -1,6 +1,6 @@
 # M017 — Native Control Contract and Operator-Surface Consolidation
 
-Status: blocked
+Status: ready
 Depends on: M016
 Role: native API/config/CLI hardening
 

@@ -1,6 +1,6 @@
 # Eggchaos Plan Registry
 
-Last reconciled: 2026-09-23 (post-M015 corrective audit; M016–M019 registered)
+Last reconciled: 2026-09-23 (M016 closed; M017 activated)
 
 This file is the compact source of truth for active milestone state. Detailed scope lives in the numbered plans. Historical closure evidence belongs in `plans/closure/`.
 
@@ -22,20 +22,20 @@ This file is the compact source of truth for active milestone state. Detailed sc
 | M013 | `013-corrective-requalification-gate.md` | closed | M009, M010, M011, M012 | Clean verdict at `9904490`; evidence in `plans/closure/M013-corrective-requalification-gate-closure.md`. M008 was subsequently completed. |
 | M014 | `014-release-state-and-planning-reconciliation.md` | closed | M008, M013 | Closed with reconciliation commit family; evidence in `plans/closure/M014-release-state-and-planning-reconciliation-closure.md`. Post-M008 lineage recorded; M015 is the final exact-HEAD authority. |
 | M015 | `015-final-exact-head-release-requalification.md` | closed | M014 | Clean historical verdict at `cd88b22`; evidence in `plans/closure/M015-final-exact-head-release-requalification-closure.md`. A later audit activated M016–M019, so M015 is no longer the final tag authority. |
-| M016 | `016-pre-release-correctness-and-secure-control-hardening.md` | ready | M015 | Post-M015 audit corrective: eliminate user-input config panic, make authenticated admin operable from CLI, redact secrets, and make opaque fault IDs safely addressable over native HTTP. Release-blocking. |
-| M017 | `017-native-control-contract-and-operator-surface-consolidation.md` | blocked | M016 | Activate after M016. Replace incidental internal-Serde wire coupling with explicit native DTOs, consolidate native fault input conversion, align TOML/runtime fields, and complete CLI coverage for existing native routes. |
+| M016 | `016-pre-release-correctness-and-secure-control-hardening.md` | closed | M015 | Clean closure at `5bb1f81`; evidence in `plans/closure/M016-pre-release-correctness-and-secure-control-hardening-closure.md`. |
+| M017 | `017-native-control-contract-and-operator-surface-consolidation.md` | ready | M016 | Activated after M016. Replace incidental internal-Serde wire coupling with explicit native DTOs, consolidate native fault input conversion, align TOML/runtime fields, and complete CLI coverage for existing native routes. |
 | M018 | `018-runtime-modularization-and-dependency-hygiene.md` | blocked | M017 | Activate after M017. Decompose the monolithic server runtime without changing authority/semantics and remove unused direct dependencies. |
 | M019 | `019-qualification-expansion-and-final-corrective-requalification.md` | blocked | M016, M017, M018 | Final pre-tag successor gate: strict pinned-oracle release qualification, expanded fuzz/differential evidence, full exact-HEAD CI/artifacts/security/package/performance requalification. |
 
 ## Execution state
 
-The corrective implementation chain is complete:
+The earlier corrective implementation chain is complete:
 
 `(M009 || M010) -> M011 -> M012 -> M013 -> M008`
 
 Historical M002–M006 closure records remain preserved as evidence of the earlier implementation state. M009–M013 are the corrective successors that requalified that implementation, and M008 subsequently closed the first release-qualification milestone.
 
-The historical pre-tag sequence through M015 is complete, but a post-M015 audit activated a new release-blocking successor chain:
+The historical pre-tag sequence through M015 is complete. M016 has now closed cleanly and activated the remaining release-blocking successor chain:
 
 `M016 -> M017 -> M018 -> M019`
 
@@ -59,11 +59,11 @@ These remain post-release or separately planned work and must not be pulled into
 
 Completed historical work: M000–M015 and M008 are closed.
 
-Ready now: M016.
+Ready now: M017.
 
-Blocked: M017 on M016; M018 on M017; M019 on M016/M017/M018.
+Blocked: M018 on M017; M019 on M016/M017/M018.
 
-Current pre-tag execution order: `M016 -> M017 -> M018 -> M019`. Do not tag/publish/create the release before M019 closes.
+Current pre-tag execution order: `M016 (closed) -> M017 -> M018 -> M019`. Do not tag/publish/create the release before M019 closes.
 
 ## Closure requirements
 

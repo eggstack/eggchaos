@@ -1,6 +1,6 @@
 # M016 — Pre-release Correctness and Secure-Control Hardening
 
-Status: ready
+Status: closed
 Depends on: M015
 Role: release-blocking corrective successor
 

@@ -24,7 +24,7 @@ M000–M015 and M008 remain closed historical work. A 2026-09-23 post-M015 repos
 
 `M016 correctness/security -> M017 native contract/operator surface -> M018 runtime modularization -> M019 final corrective requalification`
 
-M016 is ready. M017–M019 remain blocked until their prerequisites close. Tagging, crates.io publication, and GitHub release creation are deferred until M019 closes.
+M016 is closed. M017 is ready; M018 and M019 remain blocked until their prerequisites close. Tagging, crates.io publication, and GitHub release creation are deferred until M019 closes.
 
 Historical closure records remain preserved at their real candidate commits. M015 remains valid qualification evidence for `cd88b22`; M019 will become the final current release-candidate authority only after the new chain is implemented and independently qualified.
 
