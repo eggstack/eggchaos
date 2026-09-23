@@ -20,6 +20,23 @@ fn cli(admin: SocketAddr, args: &[&str]) -> (bool, String) {
     )
 }
 
+fn cli_token(admin: SocketAddr, token: &str, args: &[&str]) -> (bool, String, String) {
+    let output = Command::new(env!("CARGO_BIN_EXE_eggchaos"))
+        .arg("--admin")
+        .arg(format!("http://{admin}"))
+        .arg("--admin-token")
+        .arg(token)
+        .arg("--json")
+        .args(args)
+        .output()
+        .expect("cli binary runs");
+    (
+        output.status.success(),
+        String::from_utf8_lossy(&output.stdout).into_owned(),
+        String::from_utf8_lossy(&output.stderr).into_owned(),
+    )
+}
+
 async fn find_connection(admin: SocketAddr, proxy: &str) -> u64 {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
     loop {
@@ -148,4 +165,68 @@ async fn cli_json_create_fault_kill_reset_end_to_end() {
 
     admin.shutdown();
     origin_task.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cli_authenticates_and_round_trips_opaque_fault_ids() {
+    let origin = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let admin = NativeAdmin::start(
+        AdminConfig {
+            bind: "127.0.0.1:0".parse().unwrap(),
+            auth_token: Some("right-secret".into()),
+            ..AdminConfig::default()
+        },
+        ControlState::default(),
+    )
+    .await
+    .unwrap();
+    let address = admin.local_addr();
+    let (no_token, no_token_out) = cli(address, &["proxy", "list"]);
+    assert!(!no_token);
+    let _: serde_json::Value =
+        serde_json::from_str(&no_token_out).expect("one JSON error document");
+    let (ok, out, err) = cli_token(address, "wrong-secret", &["proxy", "list"]);
+    assert!(!ok);
+    let _: serde_json::Value = serde_json::from_str(&out).expect("one JSON error document");
+    assert!(!out.contains("wrong-secret") && !err.contains("wrong-secret"));
+    assert!(!out.contains("right-secret") && !err.contains("right-secret"));
+    let (ok, out, _) = cli_token(
+        address,
+        "right-secret",
+        &[
+            "proxy",
+            "add",
+            "p1",
+            "--listen",
+            "127.0.0.1:0",
+            "--upstream",
+            &origin.local_addr().unwrap().to_string(),
+        ],
+    );
+    assert!(ok, "{out}");
+    let id = "part/percent%? ü";
+    let (ok, out, _) = cli_token(
+        address,
+        "right-secret",
+        &[
+            "fault",
+            "add",
+            "p1",
+            id,
+            "--kind",
+            "latency",
+            "--delay-ms",
+            "0",
+        ],
+    );
+    assert!(ok, "{out}");
+    for args in [
+        vec!["fault", "get", "p1", id],
+        vec!["fault", "set", "p1", id, "--probability", "0.5"],
+        vec!["fault", "remove", "p1", id],
+    ] {
+        let (ok, out, _) = cli_token(address, "right-secret", &args);
+        assert!(ok, "{out}");
+    }
+    admin.shutdown();
 }

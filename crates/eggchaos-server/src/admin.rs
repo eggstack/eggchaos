@@ -9,7 +9,7 @@ use tokio::net::TcpListener;
 use crate::{ControlError, ControlState, NativeConfigError};
 
 /// Native admin listener security settings.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct AdminConfig {
     /// Bind address.
     pub bind: SocketAddr,
@@ -17,6 +17,19 @@ pub struct AdminConfig {
     pub public_admin: bool,
     /// Required bearer token for non-loopback operation.
     pub auth_token: Option<String>,
+}
+
+impl std::fmt::Debug for AdminConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AdminConfig")
+            .field("bind", &self.bind)
+            .field("public_admin", &self.public_admin)
+            .field(
+                "auth_token",
+                &self.auth_token.as_ref().map(|_| "[REDACTED]"),
+            )
+            .finish()
+    }
 }
 
 impl Default for AdminConfig {
@@ -186,7 +199,40 @@ async fn handle_request(
         .await
         .map_err(|error| ServiceError::rejected(413, error.to_string()))?;
     let segments: Vec<&str> = path.split('/').filter(|part| !part.is_empty()).collect();
-    let response = match route(&method, &segments, &body, &state).await {
+    let decoded_id = if segments.len() == 5
+        && segments[0] == "v1"
+        && segments[1] == "proxies"
+        && segments[3] == "faults"
+    {
+        match decode_path_component(segments[4]) {
+            Ok(id) => Some(id),
+            Err(()) => {
+                return Ok(json_response(
+                    StatusCode::BAD_REQUEST,
+                    &ErrorEnvelope {
+                        error: ErrorBody {
+                            code: "invalid",
+                            message: "invalid path component",
+                        },
+                    },
+                ));
+            }
+        }
+    } else {
+        None
+    };
+    let decoded_segments: Vec<&str> = segments
+        .iter()
+        .enumerate()
+        .map(|(index, segment)| {
+            if index == 4 {
+                decoded_id.as_deref().unwrap_or(segment)
+            } else {
+                segment
+            }
+        })
+        .collect();
+    let response = match route(&method, &decoded_segments, &body, &state).await {
         RouteOutcome::Response(response) => response,
         RouteOutcome::ControlError(error) => control_error_response(&error),
         RouteOutcome::BadJson(error) => json_response(
@@ -209,6 +255,36 @@ async fn handle_request(
         ),
     };
     Ok(response)
+}
+
+fn decode_path_component(input: &str) -> Result<String, ()> {
+    let bytes = input.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            if i + 2 >= bytes.len() {
+                return Err(());
+            }
+            let hi = hex_value(bytes[i + 1]).ok_or(())?;
+            let lo = hex_value(bytes[i + 2]).ok_or(())?;
+            decoded.push((hi << 4) | lo);
+            i += 3;
+        } else {
+            decoded.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(decoded).map_err(|_| ())
+}
+
+fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
 }
 
 enum RouteOutcome {
@@ -451,6 +527,25 @@ fn _config_error_kind(error: NativeConfigError) -> String {
 mod tests {
     use super::*;
     use eggfetch_core::Client;
+
+    #[test]
+    fn native_fault_path_components_decode_once_and_reject_malformed_input() {
+        assert_eq!(decode_path_component("a%2Fb%25").unwrap(), "a/b%");
+        assert_eq!(decode_path_component("%252F").unwrap(), "%2F");
+        assert!(decode_path_component("bad%2").is_err());
+        assert!(decode_path_component("%FF").is_err());
+    }
+
+    #[test]
+    fn admin_config_debug_redacts_tokens() {
+        let config = AdminConfig {
+            auth_token: Some("admin-secret".into()),
+            ..AdminConfig::default()
+        };
+        let debug = format!("{config:?}");
+        assert!(!debug.contains("admin-secret"));
+        assert!(debug.contains("[REDACTED]"));
+    }
 
     #[tokio::test]
     async fn health_route_uses_eggserve_and_json_contract() {

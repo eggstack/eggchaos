@@ -1593,16 +1593,6 @@ impl ControlState {
                 "fault id must be 1..=128 bytes".into(),
             ));
         }
-        // Fault identities travel as single URL path segments.
-        if !upsert
-            .id
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
-        {
-            return Err(ControlError::Invalid(
-                "fault id must match [A-Za-z0-9._-]+".into(),
-            ));
-        }
         if !(0.0..=1.0).contains(&upsert.probability) || !upsert.probability.is_finite() {
             return Err(ControlError::Invalid(
                 "probability must be finite and between 0 and 1".into(),

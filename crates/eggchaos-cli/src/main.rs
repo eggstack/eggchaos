@@ -16,6 +16,9 @@ struct Cli {
     /// Native admin endpoint.
     #[arg(long, default_value = "http://127.0.0.1:8475")]
     admin: String,
+    /// Bearer token for a secured native admin endpoint (overrides EGGCHAOS_ADMIN_TOKEN).
+    #[arg(long, env = "EGGCHAOS_ADMIN_TOKEN")]
+    admin_token: Option<String>,
     /// Emit one machine-readable JSON document.
     #[arg(long)]
     json: bool,
@@ -171,7 +174,13 @@ enum ConnectionCommand {
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
-    let result = dispatch(cli.command, &cli.admin, cli.json).await;
+    let result = dispatch(
+        cli.command,
+        &cli.admin,
+        cli.admin_token.as_deref(),
+        cli.json,
+    )
+    .await;
     if let Err(error) = result {
         if cli.json {
             print_value(
@@ -188,6 +197,7 @@ async fn main() {
 async fn dispatch(
     command: Command,
     admin: &str,
+    admin_token: Option<&str>,
     json: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match command {
@@ -199,11 +209,21 @@ async fn dispatch(
             );
             Ok(())
         }
-        Command::Reset => request(admin, "POST", "/v1/reset", None, json).await,
+        Command::Reset => request(admin, admin_token, "POST", "/v1/reset", None, json).await,
         Command::Proxy { command } => match command {
-            ProxyCommand::List => request(admin, "GET", "/v1/proxies", None, json).await,
+            ProxyCommand::List => {
+                request(admin, admin_token, "GET", "/v1/proxies", None, json).await
+            }
             ProxyCommand::Get { name } => {
-                request(admin, "GET", &format!("/v1/proxies/{name}"), None, json).await
+                request(
+                    admin,
+                    admin_token,
+                    "GET",
+                    &format!("/v1/proxies/{name}"),
+                    None,
+                    json,
+                )
+                .await
             }
             ProxyCommand::Add {
                 name,
@@ -223,7 +243,7 @@ async fn dispatch(
                 if let Some(limit) = max_connections {
                     body["max_connections"] = limit.into();
                 }
-                request(admin, "POST", "/v1/proxies", Some(body), json).await
+                request(admin, admin_token, "POST", "/v1/proxies", Some(body), json).await
             }
             ProxyCommand::Set {
                 name,
@@ -275,6 +295,7 @@ async fn dispatch(
                 }
                 request(
                     admin,
+                    admin_token,
                     "PATCH",
                     &format!("/v1/proxies/{name}"),
                     Some(patch.into()),
@@ -283,11 +304,20 @@ async fn dispatch(
                 .await
             }
             ProxyCommand::Remove { name } => {
-                request(admin, "DELETE", &format!("/v1/proxies/{name}"), None, json).await
+                request(
+                    admin,
+                    admin_token,
+                    "DELETE",
+                    &format!("/v1/proxies/{name}"),
+                    None,
+                    json,
+                )
+                .await
             }
             ProxyCommand::Enable { name } => {
                 request(
                     admin,
+                    admin_token,
                     "PATCH",
                     &format!("/v1/proxies/{name}"),
                     Some(serde_json::json!({"enabled": true})),
@@ -298,6 +328,7 @@ async fn dispatch(
             ProxyCommand::Disable { name } => {
                 request(
                     admin,
+                    admin_token,
                     "PATCH",
                     &format!("/v1/proxies/{name}"),
                     Some(serde_json::json!({"enabled": false})),
@@ -310,6 +341,7 @@ async fn dispatch(
             FaultCommand::List { proxy } => {
                 request(
                     admin,
+                    admin_token,
                     "GET",
                     &format!("/v1/proxies/{proxy}/faults"),
                     None,
@@ -320,8 +352,9 @@ async fn dispatch(
             FaultCommand::Get { proxy, id } => {
                 request(
                     admin,
+                    admin_token,
                     "GET",
-                    &format!("/v1/proxies/{proxy}/faults/{id}"),
+                    &format!("/v1/proxies/{proxy}/faults/{}", encode_path_component(&id)),
                     None,
                     json,
                 )
@@ -343,6 +376,7 @@ async fn dispatch(
                 });
                 request(
                     admin,
+                    admin_token,
                     "POST",
                     &format!("/v1/proxies/{proxy}/faults"),
                     Some(body),
@@ -368,8 +402,9 @@ async fn dispatch(
                 }
                 request(
                     admin,
+                    admin_token,
                     "PATCH",
-                    &format!("/v1/proxies/{proxy}/faults/{id}"),
+                    &format!("/v1/proxies/{proxy}/faults/{}", encode_path_component(&id)),
                     Some(patch.into()),
                     json,
                 )
@@ -378,8 +413,9 @@ async fn dispatch(
             FaultCommand::Remove { proxy, id } => {
                 request(
                     admin,
+                    admin_token,
                     "DELETE",
-                    &format!("/v1/proxies/{proxy}/faults/{id}"),
+                    &format!("/v1/proxies/{proxy}/faults/{}", encode_path_component(&id)),
                     None,
                     json,
                 )
@@ -387,13 +423,24 @@ async fn dispatch(
             }
         },
         Command::Connection { command } => match command {
-            ConnectionCommand::List => request(admin, "GET", "/v1/connections", None, json).await,
+            ConnectionCommand::List => {
+                request(admin, admin_token, "GET", "/v1/connections", None, json).await
+            }
             ConnectionCommand::Get { id } => {
-                request(admin, "GET", &format!("/v1/connections/{id}"), None, json).await
+                request(
+                    admin,
+                    admin_token,
+                    "GET",
+                    &format!("/v1/connections/{id}"),
+                    None,
+                    json,
+                )
+                .await
             }
             ConnectionCommand::Kill { id } => {
                 request(
                     admin,
+                    admin_token,
                     "DELETE",
                     &format!("/v1/connections/{id}"),
                     None,
@@ -410,6 +457,19 @@ fn check_direction(direction: &str) -> Result<&str, Box<dyn std::error::Error>> 
         "upstream" | "downstream" => Ok(direction),
         other => Err(format!("direction must be upstream or downstream, got {other:?}").into()),
     }
+}
+
+fn encode_path_component(value: &str) -> String {
+    let mut encoded = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
+            encoded.push(char::from(byte));
+        } else {
+            use std::fmt::Write as _;
+            let _ = write!(encoded, "%{byte:02X}");
+        }
+    }
+    encoded
 }
 
 fn duration_ms_json(millis: u64) -> serde_json::Value {
@@ -486,6 +546,7 @@ async fn serve(path: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
 
 async fn request(
     base: &str,
+    admin_token: Option<&str>,
     method: &str,
     path: &str,
     body: Option<serde_json::Value>,
@@ -502,18 +563,21 @@ async fn request(
     if let Some(body) = body {
         builder = builder.json(&body)?;
     }
-    let mut response = builder.send().await?;
+    if let Some(token) = admin_token {
+        builder = builder.header("authorization", &format!("Bearer {token}"));
+    }
+    let mut response = builder.send().await.map_err(|_| "admin request failed")?;
     let status = response.status();
     let data = response.bytes().await?;
+    if !status.is_success() {
+        return Err(format!("admin returned {status}").into());
+    }
     if json {
         let value: serde_json::Value = serde_json::from_slice(&data)
             .unwrap_or_else(|_| serde_json::json!({"body": String::from_utf8_lossy(&data)}));
         print_value(&value, true);
     } else {
         println!("{}", String::from_utf8_lossy(&data));
-    }
-    if !status.is_success() {
-        return Err(format!("admin returned {status}").into());
     }
     Ok(())
 }

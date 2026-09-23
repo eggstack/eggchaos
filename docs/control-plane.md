@@ -6,6 +6,10 @@ token; failed authentication returns a bounded JSON error without echoing the
 token. Request bodies are capped at 1 MiB and route state is changed through
 `ControlState` generation publication.
 
+The CLI accepts `--admin-token <token>` or `EGGCHAOS_ADMIN_TOKEN`; the command
+line option takes precedence. The header is omitted when neither is set.
+Tokens are redacted from native configuration/admin `Debug` output.
+
 The EggServe leaf H1 runtime owns parsing, request-body bounds, and connection
 lifecycle. Eggchaos owns only route dispatch and typed JSON conversion. The
 CLI uses Eggfetch for control requests, including JSON mode and nonzero error
@@ -32,6 +36,13 @@ schema-v1 TOML), `version`, `reset`; `proxy list|get|add|set|remove|
 enable|disable`; `fault list|get|add|set|remove`;
 `connection list|get|kill`. Every command emits one machine-readable JSON
 document with `--json` and exits nonzero on failure.
+
+Fault IDs are opaque UTF-8 path components up to the core identity limit. The
+CLI percent-encodes them; the native router splits the raw path first and
+decodes a fault ID exactly once. Malformed escapes and decoded invalid UTF-8
+return a bounded `400 invalid` response. Existing unreserved IDs retain their
+usual spelling. Invalid schema-v1 configuration, including zero-valued
+required capacities, returns a field error instead of panicking.
 
 ## Generations and policy snapshots
 
@@ -84,4 +95,3 @@ fault type, live per-proxy connection gauges, policy generation gauges,
 and queued-byte gauges. Labels never carry connection IDs, peer addresses,
 scenario run IDs, arbitrary fault IDs, or hostnames. Per-proxy and
 activation series are bounded with overflow buckets.
-

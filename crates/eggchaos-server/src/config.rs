@@ -10,7 +10,7 @@ use thiserror::Error;
 use crate::ProxySpec;
 
 /// Versioned native TOML configuration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct NativeConfig {
     /// Schema version.
     pub version: u32,
@@ -26,7 +26,7 @@ pub struct NativeConfig {
 }
 
 /// TOML admin settings.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct AdminFileConfig {
     /// Bind address, loopback by default.
     #[serde(default = "default_admin_bind")]
@@ -36,6 +36,30 @@ pub struct AdminFileConfig {
     pub public_admin: bool,
     /// Bearer token. Prefer an environment/file indirection in deployment.
     pub auth_token: Option<String>,
+}
+
+impl std::fmt::Debug for AdminFileConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AdminFileConfig")
+            .field("bind", &self.bind)
+            .field("public_admin", &self.public_admin)
+            .field(
+                "auth_token",
+                &self.auth_token.as_ref().map(|_| "[REDACTED]"),
+            )
+            .finish()
+    }
+}
+
+impl std::fmt::Debug for NativeConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NativeConfig")
+            .field("version", &self.version)
+            .field("seed", &self.seed)
+            .field("admin", &self.admin)
+            .field("proxies", &self.proxies)
+            .finish()
+    }
 }
 
 fn default_admin_bind() -> SocketAddr {
@@ -216,64 +240,68 @@ impl FaultFileConfig {
                         message,
                     })
             };
-        let kind = match self.kind.as_str() {
-            "latency" => FaultKind::Latency(LatencyConfig {
-                delay: duration(&self.delay, "fault.delay")?,
-                jitter: duration(&self.jitter, "fault.jitter")?,
-                max_buffer_bytes: NonZeroU64::new(64 * 1024).unwrap(),
-            }),
-            "bandwidth" => FaultKind::Bandwidth(BandwidthConfig {
-                bytes_per_second: NonZeroU64::new(self.bytes_per_second.unwrap_or(1)).ok_or_else(
-                    || NativeConfigError::Field {
-                        field: "fault.bytes_per_second".into(),
-                        message: "must be non-zero".into(),
-                    },
-                )?,
-                burst_bytes: NonZeroU64::new(self.burst_bytes.unwrap_or(64 * 1024)).unwrap(),
-            }),
-            "blackhole" | "timeout" => FaultKind::Blackhole(BlackholeConfig {
-                close_after: self
-                    .delay
-                    .as_deref()
-                    .map(parse_duration)
-                    .transpose()
-                    .map_err(|message| NativeConfigError::Field {
-                        field: "fault.delay".into(),
-                        message,
+        let kind =
+            match self.kind.as_str() {
+                "latency" => FaultKind::Latency(LatencyConfig {
+                    delay: duration(&self.delay, "fault.delay")?,
+                    jitter: duration(&self.jitter, "fault.jitter")?,
+                    max_buffer_bytes: NonZeroU64::new(64 * 1024).unwrap(),
+                }),
+                "bandwidth" => FaultKind::Bandwidth(BandwidthConfig {
+                    bytes_per_second: NonZeroU64::new(self.bytes_per_second.unwrap_or(1))
+                        .ok_or_else(|| NativeConfigError::Field {
+                            field: "fault.bytes_per_second".into(),
+                            message: "must be non-zero".into(),
+                        })?,
+                    burst_bytes: NonZeroU64::new(self.burst_bytes.unwrap_or(64 * 1024))
+                        .ok_or_else(|| NativeConfigError::Field {
+                            field: "fault.burst_bytes".into(),
+                            message: "must be non-zero".into(),
+                        })?,
+                }),
+                "blackhole" | "timeout" => FaultKind::Blackhole(BlackholeConfig {
+                    close_after: self
+                        .delay
+                        .as_deref()
+                        .map(parse_duration)
+                        .transpose()
+                        .map_err(|message| NativeConfigError::Field {
+                            field: "fault.delay".into(),
+                            message,
+                        })?,
+                }),
+                "limit_data" => FaultKind::LimitData(LimitDataConfig {
+                    bytes: NonZeroU64::new(self.bytes.unwrap_or(1)).ok_or_else(|| {
+                        NativeConfigError::Field {
+                            field: "fault.bytes".into(),
+                            message: "must be non-zero".into(),
+                        }
                     })?,
-            }),
-            "limit_data" => FaultKind::LimitData(LimitDataConfig {
-                bytes: NonZeroU64::new(self.bytes.unwrap_or(1)).ok_or_else(|| {
-                    NativeConfigError::Field {
-                        field: "fault.bytes".into(),
-                        message: "must be non-zero".into(),
-                    }
-                })?,
-            }),
-            "slow_close" => FaultKind::SlowClose(SlowCloseConfig {
-                delay: duration(&self.delay, "fault.delay")?,
-            }),
-            "slicer" | "slice" => FaultKind::Slice(SliceConfig {
-                average_size: NonZeroU64::new(self.average_size.unwrap_or(1024)).ok_or_else(
-                    || NativeConfigError::Field {
-                        field: "fault.average_size".into(),
-                        message: "must be non-zero".into(),
-                    },
-                )?,
-                variation: self.variation.unwrap_or(0),
-                delay: duration(&self.delay, "fault.delay")?,
-            }),
-            "disconnect" | "reset_peer" => FaultKind::Disconnect(DisconnectConfig {
-                after: duration(&self.delay, "fault.delay")?,
-                hard_reset: self.hard_reset,
-            }),
-            other => {
-                return Err(NativeConfigError::Field {
-                    field: "fault.type".into(),
-                    message: format!("unsupported type {other}"),
-                })
-            }
-        };
+                }),
+                "slow_close" => FaultKind::SlowClose(SlowCloseConfig {
+                    delay: duration(&self.delay, "fault.delay")?,
+                }),
+                "slicer" | "slice" => FaultKind::Slice(SliceConfig {
+                    average_size: NonZeroU64::new(self.average_size.unwrap_or(1024)).ok_or_else(
+                        || NativeConfigError::Field {
+                            field: "fault.average_size".into(),
+                            message: "must be non-zero".into(),
+                        },
+                    )?,
+                    variation: self.variation.unwrap_or(0),
+                    delay: duration(&self.delay, "fault.delay")?,
+                }),
+                "disconnect" | "reset_peer" => FaultKind::Disconnect(DisconnectConfig {
+                    after: duration(&self.delay, "fault.delay")?,
+                    hard_reset: self.hard_reset,
+                }),
+                other => {
+                    return Err(NativeConfigError::Field {
+                        field: "fault.type".into(),
+                        message: format!("unsupported type {other}"),
+                    })
+                }
+            };
         Ok(FaultSpec {
             id,
             probability,
@@ -346,5 +374,38 @@ upstream = "127.0.0.1:2"
 "#,
         );
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn zero_bandwidth_burst_is_a_field_error_without_panicking() {
+        let result = std::panic::catch_unwind(|| {
+            NativeConfig::parse(
+                r#"
+version = 1
+[[proxy]]
+name = "redis"
+listen = "127.0.0.1:0"
+upstream = "127.0.0.1:6379"
+[[proxy.fault]]
+id = "rate"
+direction = "downstream"
+type = "bandwidth"
+bytes_per_second = 1000
+burst_bytes = 0
+"#,
+            )
+        });
+        let error = result
+            .expect("config validation must not panic")
+            .unwrap_err();
+        assert!(error.to_string().contains("fault.burst_bytes"));
+    }
+
+    #[test]
+    fn admin_tokens_are_redacted_from_debug_output() {
+        let config =
+            NativeConfig::parse("version = 1\n[admin]\nauth_token = 'secret-token'\n").unwrap();
+        assert!(!format!("{config:?}").contains("secret-token"));
+        assert!(format!("{config:?}").contains("[REDACTED]"));
     }
 }
