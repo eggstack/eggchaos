@@ -201,6 +201,14 @@ mod tests {
         use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
         use tokio_rustls::TlsAcceptor;
 
+        // Every await below is bounded. An unbounded version of this test
+        // once parked all three CI platforms for 4+ hours: cargo runs test
+        // binaries serially, so one stuck test blocks the whole `cargo
+        // test` step. Timeouts convert a future stall into a loud failure
+        // naming the phase instead of silent runner burn.
+        const CLIENT_PHASE: Duration = Duration::from_secs(120);
+        const SERVER_JOIN: Duration = Duration::from_secs(60);
+
         let _ = rustls::crypto::ring::default_provider().install_default();
         let certificate = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
         let server_config = rustls::ServerConfig::builder()
@@ -237,13 +245,28 @@ mod tests {
             .http_version_policy(HttpVersionPolicy::Http2Only)
             .tls_config(TlsConfig::default().danger_accept_invalid_certs(true))
             .build();
-        let mut response = client
-            .get(&format!("https://localhost:{}/", address.port()))
-            .unwrap()
-            .send()
+        let body = tokio::time::timeout(CLIENT_PHASE, async {
+            let mut response = client
+                .get(&format!("https://localhost:{}/", address.port()))
+                .unwrap()
+                .send()
+                .await
+                .unwrap();
+            response.bytes().await.unwrap()
+        })
+        .await
+        .expect("client phase stalled: dial, TLS/h2 handshake, or body")
+        .as_ref()
+        .to_vec();
+        assert_eq!(body.as_slice(), b"h2-ok");
+        // Drop the client before joining the server: a pooled h2 connection
+        // stays open while the client lives, which would park the server's
+        // post-`graceful_shutdown` accept loop forever. Client drop closes
+        // pooled connections, so the join below is deterministic.
+        drop(client);
+        tokio::time::timeout(SERVER_JOIN, task)
             .await
+            .expect("server join stalled after client drop")
             .unwrap();
-        assert_eq!(response.bytes().await.unwrap().as_ref(), b"h2-ok");
-        task.await.unwrap();
     }
 }

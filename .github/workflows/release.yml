@@ -7,6 +7,9 @@ on:
 
 jobs:
   qualify:
+    # Bounded for the same reason as CI: fuzz/toxiproxy/eggfetch
+    # qualification must fail loudly, never park a runner for hours.
+    timeout-minutes: 60
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -24,6 +27,9 @@ jobs:
       - run: ./scripts/release-artifact-smoke.sh
 
   artifacts:
+    # Release builds (notably Windows) must also fail loudly, never
+    # occupy a runner indefinitely.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:

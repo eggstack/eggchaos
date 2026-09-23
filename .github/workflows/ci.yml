@@ -6,7 +6,12 @@ on:
 
 jobs:
   check:
+    # Hard bound: one stuck test once burned 4+ hours per platform on every
+    # push (cargo runs test binaries serially). No job may burn a runner
+    # longer than this; the suite completes in minutes when healthy.
+    timeout-minutes: 25
     strategy:
+      fail-fast: true
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
