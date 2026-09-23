@@ -11,7 +11,7 @@ Eggchaos is intended to be a small Rust-native successor to the useful core of T
 | `roadmap.md` | Long-term architecture, sequencing, release stages, and future extensions. |
 | `registry.md` | Current milestone status and dependency source of truth. |
 | `000-architecture-and-scope-baseline.md` | Investigated baseline, reuse decisions, scope boundaries, and initial dependency graph. |
-| `001-*.md` ... `013-*.md` | Bounded implementation and corrective handoffs in execution order. |
+| `001-*.md` ... `015-*.md` | Bounded implementation, corrective, cleanup, and qualification handoffs in execution order. |
 | `adrs/` | Durable architecture decisions that should not be silently changed by implementation. |
 | `reference/toxiproxy-parity.md` | Compatibility target and semantic mapping. |
 | `reference/verification-matrix.md` | Required evidence across faults, platforms, APIs, and performance. |
@@ -20,17 +20,17 @@ Eggchaos is intended to be a small Rust-native successor to the useful core of T
 
 ## Current execution order
 
-The initial M001–M007 implementation chain completed, but a later source/behavior audit found correctness gaps in the fault engine, runtime/control authority, live state/scenarios, and Toxiproxy adapter. Release qualification M008 is therefore paused.
+The original implementation and corrective chains are complete. M008 is closed as the first release-qualification milestone, and M009–M013 are closed corrective/requalification successors.
 
-The active corrective graph is:
+The remaining pre-tag sequence is:
 
-`(M009 || M010) -> M011 -> M012 -> M013 -> M008`
+`M014 -> M015`
 
-M009 and M010 are both ready and may proceed in parallel. M011 joins their results, M012 requalifies the declared Toxiproxy v2.12 surface, and M013 is the cross-layer evidence gate. M008 must not resume until M013 closes cleanly.
+M014 is ready now. It reconciles stale planning/release state and records the exact post-M008 candidate lineage. M015 is blocked on M014 and is the final exact-HEAD pre-tag qualification gate, including the dedicated release workflow and artifact matrix.
 
-Historical M002–M006 closure records are preserved. Corrective plans do not rewrite history; they supersede those records only for current release-readiness decisions.
+Historical M002–M013 and M008 closure records remain preserved at their real candidate commits. M015 does not rewrite them; it establishes the final current release-candidate authority after post-M008 changes.
 
-M000 is the original planning/bootstrap investigation and remains closed.
+Tagging, crates.io publication, and GitHub release creation remain explicit owner decisions after M015.
 
 ## Status rules
 
