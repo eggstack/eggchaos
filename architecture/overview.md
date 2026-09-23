@@ -53,7 +53,7 @@ release TOML, pinned v2.12 oracle baseline + Go/Python client smokes),
    connection_key, direction, fault)` and `derive_policy_seed(...)` feed
    fault-local SplitMix64-v1 streams. No process-global or scheduler-order RNG.
 5. `eggchaos-server` embeds the engine in fixed-target TCP listeners
-   (`runtime.rs`): `ServiceBuilder` -> `EggchaosService` -> `ServiceHandle` +
+(`runtime/`): `ServiceBuilder` -> `EggchaosService` -> `ServiceHandle` +
    `ControlState`. `eggress-relay` does the byte relay; eggchaos wraps each
    direction in a chaos stream. Admission limits, connection registry,
    snapshots/evidence, metrics tables, `ResettableTcpStream`, and generation

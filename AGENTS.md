@@ -12,6 +12,7 @@ eggchaos-eggfetch -> core (implements `eggfetch_core::Dialer`)
 
 - `eggchaos-core` (`crates/eggchaos-core/src/`): protocol-neutral `FaultPlan` + `ChaosStream<T>` write-side state machine. Knows nothing about HTTP, listeners, CLI, Toxiproxy, Eggfetch. Empty plan delegates without allocating queue/timer.
 - `eggchaos-server`: fixed-target TCP listeners only (never a forward proxy). `eggress-relay` owns bidirectional copy + half-close — do not fork its semantics. Admin H1 runtime is `eggserve-server` + `eggserve-primitives`; `native.rs` owns the explicit `/v1` DTO/conversion boundary.
+- `eggchaos-server/src/runtime/`: `mod.rs` composition/re-exports; `control.rs` single `ControlState` authority; `connection.rs` evidence/finalization; `supervisor.rs` listener admission; `transport.rs` reset wrapper; `metrics.rs` bounded metrics; `model.rs` runtime views; `tests.rs` regression suite.
 - `eggchaos-cli`: thin adapter; control HTTP via `eggfetch-core` (minimal features). Never a second networking/state path.
 - `eggchaos-toxiproxy`: v2.12 REST adapter over native `ControlState`. `eggchaos-eggfetch`: physical-stream `Dialer`; Eggfetch keeps HTTP/TLS/SNI/pooling. Per-request chaos is out of scope.
 - `benchmarks/` and `fuzz/` are separate crates/workspaces with their own manifests — don't run them via workspace commands.

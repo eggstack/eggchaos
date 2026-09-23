@@ -11,10 +11,19 @@ edge. User-facing dependency direction and fault-semantics baseline live in
 `docs/architecture.md` and `docs/control-plane.md`.
 
 Sources (evidence-first): `crates/eggchaos-server/src/lib.rs`,
-`crates/eggchaos-server/src/runtime.rs` (~4757 lines),
+`crates/eggchaos-server/src/runtime/` (modular runtime implementation),
 `crates/eggchaos-server/Cargo.toml`, `docs/architecture.md`,
 `docs/control-plane.md`. Supporting context: `crates/eggchaos-server/src/admin.rs`,
 `crates/eggchaos-server/src/config.rs`, `crates/eggchaos-server/src/scenario.rs`.
+
+The runtime module map is: `runtime/mod.rs` composes `RuntimeInner`, service
+handles, shared helpers, and public re-exports; `control.rs` implements the
+single `ControlState` authority; `connection.rs` owns connection finalization,
+evidence merge, history, and accounting; `supervisor.rs` owns listener accept
+and admission; `transport.rs` owns reset-capable TCP wrappers; `metrics.rs`
+owns bounded tables/counters; `model.rs` owns public runtime DTOs; and
+`tests.rs` contains the runtime regression suite. The module moves preserve
+one `RuntimeInner` and one `ControlState` store.
 
 ## Role and construction chain
 
@@ -32,8 +41,7 @@ Dependencies (`crates/eggchaos-server/Cargo.toml:11–29`, workspace `Cargo.toml
 `eggchaos-core` (path), `eggress-relay` 1.0.7 (`egress-relay` crate name),
 `eggserve-server` + `eggserve-primitives` 0.2.0 (admin substrate only),
 `tokio` 1 + `tokio-util` 0.7, `socket2` (stable-API abortive close),
-`serde`/`serde_json`, `prometheus-client`, `http`/`hyper`/`hyper-util`/`http-body-util`
-(admin plumbing), `tracing`, `thiserror`, `bytes`, `toml`. `#![deny(unsafe_code)]`
+`serde`/`serde_json`, `tracing`, `thiserror`, `toml`. `#![deny(unsafe_code)]`
 (`lib.rs:3`). No `eggress-outbound` dependency (optional/future only).
 
 ## Proxy model

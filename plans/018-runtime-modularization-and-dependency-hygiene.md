@@ -1,6 +1,6 @@
 # M018 — Runtime Modularization and Dependency Hygiene
 
-Status: blocked
+Status: active
 Depends on: M017
 Role: maintenance/structural hardening
 
