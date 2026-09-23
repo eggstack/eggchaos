@@ -235,8 +235,18 @@ mod tests {
                 let mut send = respond.send_response(response, false).unwrap();
                 send.send_data(Bytes::from_static(b"h2-ok"), true).unwrap();
             }
+            // Close from the server side deterministically. `accept()`
+            // returns `None` only on transport close, and a pooled h2 client
+            // may hold the TCP connection open indefinitely (observed: the
+            // join parked 60s+ on Linux while macOS closed promptly), so
+            // never wait for the peer here. A short bounded drain flushes
+            // GOAWAY/DATA; afterwards dropping `connection` closes the
+            // transport regardless of peer behavior.
             connection.graceful_shutdown();
-            while connection.accept().await.is_some() {}
+            let _ = tokio::time::timeout(Duration::from_secs(5), async {
+                while connection.accept().await.is_some() {}
+            })
+            .await;
         });
 
         let dialer = ChaosDialer::new(42, "h2-test");
