@@ -3,7 +3,7 @@
 //!
 //! The adapter holds no proxy or toxic definitions of its own. Every view is
 //! derived from [`ControlState`] snapshots (native plans plus actual bound
-//! listener addresses) and every mutation goes through the M010 control
+//! listener addresses) and every mutation goes through the native control
 //! authority, so compatibility presentation cannot drift from native state.
 //!
 //! Wire shapes, status codes, defaults, and error envelopes follow the pinned
@@ -540,7 +540,7 @@ pub fn proxy_json(view: &ProxyView) -> Value {
 
 /// Native mutation authority facade for compatibility clients. Holds no proxy
 /// or toxic definitions: reads derive from [`ControlState`] snapshots and
-/// writes go through the M010 control authority.
+/// writes go through the native control authority.
 #[derive(Clone)]
 pub struct ToxiproxyAdapter {
     state: ControlState,

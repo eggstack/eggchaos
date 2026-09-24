@@ -12,6 +12,23 @@ Eggchaos is not a forward proxy, packet-loss simulator, TLS intercept, or UDP
 impairment engine. Faults are user-space byte-stream operations, not IP/TCP
 packet behavior.
 
+## Install
+
+```sh
+cargo install eggchaos-cli --version 0.1.0
+```
+
+Libraries for embedding:
+
+```sh
+cargo add eggchaos-core --version 0.1.0
+cargo add eggchaos-server --version 0.1.0
+cargo add eggchaos-toxiproxy --version 0.1.0
+cargo add eggchaos-eggfetch --version 0.1.0
+```
+
+Requires Rust 1.89+.
+
 ## Quick start
 
 Write `eggchaos.toml`:
@@ -109,3 +126,7 @@ activation chance, decided from the seed — never from global RNG state.
 Requires Rust 1.89+. Admin listeners bind loopback by default; non-loopback
 binds need an explicit opt-in plus bearer token. Check behavior with
 `cargo test --workspace --all-features` (see `AGENTS.md` for the full gate).
+
+## License
+
+MIT. See `LICENSE`.

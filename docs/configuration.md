@@ -5,8 +5,7 @@ is the typed `eggchaos-core::FaultPlan`; adapters must convert into it rather
 than implementing their own validation.
 
 The file/API surface is the schema-v1 TOML model plus the versioned native
-control API completed under M004 (closed) and requalified through the
-M009–M013 corrective chain. The supported native
+control API. The supported native
 contract is the Rust constructors in `eggchaos-core`: fault IDs are bounded,
 probabilities are finite and within `0..=1`, slice variation is smaller than
 average size, and required capacities/rates are non-zero.
@@ -42,7 +41,7 @@ Each `[[proxy]]` may set `connect_timeout_ms` (default `5000`, range
 `1..=300000`) and `seed` (default `0`). `max_connections` remains optional;
 the service-wide connection limit bounds active sockets. Latency faults may set `max_buffer_bytes` from
 1 through 67108864. Invalid or out-of-range values fail with a field-specific
-configuration error. Omitting these keys preserves the pre-M017 defaults.
+configuration error. Omitting these keys keeps the defaults in the tables above.
 
 Native HTTP fault duration attributes use integer nanoseconds. TOML retains
 duration strings (`ms`, `us`, or `s`) because configuration files are the

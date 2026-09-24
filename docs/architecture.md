@@ -28,7 +28,7 @@ RST.
 The initial contracts were recorded in [ADR 001](../plans/adrs/001-stream-fault-engine-boundary.md)
 and [ADR 002](../plans/adrs/002-determinism-and-live-mutation.md).
 
-## Fault semantics (M009 corrective baseline)
+## Fault semantics
 
 `poll_write` may report a write accepted as soon as the direction engine owns
 the bytes inside its bounded queue; physical delivery is not required first.

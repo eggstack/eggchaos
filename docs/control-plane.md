@@ -73,14 +73,10 @@ JSON routes emit one machine-readable document with `--json` and exit nonzero
 on failure. Metrics are Prometheus text in human mode and are wrapped as
 `{"body":"..."}` with `--json`.
 
-Pre-release migration: older unpublished native fault bodies used Rust enum
-tags such as `{"Latency":...}` and Rust `Duration` objects, and proxy create
-used `connect_timeout`. Replace those with `kind.type` kebab spellings,
-integer nanosecond attributes, and `connect_timeout_ms`. Proxy create requests
-no longer accept runtime `upstream_faults`/`downstream_faults`; add faults via
-the fault routes. Proxy views expose fault arrays whose entries use the new
-schema. TOML keeps human duration strings and accepts legacy type aliases at
-the config parser edge.
+Proxy create requests accept `connect_timeout_ms` and `seed`; add faults via
+the fault routes rather than embedding them in proxy create. Proxy views
+expose fault arrays whose entries use the same kind schema. TOML keeps human
+duration strings and accepts legacy type aliases at the config parser edge.
 
 Fault IDs are opaque UTF-8 path components up to the core identity limit. The
 CLI percent-encodes them; the native router splits the raw path first and

@@ -15,7 +15,10 @@ rust-version = "1.89"
 license = "MIT"
 repository = "https://github.com/eggstack/eggchaos"
 homepage = "https://github.com/eggstack/eggchaos"
+documentation = "https://github.com/eggstack/eggchaos"
 readme = "README.md"
+keywords = ["chaos", "proxy", "fault-injection", "testing", "toxiproxy"]
+categories = ["network-programming", "development-tools"]
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
