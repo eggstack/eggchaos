@@ -77,3 +77,16 @@ never applies TCP-specific behavior; the runtime edge maps the signal to
 shutdown or reset. A generation transition drains old-generation preserving
 bytes before swapping engines; byte-limit and RNG state restart per
 generation while a due termination survives the swap.
+
+## Datagram runtime
+
+The native UDP runtime is a fixed-target sibling to the TCP proxy. Each client
+socket address owns one connected upstream UDP socket and independent
+upstream/downstream datagram fault engines, so multiple and unsolicited target
+responses return to the correct client. Association counts, queues, ingress
+buffering, and history are bounded. Oversized datagrams are classified after
+receiving into a full-size UDP buffer; no truncated prefix is forwarded. Idle
+expiry waits until both impairment queues and pre-engine ingress are empty.
+Administrative listener shutdown or association removal cancels queued work
+and records it separately from configured loss and queue overflow. UDP
+associations are opaque datagrams and do not add QUIC or IP-layer semantics.

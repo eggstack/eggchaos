@@ -1,8 +1,8 @@
 # Eggchaos architecture overview
 
 Bird's-eye view of the eggchaos workspace: a Rust-native, fixed-target chaos
-proxy and embeddable bounded byte-stream fault engine. This document is the
-index for systematic review. Each section below summarizes one discrete
+proxy and embeddable bounded byte-stream and datagram fault engines. This
+document is the index for systematic review. Each section below summarizes one discrete
 module/component and links to its deep dive in this directory.
 
 Pre-release `0.1.0`. Canonical planning surface is `plans/` (see `AGENTS.md`);
@@ -21,7 +21,7 @@ eggchaos-eggfetch ------------^        +-> Tokio byte streams
 | Crate | Path | Role |
 | --- | --- | --- |
 | `eggchaos-core` | `crates/eggchaos-core/` | Protocol-neutral deterministic fault engine: typed plans, `DirectionEngine` state machines, `ChaosStream<T>` / `BidirectionalChaosStream`, `LivePolicy`, SplitMix64-v1 identity-scoped RNG. No HTTP, listeners, CLI, Toxiproxy, or Eggfetch knowledge. |
-| `eggchaos-server` | `crates/eggchaos-server/` | Fixed-target TCP runtime, bounded connection registry, native control authority (`ControlState`), native admin HTTP (`admin.rs`), schema-v1 TOML config (`config.rs`), deterministic scenario driver (`scenario.rs`). Uses `eggress-relay` for bidirectional copy / half-close; never forks its semantics. |
+| `eggchaos-server` | `crates/eggchaos-server/` | Fixed-target TCP and UDP runtimes, bounded connection/association registries, native control authority (`ControlState`), native admin HTTP (`admin.rs`), schema-v1 TOML config (`config.rs`), deterministic scenario driver (`scenario.rs`). Uses `eggress-relay` for bidirectional copy / half-close; never forks its semantics. |
 | `eggchaos-cli` | `crates/eggchaos-cli/` | `eggchaos` binary: `serve`, `proxy`, `fault`, `connection`, `version`, `reset`. Thin JSON client over the native admin API via `eggfetch-core`; `serve` boots `ServiceBuilder` + `NativeAdmin` from TOML. Machine-readable JSON is a first-class contract. |
 | `eggchaos-toxiproxy` | `crates/eggchaos-toxiproxy/` | Toxiproxy v2.12 compatibility adapter. Holds no state; every view derives from `ControlState` snapshots and every mutation goes through native control authority. Oracle-exact routes, status codes, and error envelopes; divergences classified in `plans/reference/toxiproxy-parity.md`. |
 | `eggchaos-eggfetch` | `crates/eggchaos-eggfetch/` | In-process `eggfetch-core::Dialer` adapter (`ChaosDialer`). Owns only raw direct TCP dial + physical-stream fault policy; Eggfetch remains authority for HTTP framing, pooling, TLS, SNI, cert verification. |
@@ -94,9 +94,9 @@ overview first, then go component by component.
    `engine.rs`, `stream.rs`, `policy.rs`, `rng.rs`, and `datagram.rs`; stream
    write/flush contract plus the sibling bounded datagram scheduler and its
    six fault semantics.
-2. [Fixed-target server runtime](server-runtime.md) — `eggchaos-server/runtime.rs`:
-   listeners, `eggress-relay` embedding, connection registry, admission limits,
-   reset semantics, metrics tables, `ControlState` authority.
+2. [Fixed-target server runtime](server-runtime.md) — `eggchaos-server/runtime/`: TCP listeners and `eggress-relay` embedding, the
+   connection registry and `ControlState`, plus an independent bounded UDP
+   `DatagramRuntime` with per-client connected upstream associations.
 3. [Control plane, config, and CLI](control-plane-cli.md) — `admin.rs`,
    `config.rs`, `eggchaos-cli/src/main.rs`: native `/v1` API, schema-v1 TOML,
    CLI command matrix, auth/loopback policy, JSON contract.

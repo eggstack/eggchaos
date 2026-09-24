@@ -23,11 +23,12 @@ pub use native::{
 };
 pub use runtime::{
     AdmissionLimits, ClosedConnection, ConnectionEvidence, ConnectionOutcome, ConnectionSnapshot,
-    ConnectionState, ControlError, ControlState, DirectionBytes, EggchaosError, EggchaosService,
-    ExpectedPublish, FaultPatch, FaultUpsert, MetricTables, MetricsCounters, PerProxyMetrics,
-    ProxyPatch, ProxySpec, ProxyView, ResetReport, ResetResult, ResettableTcpStream, RuntimeParams,
-    ServiceBuilder, ServiceHandle, TcpResetHandle, MAX_METRIC_ACTIVATIONS, MAX_METRIC_PROXIES,
-    OUTCOME_CLASS_NAMES, VERSION,
+    ConnectionState, ControlError, ControlState, DatagramAssociationSnapshot, DatagramProxySpec,
+    DatagramProxyView, DatagramRuntime, DatagramRuntimeError, DatagramRuntimeLimits,
+    DirectionBytes, EggchaosError, EggchaosService, ExpectedPublish, FaultPatch, FaultUpsert,
+    MetricTables, MetricsCounters, PerProxyMetrics, ProxyPatch, ProxySpec, ProxyView, ResetReport,
+    ResetResult, ResettableTcpStream, RuntimeParams, ServiceBuilder, ServiceHandle, TcpResetHandle,
+    MAX_METRIC_ACTIVATIONS, MAX_METRIC_PROXIES, OUTCOME_CLASS_NAMES, VERSION,
 };
 pub use scenario::{
     drive_scenario_run, validate_scenario, Scenario, ScenarioAction, ScenarioEvent,

@@ -110,6 +110,9 @@ impl DatagramPlan {
         let mut ids = HashSet::new();
         let mut maximum_candidates = 1u64;
         for f in &self.faults {
+            if f.id.as_str().is_empty() || f.id.as_str().len() > 128 {
+                return Err("fault id must be 1..=128 bytes");
+            }
             if Probability::new(f.probability.get()).is_err() {
                 return Err("probability must be finite and within 0..=1");
             }
@@ -597,6 +600,16 @@ mod tests {
             ),
         ]);
         assert!(too_many.is_err());
+    }
+
+    #[test]
+    fn deserialized_fault_ids_are_revalidated_before_policy_publication() {
+        let plan: DatagramPlan = serde_json::from_str(
+            r#"{"faults":[{"id":"","probability":1.0,"kind":{"type":"loss"}}]}"#,
+        )
+        .unwrap();
+        assert!(plan.validate().is_err());
+        assert!(DatagramLivePolicy::new(plan, 0).is_err());
     }
 
     #[tokio::test(start_paused = true)]

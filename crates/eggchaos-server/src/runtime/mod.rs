@@ -27,11 +27,16 @@ use tokio_util::sync::CancellationToken;
 
 mod connection;
 mod control;
+mod datagram;
 mod metrics;
 mod model;
 mod supervisor;
 mod transport;
 use connection::*;
+pub use datagram::{
+    DatagramAssociationSnapshot, DatagramProxySpec, DatagramProxyView, DatagramRuntime,
+    DatagramRuntimeError, DatagramRuntimeLimits,
+};
 pub use metrics::{
     MetricTables, MetricsCounters, PerProxyMetrics, MAX_METRIC_ACTIVATIONS, MAX_METRIC_PROXIES,
     OUTCOME_CLASS_NAMES,

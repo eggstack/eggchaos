@@ -40,7 +40,7 @@ one `RuntimeInner` and one `ControlState` store.
 Dependencies (`crates/eggchaos-server/Cargo.toml:11–29`, workspace `Cargo.toml`):
 `eggchaos-core` (path), `eggress-relay` 1.0.7 (`egress-relay` crate name),
 `eggserve-server` + `eggserve-primitives` 0.2.0 (admin substrate only),
-`tokio` 1 + `tokio-util` 0.7, `socket2` (stable-API abortive close),
+`tokio` 1 + `tokio-util` 0.7 + `bytes`, `socket2` (stable-API abortive close),
 `serde`/`serde_json`, `tracing`, `thiserror`, `toml`. `#![deny(unsafe_code)]`
 (`lib.rs:3`). No `eggress-outbound` dependency (optional/future only).
 
@@ -440,3 +440,25 @@ replaced by inspection.
   determinism boundaries.
 - `plans/reference/verification-matrix.md`,
   `plans/reference/toxiproxy-parity.md` — verification + parity contracts.
+
+## Fixed-target UDP runtime (M021)
+
+`runtime/datagram.rs` is an independent Tokio UDP owner alongside the TCP
+`ControlState`; it does not branch the stream registry or relay. A
+`DatagramRuntime` binds before publishing a proxy and maps each client socket
+address to one bounded association with its own connected upstream socket,
+upstream/downstream `DatagramDirectionEngine`s, cancellation token, and
+evidence record. This preserves reply ownership across multiple responses and
+unsolicited target pushes. Listener disable/delete/shutdown joins the listener
+and association tasks; explicit administrative cancellation records queued
+datagram discards. Idle expiry checks both direction queues and pre-engine
+ingress, so a delayed item keeps its association alive.
+
+The UDP listener reads into a 65,536-byte buffer before applying the configured
+logical datagram bound, making oversized input an observable drop instead of
+an accepted truncated prefix. Association counts, ingress channel slots,
+globally reserved ingress bytes, per-direction scheduler queues, and completed
+history are bounded. IPv4 and IPv6 upstream sockets bind to the matching
+unspecified family. M021 reuses no Eggress production dependency: the audited
+published `eggress-udp` surface is routing/SOCKS-oriented and does not expose
+the required generic fixed-target association owner.
