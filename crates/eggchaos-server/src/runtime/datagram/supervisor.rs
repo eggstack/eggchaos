@@ -53,23 +53,8 @@ async fn listener_loop(socket: Arc<UdpSocket>, state: Arc<ProxyState>, cancel: C
             _ = reaper.tick() => reap_idle(&state).await,
         }
     }
-    let slots: Vec<_> = state
-        .associations
-        .lock()
-        .await
-        .drain()
-        .map(|(_, slot)| slot)
-        .collect();
-    for slot in slots {
-        match slot {
-            AssociationSlot::Active(association) => {
-                stop_association(&state, association, true).await;
-            }
-            AssociationSlot::Starting { notify } => {
-                state.global_active.fetch_sub(1, Ordering::AcqRel);
-                notify.notify_waiters();
-            }
-        }
+    for association in super::association::drain_associations(&state, false).await {
+        stop_association(&state, association, true).await;
     }
 }
 

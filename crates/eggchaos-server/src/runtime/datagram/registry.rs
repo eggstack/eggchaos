@@ -16,8 +16,10 @@ use eggchaos_core::{DatagramPlan, Direction};
 use tokio::{net::UdpSocket, sync::Mutex as AsyncMutex, task::JoinHandle, time::Instant};
 use tokio_util::sync::CancellationToken;
 
+#[cfg(test)]
+use super::association::SetupHook;
 use super::{
-    association::{stop_association, AssociationSlot, IngressReservation},
+    association::{drain_associations, stop_association, AssociationSlot, IngressReservation},
     model::{
         DatagramAssociationSnapshot, DatagramProxySpec, DatagramProxyView, DatagramRuntimeError,
         DatagramRuntimeLimits, ProxyCounters,
@@ -30,6 +32,7 @@ pub(crate) struct RuntimeInner {
     proxies: AsyncMutex<HashMap<String, ManagedProxy>>,
     active_associations: Arc<AtomicUsize>,
     next_association: Arc<AtomicU64>,
+    next_reservation: Arc<AtomicU64>,
     ingress_buffered_bytes: Arc<AtomicUsize>,
     history: Arc<Mutex<VecDeque<DatagramAssociationSnapshot>>>,
 }
@@ -50,11 +53,15 @@ pub(crate) struct ProxyState {
     pub(crate) policy_mutation: AsyncMutex<()>,
     pub(crate) associations: AsyncMutex<HashMap<SocketAddr, AssociationSlot>>,
     pub(crate) global_active: Arc<AtomicUsize>,
+    pub(crate) proxy_active: Arc<AtomicUsize>,
     pub(crate) next_id: Arc<AtomicU64>,
+    pub(crate) next_reservation: Arc<AtomicU64>,
     pub(crate) ingress_buffered_bytes: Arc<AtomicUsize>,
     pub(crate) counters: Arc<ProxyCounters>,
     pub(crate) limits: DatagramRuntimeLimits,
     pub(crate) history: Arc<Mutex<VecDeque<DatagramAssociationSnapshot>>>,
+    #[cfg(test)]
+    pub(crate) setup_hook: Mutex<Option<Arc<SetupHook>>>,
 }
 /// Independent fixed-target UDP listener and association runtime.
 #[derive(Clone)]
@@ -72,10 +79,34 @@ impl DatagramRuntime {
                 proxies: AsyncMutex::new(HashMap::new()),
                 active_associations: Arc::new(AtomicUsize::new(0)),
                 next_association: Arc::new(AtomicU64::new(1)),
+                next_reservation: Arc::new(AtomicU64::new(1)),
                 ingress_buffered_bytes: Arc::new(AtomicUsize::new(0)),
                 history: Arc::new(Mutex::new(VecDeque::new())),
             }),
         })
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn state_for_test(&self, name: &str) -> Option<Arc<ProxyState>> {
+        self.inner
+            .proxies
+            .lock()
+            .await
+            .get(name)
+            .map(|managed| managed.state.clone())
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn install_setup_hook(&self, name: &str, hook: SetupHook) {
+        let proxies = self.inner.proxies.lock().await;
+        proxies
+            .get(name)
+            .expect("datagram proxy")
+            .state
+            .setup_hook
+            .lock()
+            .expect("setup hook")
+            .replace(Arc::new(hook));
     }
 
     /// Bind and start one fixed-target proxy before reporting success.
@@ -106,11 +137,15 @@ impl DatagramRuntime {
             policy_mutation: AsyncMutex::new(()),
             associations: AsyncMutex::new(HashMap::new()),
             global_active: self.inner.active_associations.clone(),
+            proxy_active: Arc::new(AtomicUsize::new(0)),
             next_id: self.inner.next_association.clone(),
+            next_reservation: self.inner.next_reservation.clone(),
             ingress_buffered_bytes: self.inner.ingress_buffered_bytes.clone(),
             counters: Arc::new(ProxyCounters::default()),
             limits: self.inner.limits,
             history: self.inner.history.clone(),
+            #[cfg(test)]
+            setup_hook: Mutex::new(None),
         });
         let owner = spawn_listener(socket, state.clone());
         let mut proxies = self.inner.proxies.lock().await;
@@ -138,16 +173,19 @@ impl DatagramRuntime {
 
     /// Stop a listener and its associations while retaining the definition.
     pub async fn disable_proxy(&self, name: &str) -> Result<(), DatagramRuntimeError> {
-        let owner = {
+        let (owner, state) = {
             let mut proxies = self.inner.proxies.lock().await;
             let managed = proxies
                 .get_mut(name)
                 .ok_or_else(|| DatagramRuntimeError::NotFound(name.into()))?;
-            managed.listener.take()
+            (managed.listener.take(), managed.state.clone())
         };
         if let Some(owner) = owner {
             owner.cancel.cancel();
             let _ = owner.task.await;
+        }
+        for association in drain_associations(&state, false).await {
+            stop_association(&state, association, true).await;
         }
         Ok(())
     }
@@ -211,6 +249,9 @@ impl DatagramRuntime {
         if let Some(owner) = managed.listener.take() {
             owner.cancel.cancel();
             let _ = owner.task.await;
+        }
+        for association in drain_associations(&managed.state, false).await {
+            stop_association(&managed.state, association, true).await;
         }
         Ok(true)
     }
@@ -287,7 +328,7 @@ impl DatagramRuntime {
             next.association_idle_timeout = timeout;
         }
         next.validate(self.inner.limits.max_associations)?;
-        if state.associations.lock().await.len() > next.max_associations {
+        if state.proxy_active.load(Ordering::Acquire) > next.max_associations {
             return Err(DatagramRuntimeError::Invalid(
                 "max_associations cannot be lower than the current active count".into(),
             ));
@@ -310,6 +351,11 @@ impl DatagramRuntime {
             None
         };
         let must_stop_old = running && (!desired_running || listen_changed);
+        if must_stop_old && state.proxy_active.load(Ordering::Acquire) > next.max_associations {
+            return Err(DatagramRuntimeError::Invalid(
+                "max_associations cannot be lower than the current active count".into(),
+            ));
+        }
         let old_owner = if must_stop_old {
             let mut proxies = self.inner.proxies.lock().await;
             proxies
@@ -322,28 +368,25 @@ impl DatagramRuntime {
             owner.cancel.cancel();
             let _ = owner.task.await;
         }
-        if upstream_changed && !must_stop_old {
-            let stale = {
-                let mut associations = state.associations.lock().await;
-                *state.spec.write().expect("datagram proxy spec") = next;
-                associations
-                    .drain()
-                    .map(|(_, slot)| slot)
-                    .collect::<Vec<_>>()
-            };
-            for slot in stale {
-                match slot {
-                    AssociationSlot::Active(association) => {
-                        stop_association(&state, association, true).await;
-                    }
-                    AssociationSlot::Starting { notify } => {
-                        state.global_active.fetch_sub(1, Ordering::AcqRel);
-                        notify.notify_waiters();
-                    }
+        if !must_stop_old {
+            let associations = state.associations.lock().await;
+            if state.proxy_active.load(Ordering::Acquire) > next.max_associations {
+                return Err(DatagramRuntimeError::Invalid(
+                    "max_associations cannot be lower than the current active count".into(),
+                ));
+            }
+            *state.spec.write().expect("datagram proxy spec") = next;
+            drop(associations);
+            if upstream_changed {
+                for association in drain_associations(&state, running).await {
+                    stop_association(&state, association, true).await;
                 }
             }
         } else {
             *state.spec.write().expect("datagram proxy spec") = next;
+            for association in drain_associations(&state, false).await {
+                stop_association(&state, association, true).await;
+            }
         }
         if let Some(socket) = prebound {
             let owner = spawn_listener(socket, state.clone());

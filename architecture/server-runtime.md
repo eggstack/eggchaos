@@ -441,7 +441,7 @@ replaced by inspection.
 - `plans/reference/verification-matrix.md`,
   `plans/reference/toxiproxy-parity.md` — verification + parity contracts.
 
-## Fixed-target UDP runtime (M021, M024 maintenance)
+## Fixed-target UDP runtime (M021, M024, M025)
 
 `runtime/datagram/` (`mod.rs` composition/re-exports; `model.rs` validated
 configuration, views, and evidence; `registry.rs` the single
@@ -468,13 +468,26 @@ published `eggress-udp` surface is routing/SOCKS-oriented and does not expose
 the required generic fixed-target association owner.
 
 M024 setup no longer holds the association registry lock across UDP
-bind/connect. Each client address maps to an `AssociationSlot` that is either
-`Starting` (capacity reserved, setup running lock-free, waiters yield until
-publication or abandonment) or `Active`. Exactly one racing creator owns
-setup; waiters observe the published association or take over creation after
-abandonment. Publication is atomic under the registry lock, so an
-administrative drain that removes a `Starting` slot tears down the unpublished
-worker before any task, socket, or capacity count can leak, and idle reaping
+bind/connect. M025 makes the setup state machine explicit: each client
+address is `Absent`, `Starting(reservation)`, or `Active(association)`, and a
+reservation carries a monotonic identity, a retained/versioned Tokio `watch`
+transition, and an idempotent global/per-proxy capacity lease. Exactly one
+racing creator owns setup; bind/connect runs without the registry lock. A
+waiter subscribes to the reservation's watch receiver while still holding
+that lock, then awaits a terminal `Published` or `Abandoned` state with
+`wait_for`. Publication, setup failure, and administrative drain change the
+slot and publish the terminal state under the same lock. If a transition wins
+before subscription, the map is no longer `Starting`; if it wins after
+subscription, the retained watch state makes `wait_for` return immediately or
+wakes the receiver. This is the no-lost-wakeup ordering, with no polling or
+retry bound.
+
+Retryable abandonment wakes same-client waiters so one can reserve the absent
+slot with a new identity; terminal drains wake them to a conflict. A stale
+setup owner can publish or release only its own reservation, never a newer
+slot, and each capacity lease is released exactly once on failure, drain,
+abandonment, or active teardown. The registry lock is not held across worker
+joins either, and unpublished workers are cancellation-safe. Idle reaping
 removes a slot only if it still holds the same expired association.
 
 The association worker forwards `Immediate` admissions without entering the

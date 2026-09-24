@@ -5,7 +5,7 @@
 use std::{
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
     sync::{
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
         Arc, Mutex,
     },
 };
@@ -16,7 +16,7 @@ use eggchaos_core::{
 };
 use tokio::{
     net::UdpSocket,
-    sync::{mpsc, Mutex as AsyncMutex, Notify},
+    sync::{mpsc, watch, Mutex as AsyncMutex},
     task::JoinHandle,
     time::Instant,
 };
@@ -28,6 +28,259 @@ use super::{
     UDP_RECEIVE_BUFFER_BYTES,
 };
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SetupOutcome {
+    Starting,
+    Published,
+    Abandoned { retryable: bool },
+}
+
+impl SetupOutcome {
+    fn terminal(self) -> bool {
+        matches!(
+            self,
+            SetupOutcome::Published | SetupOutcome::Abandoned { .. }
+        )
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct SetupTransition {
+    reservation_id: u64,
+    version: u64,
+    outcome: SetupOutcome,
+}
+
+pub(crate) struct StartingReservation {
+    id: u64,
+    events: watch::Sender<SetupTransition>,
+    version: AtomicU64,
+    terminal: AtomicBool,
+    capacity: Arc<CapacityLease>,
+    #[cfg(test)]
+    waiters: watch::Sender<usize>,
+}
+
+impl StartingReservation {
+    fn new(id: u64, capacity: Arc<CapacityLease>) -> Arc<Self> {
+        let (events, _) = watch::channel(SetupTransition {
+            reservation_id: id,
+            version: 0,
+            outcome: SetupOutcome::Starting,
+        });
+        Arc::new(Self {
+            id,
+            events,
+            version: AtomicU64::new(1),
+            terminal: AtomicBool::new(false),
+            capacity,
+            #[cfg(test)]
+            waiters: watch::Sender::new(0),
+        })
+    }
+
+    pub(crate) fn id(&self) -> u64 {
+        self.id
+    }
+
+    fn subscribe(&self) -> watch::Receiver<SetupTransition> {
+        #[cfg(test)]
+        {
+            let count = self.waiters.borrow().saturating_add(1);
+            self.waiters.send_replace(count);
+        }
+        self.events.subscribe()
+    }
+
+    fn transition(&self, outcome: SetupOutcome) {
+        if self.terminal.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let version = self.version.fetch_add(1, Ordering::Relaxed);
+        self.events.send_replace(SetupTransition {
+            reservation_id: self.id,
+            version,
+            outcome,
+        });
+    }
+
+    fn is_terminal(&self) -> bool {
+        self.terminal.load(Ordering::Acquire)
+    }
+
+    fn capacity(&self) -> &Arc<CapacityLease> {
+        &self.capacity
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn wait_for_waiters(&self, count: usize) {
+        let mut receiver = self.waiters.subscribe();
+        receiver
+            .wait_for(|value| *value >= count)
+            .await
+            .expect("starting reservation waiter channel");
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn wait_for_terminal(&self) {
+        let mut receiver = self.events.subscribe();
+        receiver
+            .wait_for(|transition| transition.version > 0 && transition.outcome.terminal())
+            .await
+            .expect("starting reservation transition channel");
+    }
+}
+
+pub(crate) struct CapacityLease {
+    global: Arc<AtomicUsize>,
+    proxy: Arc<AtomicUsize>,
+    released: AtomicBool,
+}
+
+impl CapacityLease {
+    fn try_acquire(state: &ProxyState, proxy_limit: usize) -> Option<Arc<Self>> {
+        state
+            .proxy_active
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+                current.checked_add(1).filter(|next| *next <= proxy_limit)
+            })
+            .ok()?;
+        if state
+            .global_active
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+                current
+                    .checked_add(1)
+                    .filter(|next| *next <= state.limits.max_associations)
+            })
+            .is_err()
+        {
+            state.proxy_active.fetch_sub(1, Ordering::AcqRel);
+            return None;
+        }
+        Some(Arc::new(Self {
+            global: state.global_active.clone(),
+            proxy: state.proxy_active.clone(),
+            released: AtomicBool::new(false),
+        }))
+    }
+
+    fn release(&self) {
+        if !self.released.swap(true, Ordering::AcqRel) {
+            self.global.fetch_sub(1, Ordering::AcqRel);
+            self.proxy.fetch_sub(1, Ordering::AcqRel);
+        }
+    }
+}
+
+impl Drop for CapacityLease {
+    fn drop(&mut self) {
+        self.release();
+    }
+}
+
+#[cfg(test)]
+#[derive(Clone)]
+pub(crate) struct SetupTestGate {
+    enabled: Arc<AtomicBool>,
+    entered: watch::Sender<bool>,
+    release: watch::Sender<bool>,
+}
+
+#[cfg(test)]
+impl SetupTestGate {
+    fn new() -> Self {
+        let (entered, _) = watch::channel(false);
+        let (release, _) = watch::channel(false);
+        Self {
+            enabled: Arc::new(AtomicBool::new(false)),
+            entered,
+            release,
+        }
+    }
+
+    pub(crate) fn hold(&self) {
+        self.enabled.store(true, Ordering::Release);
+    }
+
+    pub(crate) async fn wait_entered(&self) {
+        if !self.enabled.load(Ordering::Acquire) {
+            return;
+        }
+        let mut receiver = self.entered.subscribe();
+        receiver
+            .wait_for(|entered| *entered)
+            .await
+            .expect("setup gate entry channel");
+    }
+
+    pub(crate) fn release(&self) {
+        self.release.send_replace(true);
+    }
+
+    async fn pause(&self) {
+        if !self.enabled.load(Ordering::Acquire) {
+            return;
+        }
+        self.entered.send_replace(true);
+        let mut receiver = self.release.subscribe();
+        receiver
+            .wait_for(|released| *released)
+            .await
+            .expect("setup gate release channel");
+    }
+}
+
+#[cfg(test)]
+#[derive(Clone)]
+pub(crate) struct SetupHook {
+    before_bind: SetupTestGate,
+    before_publish: SetupTestGate,
+    fail_next: Arc<AtomicBool>,
+}
+
+#[cfg(test)]
+impl SetupHook {
+    pub(crate) fn new() -> Self {
+        Self {
+            before_bind: SetupTestGate::new(),
+            before_publish: SetupTestGate::new(),
+            fail_next: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    pub(crate) fn hold_before_bind(&self) {
+        self.before_bind.hold();
+    }
+
+    pub(crate) async fn wait_before_bind(&self) {
+        self.before_bind.wait_entered().await;
+    }
+
+    pub(crate) fn release_before_bind(&self) {
+        self.before_bind.release();
+    }
+
+    pub(crate) fn hold_before_publish(&self) {
+        self.before_publish.hold();
+    }
+
+    pub(crate) async fn wait_before_publish(&self) {
+        self.before_publish.wait_entered().await;
+    }
+
+    pub(crate) fn release_before_publish(&self) {
+        self.before_publish.release();
+    }
+
+    pub(crate) fn fail_next(&self) {
+        self.fail_next.store(true, Ordering::Release);
+    }
+
+    fn take_failure(&self) -> bool {
+        self.fail_next.swap(false, Ordering::AcqRel)
+    }
+}
+
 /// Registry entry for one client address. `Starting` reserves global and
 /// per-proxy capacity while UDP bind/connect runs without holding the
 /// registry lock; exactly one of the racing creators owns setup and every
@@ -35,7 +288,9 @@ use super::{
 /// association or takes over creation if setup was abandoned.
 #[derive(Clone)]
 pub(crate) enum AssociationSlot {
-    Starting { notify: Arc<Notify> },
+    Starting {
+        reservation: Arc<StartingReservation>,
+    },
     Active(Arc<Association>),
 }
 
@@ -47,6 +302,34 @@ impl AssociationSlot {
         }
     }
 }
+
+pub(crate) struct WorkerHandle {
+    handle: Option<JoinHandle<()>>,
+}
+
+impl WorkerHandle {
+    fn new(handle: JoinHandle<()>) -> Self {
+        Self {
+            handle: Some(handle),
+        }
+    }
+
+    async fn join(&mut self) {
+        if let Some(handle) = self.handle.as_mut() {
+            let _ = handle.await;
+        }
+        self.handle = None;
+    }
+}
+
+impl Drop for WorkerHandle {
+    fn drop(&mut self) {
+        if let Some(handle) = self.handle.take() {
+            handle.abort();
+        }
+    }
+}
+
 pub(crate) struct Association {
     pub(crate) id: u64,
     pub(crate) client: SocketAddr,
@@ -54,7 +337,8 @@ pub(crate) struct Association {
     pub(crate) pending_ingress: AtomicUsize,
     pub(crate) administrative_cancel: AtomicUsize,
     pub(crate) cancel: CancellationToken,
-    pub(crate) worker: AsyncMutex<Option<JoinHandle<()>>>,
+    pub(crate) worker: AsyncMutex<Option<WorkerHandle>>,
+    pub(crate) capacity: Arc<CapacityLease>,
     pub(crate) record: Arc<Mutex<AssociationRecord>>,
 }
 
@@ -81,72 +365,167 @@ struct AssociationSendContext<'a> {
     record: &'a Arc<Mutex<AssociationRecord>>,
     cancel: &'a CancellationToken,
 }
-/// Resolve the live association for one client datagram. Concurrent first
-/// datagrams for the same client converge on one setup: exactly one caller
-/// reserves the slot and runs UDP bind/connect without holding the registry
-/// lock, while the others yield until the slot publishes or is abandoned
-/// (in which case a waiter takes over creation). Capacity accounting is
-/// exact: reservations hold one global count and one per-proxy slot from
-/// reservation until publication, setup failure, or administrative drain.
+fn same_reservation_slot(
+    slot: Option<&AssociationSlot>,
+    expected: &Arc<StartingReservation>,
+) -> bool {
+    matches!(
+        slot,
+        Some(AssociationSlot::Starting { reservation: current })
+            if current.id() == expected.id() && Arc::ptr_eq(current, expected)
+    )
+}
+
+struct SetupOwnerGuard {
+    state: Arc<ProxyState>,
+    client: SocketAddr,
+    reservation: Arc<StartingReservation>,
+    armed: bool,
+}
+
+impl SetupOwnerGuard {
+    fn new(
+        state: Arc<ProxyState>,
+        client: SocketAddr,
+        reservation: Arc<StartingReservation>,
+    ) -> Self {
+        Self {
+            state,
+            client,
+            reservation,
+            armed: true,
+        }
+    }
+
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for SetupOwnerGuard {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        if let Ok(mut associations) = self.state.associations.try_lock() {
+            if same_reservation_slot(associations.get(&self.client), &self.reservation) {
+                associations.remove(&self.client);
+            }
+            self.reservation
+                .transition(SetupOutcome::Abandoned { retryable: true });
+            self.reservation.capacity().release();
+            return;
+        }
+        self.reservation
+            .transition(SetupOutcome::Abandoned { retryable: true });
+        self.reservation.capacity().release();
+    }
+}
+
+enum ResolveStep {
+    Setup {
+        spec: DatagramProxySpec,
+        reservation: Arc<StartingReservation>,
+    },
+    Wait {
+        reservation_id: u64,
+        version: u64,
+        receiver: watch::Receiver<SetupTransition>,
+    },
+    Retry,
+}
+
 pub(crate) async fn resolve_association(
     socket: Arc<UdpSocket>,
     state: &Arc<ProxyState>,
     client: SocketAddr,
 ) -> Result<Arc<Association>, DatagramRuntimeError> {
-    // A stuck setup always resolves because the owner publishes or abandons
-    // its slot synchronously after bind/connect; the bound only guards
-    // against yielding forever under adversarial scheduling.
-    for _ in 0..10_000 {
-        let reservation = {
+    loop {
+        let step = {
             let mut associations = state.associations.lock().await;
             match associations.get(&client) {
                 Some(AssociationSlot::Active(association)) => return Ok(association.clone()),
-                Some(AssociationSlot::Starting { .. }) => None,
+                Some(AssociationSlot::Starting { reservation }) if reservation.is_terminal() => {
+                    if same_reservation_slot(associations.get(&client), reservation) {
+                        associations.remove(&client);
+                    }
+                    ResolveStep::Retry
+                }
+                Some(AssociationSlot::Starting { reservation }) => ResolveStep::Wait {
+                    reservation_id: reservation.id(),
+                    version: 0,
+                    receiver: reservation.subscribe(),
+                },
                 None => {
                     let spec = state.spec.read().expect("datagram proxy spec").clone();
-                    if associations.len() >= spec.max_associations {
-                        return Err(DatagramRuntimeError::AssociationLimit);
-                    }
-                    let prior = state.global_active.fetch_add(1, Ordering::AcqRel);
-                    if prior >= state.limits.max_associations {
-                        state.global_active.fetch_sub(1, Ordering::AcqRel);
-                        return Err(DatagramRuntimeError::AssociationLimit);
-                    }
-                    let notify = Arc::new(Notify::new());
+                    let capacity = CapacityLease::try_acquire(state, spec.max_associations)
+                        .ok_or(DatagramRuntimeError::AssociationLimit)?;
+                    let reservation = StartingReservation::new(
+                        state.next_reservation.fetch_add(1, Ordering::Relaxed),
+                        capacity,
+                    );
                     associations.insert(
                         client,
                         AssociationSlot::Starting {
-                            notify: notify.clone(),
+                            reservation: reservation.clone(),
                         },
                     );
-                    Some((spec, notify))
+                    ResolveStep::Setup { spec, reservation }
                 }
             }
         };
-        match reservation {
-            Some((spec, notify)) => {
-                return publish_association(socket, state, client, spec, notify).await;
+        match step {
+            ResolveStep::Retry => continue,
+            ResolveStep::Wait {
+                reservation_id,
+                version,
+                mut receiver,
+            } => {
+                let outcome = receiver
+                    .wait_for(|transition| {
+                        transition.reservation_id == reservation_id
+                            && transition.version > version
+                            && transition.outcome.terminal()
+                    })
+                    .await
+                    .map(|transition| transition.outcome)
+                    .map_err(|_| {
+                        DatagramRuntimeError::Conflict("association setup waiter closed".into())
+                    })?;
+                if matches!(outcome, SetupOutcome::Abandoned { retryable: false }) {
+                    return Err(DatagramRuntimeError::Conflict(
+                        "association setup drained".into(),
+                    ));
+                }
             }
-            None => tokio::task::yield_now().await,
+            ResolveStep::Setup { spec, reservation } => {
+                return publish_association(socket, state, client, spec, reservation).await;
+            }
         }
     }
-    Err(DatagramRuntimeError::Conflict(
-        "association setup did not resolve".into(),
-    ))
 }
 
-/// Run UDP socket setup without the registry lock, then publish the live
-/// association under the lock. Setup failures and administrative drains that
-/// removed the reservation both release global capacity exactly once and
-/// wake any waiters; a drained-while-setting-up association is torn down
-/// before it can leak a task or an upstream socket.
 async fn publish_association(
     socket: Arc<UdpSocket>,
     state: &Arc<ProxyState>,
     client: SocketAddr,
     spec: DatagramProxySpec,
-    notify: Arc<Notify>,
+    reservation: Arc<StartingReservation>,
 ) -> Result<Arc<Association>, DatagramRuntimeError> {
+    let mut owner_guard = SetupOwnerGuard::new(state.clone(), client, reservation.clone());
+    #[cfg(test)]
+    let setup_hook = state.setup_hook.lock().expect("setup hook").clone();
+    #[cfg(test)]
+    if let Some(hook) = setup_hook.as_ref() {
+        hook.before_bind.pause().await;
+        if hook.take_failure() {
+            abandon_starting(state, client, &reservation, true).await;
+            owner_guard.disarm();
+            return Err(DatagramRuntimeError::Bind(std::io::Error::other(
+                "injected datagram setup failure",
+            )));
+        }
+    }
     let local = match spec.upstream.ip() {
         IpAddr::V4(_) => SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0),
         IpAddr::V6(_) => SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0),
@@ -154,12 +533,14 @@ async fn publish_association(
     let upstream = match UdpSocket::bind(local).await {
         Ok(socket) => socket,
         Err(error) => {
-            abandon_starting(state, client, &notify).await;
+            abandon_starting(state, client, &reservation, true).await;
+            owner_guard.disarm();
             return Err(DatagramRuntimeError::Bind(error));
         }
     };
     if let Err(error) = upstream.connect(spec.upstream).await {
-        abandon_starting(state, client, &notify).await;
+        abandon_starting(state, client, &reservation, true).await;
+        owner_guard.disarm();
         return Err(DatagramRuntimeError::Bind(error));
     }
     let id = state.next_id.fetch_add(1, Ordering::Relaxed);
@@ -192,9 +573,10 @@ async fn publish_association(
         administrative_cancel: AtomicUsize::new(0),
         cancel: cancel.clone(),
         worker: AsyncMutex::new(None),
+        capacity: reservation.capacity().clone(),
         record: record.clone(),
     });
-    let worker = tokio::spawn(association_loop(
+    let worker = WorkerHandle::new(tokio::spawn(association_loop(
         upstream,
         socket,
         spec,
@@ -202,49 +584,78 @@ async fn publish_association(
         association.clone(),
         record,
         state.counters.clone(),
-    ));
+    )));
     *association.worker.lock().await = Some(worker);
-    {
+    #[cfg(test)]
+    let setup_hook = state.setup_hook.lock().expect("setup hook").clone();
+    #[cfg(test)]
+    if let Some(hook) = setup_hook.as_ref() {
+        hook.before_publish.pause().await;
+    }
+    let published = {
         let mut associations = state.associations.lock().await;
-        let ours = matches!(
-            associations.get(&client),
-            Some(AssociationSlot::Starting { notify: current }) if Arc::ptr_eq(current, &notify)
-        );
-        if ours {
+        if same_reservation_slot(associations.get(&client), &reservation) {
             associations.insert(client, AssociationSlot::Active(association.clone()));
-            notify.notify_waiters();
-            return Ok(association);
+            reservation.transition(SetupOutcome::Published);
+            true
+        } else {
+            false
         }
+    };
+    if published {
+        owner_guard.disarm();
+        return Ok(association);
     }
-    // An administrative drain (proxy update/delete, listener stop) removed
-    // our reservation while setup ran. Tear down the unpublished worker so no
-    // task, socket, or capacity count leaks, and report a conflict so the
-    // receive path records a setup failure rather than a capacity rejection.
+    abandon_starting(state, client, &reservation, false).await;
     association.cancel.cancel();
-    if let Some(worker) = association.worker.lock().await.take() {
-        let _ = worker.await;
+    if let Some(mut worker) = association.worker.lock().await.take() {
+        worker.join().await;
     }
-    state.global_active.fetch_sub(1, Ordering::AcqRel);
-    notify.notify_waiters();
+    owner_guard.disarm();
     Err(DatagramRuntimeError::Conflict(
         "association drained during setup".into(),
     ))
 }
 
-/// Release one setup reservation after bind/connect failure: remove the slot
-/// only if it is still ours, release the global count exactly once, and wake
-/// waiters so one of them can take over creation.
-async fn abandon_starting(state: &ProxyState, client: SocketAddr, notify: &Arc<Notify>) {
+async fn abandon_starting(
+    state: &ProxyState,
+    client: SocketAddr,
+    reservation: &Arc<StartingReservation>,
+    retryable: bool,
+) {
     let mut associations = state.associations.lock().await;
-    let ours = matches!(
-        associations.get(&client),
-        Some(AssociationSlot::Starting { notify: current }) if Arc::ptr_eq(current, notify)
-    );
-    if ours {
+    if same_reservation_slot(associations.get(&client), reservation) {
         associations.remove(&client);
-        state.global_active.fetch_sub(1, Ordering::AcqRel);
     }
-    notify.notify_waiters();
+    reservation.transition(SetupOutcome::Abandoned { retryable });
+    reservation.capacity().release();
+}
+
+pub(crate) async fn drain_associations(
+    state: &ProxyState,
+    retryable: bool,
+) -> Vec<Arc<Association>> {
+    let slots = {
+        let mut associations = state.associations.lock().await;
+        let slots = associations
+            .drain()
+            .map(|(_, slot)| slot)
+            .collect::<Vec<_>>();
+        for slot in &slots {
+            if let AssociationSlot::Starting { reservation } = slot {
+                reservation.transition(SetupOutcome::Abandoned { retryable });
+                reservation.capacity().release();
+            }
+        }
+        slots
+    };
+    slots
+        .into_iter()
+        .filter_map(|slot| match slot {
+            AssociationSlot::Active(association) => Some(association),
+            AssociationSlot::Starting { .. } => None,
+        })
+        .collect()
 }
 async fn association_loop(
     upstream_socket: UdpSocket,
@@ -501,10 +912,10 @@ pub(crate) async fn stop_association(
             .store(1, Ordering::Relaxed);
     }
     association.cancel.cancel();
-    if let Some(worker) = association.worker.lock().await.take() {
-        let _ = worker.await;
+    if let Some(mut worker) = association.worker.lock().await.take() {
+        worker.join().await;
     }
-    state.global_active.fetch_sub(1, Ordering::AcqRel);
+    association.capacity.release();
     let snapshot = association
         .record
         .lock()

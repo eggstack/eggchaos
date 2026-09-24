@@ -5,7 +5,7 @@ use std::{
     io,
     net::SocketAddr,
     num::NonZeroU64,
-    sync::{Arc, Mutex},
+    sync::{atomic::Ordering, Arc, Mutex},
     time::Duration,
 };
 
@@ -13,7 +13,13 @@ use eggchaos_core::{DatagramPlan, DatagramQueueLimits};
 use tokio::{net::UdpSocket, time::timeout};
 use tokio_util::sync::CancellationToken;
 
-use super::{DatagramProxySpec, DatagramRuntime, DatagramRuntimeError, DatagramRuntimeLimits};
+use super::{
+    association::{
+        resolve_association, Association, AssociationSlot, SetupHook, StartingReservation,
+    },
+    registry::ProxyState,
+    DatagramProxySpec, DatagramRuntime, DatagramRuntimeError, DatagramRuntimeLimits,
+};
 
 fn limits() -> DatagramQueueLimits {
     DatagramQueueLimits {
@@ -35,6 +41,72 @@ async fn echo_target() -> (SocketAddr, CancellationToken) {
         }
     });
     (addr, cancel)
+}
+
+async fn direct_setup(
+    runtime_limits: DatagramRuntimeLimits,
+    proxy_limit: usize,
+) -> (
+    DatagramRuntime,
+    Arc<ProxyState>,
+    Arc<UdpSocket>,
+    UdpSocket,
+    SocketAddr,
+    SetupHook,
+    CancellationToken,
+) {
+    let (target, stop_target) = echo_target().await;
+    let runtime = DatagramRuntime::new(runtime_limits).unwrap();
+    let mut spec =
+        DatagramProxySpec::new("direct", "127.0.0.1:0".parse().unwrap(), target, limits()).unwrap();
+    spec.max_associations = proxy_limit;
+    runtime.create_proxy(spec).await.unwrap();
+    let state = runtime.state_for_test("direct").await.unwrap();
+    let socket = Arc::new(UdpSocket::bind("127.0.0.1:0").await.unwrap());
+    let client = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let client_addr = client.local_addr().unwrap();
+    let hook = SetupHook::new();
+    runtime.install_setup_hook("direct", hook.clone()).await;
+    (
+        runtime,
+        state,
+        socket,
+        client,
+        client_addr,
+        hook,
+        stop_target,
+    )
+}
+
+async fn starting_reservation(state: &ProxyState, client: SocketAddr) -> Arc<StartingReservation> {
+    state
+        .associations
+        .lock()
+        .await
+        .get(&client)
+        .and_then(|slot| match slot {
+            AssociationSlot::Starting { reservation } => Some(reservation.clone()),
+            AssociationSlot::Active(_) => None,
+        })
+        .expect("starting association reservation")
+}
+
+async fn join_associations(
+    tasks: &mut tokio::task::JoinSet<Result<Arc<Association>, DatagramRuntimeError>>,
+) -> Vec<Arc<Association>> {
+    let mut associations = Vec::new();
+    while let Some(result) = tasks.join_next().await {
+        associations.push(result.unwrap().unwrap());
+    }
+    associations
+}
+
+fn spawn_resolve(
+    socket: Arc<UdpSocket>,
+    state: Arc<ProxyState>,
+    client: SocketAddr,
+) -> tokio::task::JoinHandle<Result<Arc<Association>, DatagramRuntimeError>> {
+    tokio::spawn(async move { resolve_association(socket, &state, client).await })
 }
 
 async fn multi_response_target() -> (SocketAddr, CancellationToken, Arc<Mutex<Vec<SocketAddr>>>) {
@@ -607,5 +679,241 @@ async fn delete_during_setup_storm_leaves_no_leaked_capacity() {
     assert_eq!(runtime.associations().await.len(), 8);
     runtime.shutdown().await;
     assert!(runtime.associations().await.is_empty());
+    stop_target.cancel();
+}
+
+#[tokio::test]
+async fn starting_publication_wakes_all_waiters_with_one_association() {
+    let (runtime, state, socket, _client, client_addr, hook, stop_target) =
+        direct_setup(DatagramRuntimeLimits::default(), 256).await;
+    hook.hold_before_bind();
+    let owner = spawn_resolve(socket.clone(), state.clone(), client_addr);
+    hook.wait_before_bind().await;
+    let reservation = starting_reservation(&state, client_addr).await;
+    let mut waiters = tokio::task::JoinSet::new();
+    for _ in 0..16 {
+        let state = state.clone();
+        let socket = socket.clone();
+        waiters.spawn(async move { resolve_association(socket, &state, client_addr).await });
+    }
+    reservation.wait_for_waiters(16).await;
+    hook.release_before_bind();
+    let owner_association = owner.await.unwrap().unwrap();
+    let waiter_associations = join_associations(&mut waiters).await;
+    assert!(waiter_associations
+        .iter()
+        .all(|association| Arc::ptr_eq(association, &owner_association)));
+    assert_eq!(state.proxy_active.load(Ordering::Acquire), 1);
+    assert_eq!(state.global_active.load(Ordering::Acquire), 1);
+    assert_eq!(runtime.associations().await.len(), 1);
+    runtime.delete_proxy("direct").await.unwrap();
+    assert_eq!(state.proxy_active.load(Ordering::Acquire), 0);
+    assert_eq!(state.global_active.load(Ordering::Acquire), 0);
+    stop_target.cancel();
+}
+
+#[tokio::test]
+async fn starting_failure_wakes_waiters_and_allows_one_takeover() {
+    let (runtime, state, socket, _client, client_addr, hook, stop_target) =
+        direct_setup(DatagramRuntimeLimits::default(), 256).await;
+    hook.hold_before_bind();
+    hook.fail_next();
+    let owner = spawn_resolve(socket.clone(), state.clone(), client_addr);
+    hook.wait_before_bind().await;
+    let reservation = starting_reservation(&state, client_addr).await;
+    let mut waiters = tokio::task::JoinSet::new();
+    for _ in 0..8 {
+        let state = state.clone();
+        let socket = socket.clone();
+        waiters.spawn(async move { resolve_association(socket, &state, client_addr).await });
+    }
+    reservation.wait_for_waiters(8).await;
+    hook.release_before_bind();
+    assert!(matches!(
+        owner.await.unwrap(),
+        Err(DatagramRuntimeError::Bind(_))
+    ));
+    let associations = join_associations(&mut waiters).await;
+    assert_eq!(associations.len(), 8);
+    assert!(associations
+        .iter()
+        .all(|association| Arc::ptr_eq(association, &associations[0])));
+    assert_eq!(runtime.associations().await.len(), 1);
+    assert_eq!(state.proxy_active.load(Ordering::Acquire), 1);
+    runtime.delete_proxy("direct").await.unwrap();
+    assert_eq!(state.global_active.load(Ordering::Acquire), 0);
+    stop_target.cancel();
+}
+
+#[tokio::test]
+async fn starting_transition_is_retained_for_late_wait_registration() {
+    let (runtime, state, socket, _client, client_addr, hook, stop_target) =
+        direct_setup(DatagramRuntimeLimits::default(), 256).await;
+    hook.hold_before_bind();
+    let owner = spawn_resolve(socket.clone(), state.clone(), client_addr);
+    hook.wait_before_bind().await;
+    let reservation = starting_reservation(&state, client_addr).await;
+    assert!(super::association::drain_associations(&state, false)
+        .await
+        .is_empty());
+    assert!(super::association::drain_associations(&state, false)
+        .await
+        .is_empty());
+    reservation.wait_for_terminal().await;
+    assert_eq!(state.proxy_active.load(Ordering::Acquire), 0);
+    hook.release_before_bind();
+    assert!(matches!(
+        owner.await.unwrap(),
+        Err(DatagramRuntimeError::Conflict(_))
+    ));
+    assert_eq!(state.global_active.load(Ordering::Acquire), 0);
+    runtime.delete_proxy("direct").await.unwrap();
+    stop_target.cancel();
+}
+
+#[tokio::test]
+async fn concurrent_clients_reserve_global_and_proxy_capacity_once() {
+    let (runtime, state, socket, _client, client_addr, hook, stop_target) = direct_setup(
+        DatagramRuntimeLimits {
+            max_associations: 1,
+            ..DatagramRuntimeLimits::default()
+        },
+        1,
+    )
+    .await;
+    hook.hold_before_bind();
+    let owner = spawn_resolve(socket.clone(), state.clone(), client_addr);
+    hook.wait_before_bind().await;
+    let other_client = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let other_addr = other_client.local_addr().unwrap();
+    assert!(matches!(
+        resolve_association(socket.clone(), &state, other_addr).await,
+        Err(DatagramRuntimeError::AssociationLimit)
+    ));
+    hook.release_before_bind();
+    owner.await.unwrap().unwrap();
+    assert_eq!(state.proxy_active.load(Ordering::Acquire), 1);
+    assert_eq!(state.global_active.load(Ordering::Acquire), 1);
+    runtime.delete_proxy("direct").await.unwrap();
+    assert_eq!(state.proxy_active.load(Ordering::Acquire), 0);
+    assert_eq!(state.global_active.load(Ordering::Acquire), 0);
+    stop_target.cancel();
+}
+
+#[tokio::test]
+async fn waiter_cancellation_does_not_cancel_setup_owner() {
+    let (runtime, state, socket, _client, client_addr, hook, stop_target) =
+        direct_setup(DatagramRuntimeLimits::default(), 256).await;
+    hook.hold_before_bind();
+    let owner = spawn_resolve(socket.clone(), state.clone(), client_addr);
+    hook.wait_before_bind().await;
+    let reservation = starting_reservation(&state, client_addr).await;
+    let waiter = spawn_resolve(socket.clone(), state.clone(), client_addr);
+    reservation.wait_for_waiters(1).await;
+    waiter.abort();
+    assert!(matches!(waiter.await, Err(error) if error.is_cancelled()));
+    hook.release_before_bind();
+    let association = owner.await.unwrap().unwrap();
+    let active = runtime.associations().await;
+    assert_eq!(active.len(), 1);
+    assert_eq!(association.id, active[0].id);
+    runtime.delete_proxy("direct").await.unwrap();
+    assert_eq!(state.global_active.load(Ordering::Acquire), 0);
+    stop_target.cancel();
+}
+
+#[tokio::test]
+async fn aborted_setup_owner_releases_reservation_and_worker() {
+    let (runtime, state, socket, _client, client_addr, hook, stop_target) =
+        direct_setup(DatagramRuntimeLimits::default(), 256).await;
+    hook.hold_before_publish();
+    let owner = spawn_resolve(socket, state.clone(), client_addr);
+    hook.wait_before_publish().await;
+    owner.abort();
+    assert!(matches!(owner.await, Err(error) if error.is_cancelled()));
+    assert_eq!(state.proxy_active.load(Ordering::Acquire), 0);
+    assert_eq!(state.global_active.load(Ordering::Acquire), 0);
+    assert!(state.associations.lock().await.get(&client_addr).is_none());
+    runtime.delete_proxy("direct").await.unwrap();
+    stop_target.cancel();
+}
+
+#[tokio::test]
+async fn update_drain_releases_reservation_and_stale_owner_cannot_publish() {
+    let (runtime, state, socket, _client, client_addr, hook, stop_target) =
+        direct_setup(DatagramRuntimeLimits::default(), 256).await;
+    let (new_target, stop_new_target) = echo_target().await;
+    hook.hold_before_bind();
+    let owner = spawn_resolve(socket.clone(), state.clone(), client_addr);
+    hook.wait_before_bind().await;
+    let reservation = starting_reservation(&state, client_addr).await;
+    let mut waiters = tokio::task::JoinSet::new();
+    let waiter_state = state.clone();
+    let waiter_socket = socket.clone();
+    waiters
+        .spawn(async move { resolve_association(waiter_socket, &waiter_state, client_addr).await });
+    reservation.wait_for_waiters(1).await;
+    runtime
+        .update_proxy("direct", None, Some(new_target), None, None, None)
+        .await
+        .unwrap();
+    hook.release_before_bind();
+    assert!(matches!(
+        owner.await.unwrap(),
+        Err(DatagramRuntimeError::Conflict(_))
+    ));
+    let associations = join_associations(&mut waiters).await;
+    assert_eq!(associations.len(), 1);
+    assert_eq!(runtime.associations().await[0].upstream, new_target);
+    assert_eq!(state.proxy_active.load(Ordering::Acquire), 1);
+    runtime.delete_proxy("direct").await.unwrap();
+    assert_eq!(state.global_active.load(Ordering::Acquire), 0);
+    stop_target.cancel();
+    stop_new_target.cancel();
+}
+
+#[tokio::test]
+async fn disable_drains_an_unpublished_setup_worker() {
+    let (runtime, state, socket, _client, client_addr, hook, stop_target) =
+        direct_setup(DatagramRuntimeLimits::default(), 256).await;
+    hook.hold_before_publish();
+    let owner = spawn_resolve(socket.clone(), state.clone(), client_addr);
+    hook.wait_before_publish().await;
+    runtime.disable_proxy("direct").await.unwrap();
+    assert_eq!(state.proxy_active.load(Ordering::Acquire), 0);
+    assert_eq!(state.global_active.load(Ordering::Acquire), 0);
+    hook.release_before_publish();
+    assert!(matches!(
+        owner.await.unwrap(),
+        Err(DatagramRuntimeError::Conflict(_))
+    ));
+    assert!(state.associations.lock().await.get(&client_addr).is_none());
+    runtime.enable_proxy("direct").await.unwrap();
+    let association = resolve_association(socket, &state, client_addr)
+        .await
+        .unwrap();
+    assert_eq!(state.proxy_active.load(Ordering::Acquire), 1);
+    assert_eq!(association.id, runtime.associations().await[0].id);
+    runtime.delete_proxy("direct").await.unwrap();
+    assert_eq!(state.global_active.load(Ordering::Acquire), 0);
+    stop_target.cancel();
+}
+
+#[tokio::test]
+async fn delete_drain_releases_capacity_without_double_release() {
+    let (runtime, state, socket, _client, client_addr, hook, stop_target) =
+        direct_setup(DatagramRuntimeLimits::default(), 256).await;
+    hook.hold_before_publish();
+    let owner = spawn_resolve(socket.clone(), state.clone(), client_addr);
+    hook.wait_before_publish().await;
+    assert!(runtime.delete_proxy("direct").await.unwrap());
+    assert_eq!(state.proxy_active.load(Ordering::Acquire), 0);
+    assert_eq!(state.global_active.load(Ordering::Acquire), 0);
+    hook.release_before_publish();
+    assert!(matches!(
+        owner.await.unwrap(),
+        Err(DatagramRuntimeError::Conflict(_))
+    ));
+    assert_eq!(state.global_active.load(Ordering::Acquire), 0);
     stop_target.cancel();
 }
