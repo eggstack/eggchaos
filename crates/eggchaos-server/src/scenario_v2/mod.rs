@@ -12,10 +12,14 @@
 mod compiler;
 mod error;
 mod fingerprint;
+pub mod run;
+pub(crate) mod runtime;
 mod source;
 
 #[cfg(test)]
 mod property_tests;
+#[cfg(test)]
+mod runtime_tests;
 #[cfg(test)]
 mod tests;
 
@@ -25,6 +29,10 @@ pub use compiler::{
 };
 pub use error::ScheduleError;
 pub use fingerprint::{compiled_fingerprint, encode_compiled_for_fingerprint, fingerprint_hex};
+pub use run::{
+    CleanupOutcome, CleanupResourceOutcome, CleanupResourceRecord, ScenarioScheduleRunRecord,
+    ScheduleEventResult, ScheduleResource, ScheduleRunStatus, ScheduleTransport,
+};
 pub use source::{
     CleanupPolicyV2, IsolationPolicyV2, ScenarioScheduleV2, SchedulePhaseV2, ScheduleRepeatV2,
     MAX_COMPILED_EVENTS, MAX_PHASES, MAX_PHASE_ACTIONS, MAX_PHASE_NAME_BYTES, MAX_REPEAT_COUNT,

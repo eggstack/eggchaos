@@ -436,6 +436,321 @@ pub fn to_canonical_json(source: &ScenarioScheduleV2) -> Result<String, String> 
         .map_err(|error| error.to_string())
 }
 
+/// Validate-only response: semantic validation plus fingerprint
+/// information. Creates no run.
+#[derive(Debug, Clone, Serialize)]
+pub struct ScheduleValidateV2 {
+    /// Lowercase-hex SHA-256 schedule fingerprint.
+    pub schedule_fingerprint: String,
+    /// Frozen compiler semantics version.
+    pub compiler_semantics_version: u32,
+    /// Number of compiled events.
+    pub event_count: usize,
+    /// Schedule seed.
+    pub seed: u64,
+    /// Schedule execution key.
+    pub execution_key: u64,
+    /// Isolation mode.
+    pub isolation: IsolationPolicyV2,
+    /// Cleanup policy.
+    pub cleanup_policy: CleanupPolicyV2,
+}
+
+/// One compiled event in a compile response. Carries the normalized
+/// tape position plus a transport-explicit action summary; no payload
+/// bytes.
+#[derive(Debug, Clone, Serialize)]
+pub struct ScheduleCompiledEventV2 {
+    /// Stable zero-based compiled index.
+    pub compiled_index: u32,
+    /// Phase identity (`top/{index}` or `repeat/{iteration}/{index}`).
+    pub phase: String,
+    /// Absolute offset from the run epoch in nanoseconds.
+    pub offset_ns: u64,
+    /// Action summary (`set-plan`, `remove-fault`,
+    /// `set-datagram-plan`, `remove-datagram-fault`).
+    pub action: String,
+    /// Target proxy.
+    pub proxy: String,
+    /// Target direction.
+    pub direction: eggchaos_core::Direction,
+    /// Target transport (`stream` or `datagram`).
+    pub transport: String,
+}
+
+/// Compile response: normalized event tape plus fingerprint. Creates
+/// no run.
+#[derive(Debug, Clone, Serialize)]
+pub struct ScheduleCompileV2 {
+    /// Lowercase-hex SHA-256 schedule fingerprint.
+    pub schedule_fingerprint: String,
+    /// Frozen compiler semantics version.
+    pub compiler_semantics_version: u32,
+    /// Schedule seed.
+    pub seed: u64,
+    /// Schedule execution key.
+    pub execution_key: u64,
+    /// Isolation mode.
+    pub isolation: IsolationPolicyV2,
+    /// Cleanup policy.
+    pub cleanup_policy: CleanupPolicyV2,
+    /// Normalized compiled event tape.
+    pub events: Vec<ScheduleCompiledEventV2>,
+}
+
+/// Per-event run evidence in a v2 run response.
+#[derive(Debug, Clone, Serialize)]
+pub struct ScheduleRunEventV2 {
+    /// Stable zero-based compiled index.
+    pub compiled_index: u32,
+    /// Phase identity (`top/{index}` or `repeat/{iteration}/{index}`).
+    pub phase: String,
+    /// Scheduled absolute offset from the run epoch in nanoseconds.
+    pub scheduled_offset_ns: u64,
+    /// Actual monotonic elapsed application time in nanoseconds.
+    pub applied_elapsed_ns: u64,
+    /// `max(applied_elapsed - scheduled_offset, 0)` in nanoseconds.
+    pub late_by_ns: u64,
+    /// Action summary.
+    pub action: String,
+    /// Target proxy.
+    pub proxy: String,
+    /// Target direction.
+    pub direction: eggchaos_core::Direction,
+    /// Target transport.
+    pub transport: String,
+    /// Global configuration generation after the action.
+    pub global_generation: u64,
+    /// Upstream generation after the action.
+    pub upstream_generation: u64,
+    /// Downstream generation after the action.
+    pub downstream_generation: u64,
+}
+
+/// One touched-resource cleanup record in a v2 run response.
+#[derive(Debug, Clone, Serialize)]
+pub struct ScheduleCleanupResourceV2 {
+    /// Target proxy.
+    pub proxy: String,
+    /// Target direction.
+    pub direction: eggchaos_core::Direction,
+    /// Target transport.
+    pub transport: String,
+    /// Per-resource outcome (`restored`, `conflict`, `missing`,
+    /// `not_requested`).
+    pub outcome: String,
+}
+
+/// Cleanup summary in a v2 run response.
+#[derive(Debug, Clone, Serialize)]
+pub struct ScheduleCleanupV2 {
+    /// Cleanup policy that ran.
+    pub policy: CleanupPolicyV2,
+    /// Per-resource outcomes.
+    pub resources: Vec<ScheduleCleanupResourceV2>,
+}
+
+/// V2 schedule run response. Additive to the v1 `ScenarioRunV1`
+/// surface; v1 fixtures keep every existing field/value.
+#[derive(Debug, Clone, Serialize)]
+pub struct ScheduleRunV2 {
+    /// Stable run identifier.
+    pub run_id: u64,
+    /// Schedule seed.
+    pub seed: u64,
+    /// Schedule execution key.
+    pub execution_key: u64,
+    /// Lowercase-hex SHA-256 schedule fingerprint.
+    pub schedule_fingerprint: String,
+    /// Frozen compiler semantics version.
+    pub compiler_semantics_version: u32,
+    /// Isolation mode.
+    pub isolation: IsolationPolicyV2,
+    /// Cleanup policy.
+    pub cleanup_policy: CleanupPolicyV2,
+    /// Lifecycle status (lowercase).
+    pub status: String,
+    /// Number of applied events.
+    pub applied: usize,
+    /// Failure detail, if any.
+    pub failure: Option<String>,
+    /// Per-event evidence trail.
+    pub events: Vec<ScheduleRunEventV2>,
+    /// Cleanup outcome, once the run reached a terminal state.
+    pub cleanup: Option<ScheduleCleanupV2>,
+}
+
+/// Render a [`crate::scenario_v2::CompiledPhaseIdentity`] as a stable
+/// wire string.
+pub fn phase_identity_string(phase: crate::scenario_v2::CompiledPhaseIdentity) -> String {
+    match phase {
+        crate::scenario_v2::CompiledPhaseIdentity::Top { index } => format!("top/{index}"),
+        crate::scenario_v2::CompiledPhaseIdentity::Repeat { iteration, index } => {
+            format!("repeat/{iteration}/{index}")
+        }
+    }
+}
+
+fn transport_string(transport: crate::scenario_v2::ScheduleTransport) -> String {
+    match transport {
+        crate::scenario_v2::ScheduleTransport::Stream => "stream".to_owned(),
+        crate::scenario_v2::ScheduleTransport::Datagram => "datagram".to_owned(),
+    }
+}
+
+fn action_summary(
+    action: &ScenarioAction,
+) -> (&'static str, String, eggchaos_core::Direction, String) {
+    match action {
+        ScenarioAction::SetPlan {
+            proxy, direction, ..
+        } => ("set-plan", proxy.clone(), *direction, "stream".to_owned()),
+        ScenarioAction::RemoveFault {
+            proxy, direction, ..
+        } => (
+            "remove-fault",
+            proxy.clone(),
+            *direction,
+            "stream".to_owned(),
+        ),
+        ScenarioAction::SetDatagramPlan {
+            proxy, direction, ..
+        } => (
+            "set-datagram-plan",
+            proxy.clone(),
+            *direction,
+            "datagram".to_owned(),
+        ),
+        ScenarioAction::RemoveDatagramFault {
+            proxy, direction, ..
+        } => (
+            "remove-datagram-fault",
+            proxy.clone(),
+            *direction,
+            "datagram".to_owned(),
+        ),
+    }
+}
+
+impl ScheduleCompileV2 {
+    /// Build a compile response from a compiled schedule.
+    pub fn from_compiled(compiled: &crate::scenario_v2::CompiledScenarioV2) -> Self {
+        let events = compiled
+            .events
+            .iter()
+            .map(|event| {
+                let (action, proxy, direction, transport) = action_summary(&event.action);
+                ScheduleCompiledEventV2 {
+                    compiled_index: event.compiled_index,
+                    phase: phase_identity_string(event.phase),
+                    offset_ns: event.offset_ns,
+                    action: action.to_owned(),
+                    proxy,
+                    direction,
+                    transport,
+                }
+            })
+            .collect();
+        Self {
+            schedule_fingerprint: crate::scenario_v2::fingerprint_hex(
+                &crate::scenario_v2::compiled_fingerprint(compiled),
+            ),
+            compiler_semantics_version: compiled.compiler_semantics_version,
+            seed: compiled.seed,
+            execution_key: compiled.execution_key,
+            isolation: compiled.isolation,
+            cleanup_policy: compiled.cleanup,
+            events,
+        }
+    }
+}
+
+impl ScheduleValidateV2 {
+    /// Build a validate response from a compiled schedule.
+    pub fn from_compiled(compiled: &crate::scenario_v2::CompiledScenarioV2) -> Self {
+        Self {
+            schedule_fingerprint: crate::scenario_v2::fingerprint_hex(
+                &crate::scenario_v2::compiled_fingerprint(compiled),
+            ),
+            compiler_semantics_version: compiled.compiler_semantics_version,
+            event_count: compiled.events.len(),
+            seed: compiled.seed,
+            execution_key: compiled.execution_key,
+            isolation: compiled.isolation,
+            cleanup_policy: compiled.cleanup,
+        }
+    }
+}
+
+impl From<crate::scenario_v2::ScenarioScheduleRunRecord> for ScheduleRunV2 {
+    fn from(record: crate::scenario_v2::ScenarioScheduleRunRecord) -> Self {
+        let status = match record.status {
+            crate::scenario_v2::ScheduleRunStatus::Pending => "pending",
+            crate::scenario_v2::ScheduleRunStatus::Running => "running",
+            crate::scenario_v2::ScheduleRunStatus::Cancelling => "cancelling",
+            crate::scenario_v2::ScheduleRunStatus::Cancelled => "cancelled",
+            crate::scenario_v2::ScheduleRunStatus::Completed => "completed",
+            crate::scenario_v2::ScheduleRunStatus::Failed => "failed",
+        };
+        let events = record
+            .events
+            .into_iter()
+            .map(|event| ScheduleRunEventV2 {
+                compiled_index: event.compiled_index,
+                phase: phase_identity_string(event.phase),
+                scheduled_offset_ns: event.scheduled_offset_ns,
+                applied_elapsed_ns: event.applied_elapsed_ns,
+                late_by_ns: event.late_by_ns,
+                action: event.action,
+                proxy: event.resource.proxy,
+                direction: event.resource.direction,
+                transport: transport_string(event.resource.transport),
+                global_generation: event.global_generation,
+                upstream_generation: event.upstream_generation,
+                downstream_generation: event.downstream_generation,
+            })
+            .collect();
+        let cleanup = record.cleanup.map(|outcome| ScheduleCleanupV2 {
+            policy: outcome.policy,
+            resources: outcome
+                .resources
+                .into_iter()
+                .map(|resource| ScheduleCleanupResourceV2 {
+                    proxy: resource.resource.proxy,
+                    direction: resource.resource.direction,
+                    transport: transport_string(resource.resource.transport),
+                    outcome: match resource.outcome {
+                        crate::scenario_v2::CleanupResourceOutcome::Restored => {
+                            "restored".to_owned()
+                        }
+                        crate::scenario_v2::CleanupResourceOutcome::Conflict => {
+                            "conflict".to_owned()
+                        }
+                        crate::scenario_v2::CleanupResourceOutcome::Missing => "missing".to_owned(),
+                        crate::scenario_v2::CleanupResourceOutcome::NotRequested => {
+                            "not_requested".to_owned()
+                        }
+                    },
+                })
+                .collect(),
+        });
+        Self {
+            run_id: record.run_id,
+            seed: record.seed,
+            execution_key: record.execution_key,
+            schedule_fingerprint: crate::scenario_v2::fingerprint_hex(&record.schedule_fingerprint),
+            compiler_semantics_version: record.compiler_semantics_version,
+            isolation: record.isolation,
+            cleanup_policy: record.cleanup_policy,
+            status: status.to_owned(),
+            applied: record.applied,
+            failure: record.failure,
+            events,
+            cleanup,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

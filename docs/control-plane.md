@@ -68,7 +68,8 @@ independently of internal Rust enum layout.
 `eggchaos --admin <url> [--json] <command>`: `serve` (start from
 schema-v1 TOML), `version`, `reset`; `proxy list|get|add|set|remove|
 enable|disable`; `fault list|get|add|set|remove`;
-`connection list|get|kill`; `scenario apply|get|cancel`; `history`; `metrics`.
+`connection list|get|kill`; `scenario apply|validate|compile|get|cancel`;
+`history`; `metrics`.
 JSON routes emit one machine-readable document with `--json` and exit nonzero
 on failure. Metrics are Prometheus text in human mode and are wrapped as
 `{"body":"..."}` with `--json`.
@@ -126,13 +127,43 @@ applies to; a conflicting concurrent publication fails the run instead of
 rolling state back.
 
 Scenario v1 (`POST /v1/scenarios/apply` with `version: 1`) keeps this
-contract and remains the compatibility surface. Scenario v2 adds a
-bounded source-language, compiler, and replay identity implemented
-purely above the existing fault engines; the runtime/control wiring
-ships in a follow-on milestone. M026 froze the v2 compiler, canonical
-SHA-256 schedule fingerprint, and run_id-independent v2 namespace
-derivation; nothing in M026 introduces new HTTP routes or applies a
-v2 schedule — those land in M027/M028.
+contract and remains the compatibility surface. Scenario v2 wires the
+M026 bounded source-language, compiler, and replay identity into the
+owned run supervisor:
+
+- `POST /v1/scenarios/apply` is version-aware: a `version: 2`
+  schedule compiles server-side and starts an owned v2 run through
+  the same supervisor JoinSet; `version: 1` keeps the existing path.
+- `POST /v1/scenarios/validate` returns fingerprint, compiler
+  version, event count, and schedule identity without creating a run.
+- `POST /v1/scenarios/compile` returns the normalized compiled event
+  tape plus fingerprint without creating a run.
+- `GET`/`DELETE /v1/scenarios/{run_id}` inspect/cancel both versions;
+  run IDs share one namespace.
+- The CLI accepts v2 JSON or TOML schedule files (`scenario
+  validate|compile|apply <file>`, TOML selected by extension) and
+  forwards the semantic document to the server authority; the CLI
+  never expands phases or derives fingerprints.
+
+A v2 run captures one monotonic epoch at task entry and waits for
+`epoch + offset` per event with `sleep_until`, so slow event
+application never shifts later deadlines. Strict isolation (the
+default) publishes each event against the generation last owned by
+the run and fails fast on external conflict; live isolation rebuilds
+from the live plan at fire time with an expected-generation guard. The
+default `restore-initial` cleanup republishes each touched
+resource's initial plan only while the run still owns its
+generation — an externally moved resource records a cleanup conflict
+and keeps its external state. Run evidence carries the schedule
+fingerprint, execution key, compiler version, isolation/cleanup
+policy, per-event scheduled/applied timing with lateness, resulting
+generations, and the cleanup outcome; no payload bytes.
+
+Deterministic policy/event identity is exact: the same schedule
+replays identical seed namespaces regardless of daemon run order.
+Live connection/datagram arrival timing is not replayed — connection
+keys depend on accept order, and scheduler lateness is diagnostic
+evidence, never an RNG input.
 
 ## Metrics
 
@@ -142,8 +173,11 @@ outcomes by coarse class, injected graceful/hard-reset request counts,
 abortive-close results, byte flows, policy transition counts, per-proxy
 connection and byte totals, fault activations by proxy, direction, and
 fault type, live per-proxy connection gauges, policy generation gauges,
-and queued-byte gauges. Labels never carry connection IDs, peer addresses,
-scenario run IDs, arbitrary fault IDs, or hostnames. Per-proxy and
+and queued-byte gauges, plus coarse v2 schedule counters
+(`eggchaos_schedule_v2_runs_total`, `eggchaos_schedule_v2_events_total`,
+`eggchaos_schedule_v2_late_events_total`). Labels never carry connection
+IDs, peer addresses, scenario run IDs, arbitrary fault IDs, hostnames,
+schedule fingerprints, execution keys, or phase names. Per-proxy and
 activation series are bounded with overflow buckets.
 
 ## Datagram resources

@@ -130,9 +130,11 @@ empty-filtered; proxy/fault names travel as single path segments.
 | `GET` | `/v1/connections/{id}` | `200` / `400` non-integer / `404` | `connection id must be an integer` |
 | `DELETE` | `/v1/connections/{id}` | `200 {"id":N,"terminated":true}` / `404` | `kill()`; level-triggered cancel |
 | `GET` | `/v1/history` | `200 ClosedConnection[]` | bounded, newest last |
-| `POST` | `/v1/scenarios/apply` | `202 ScenarioRunV1` | body `ScenarioV1`; invalid doc maps to `ControlError::Invalid` |
-| `GET` | `/v1/scenarios/{run_id}` | `200 ScenarioRunV1` / `400` / `404` | lowercase status values |
-| `DELETE` | `/v1/scenarios/{run_id}` | `200 ScenarioRunV1` / `400` / `404` | cancel |
+| `POST` | `/v1/scenarios/apply` | `202 ScenarioRunV1` / `202 ScheduleRunV2` | version-aware body: `version: 1` → `ScenarioV1`, `version: 2` → `ScenarioScheduleV2Dto`; invalid doc maps to `ControlError::Invalid` |
+| `POST` | `/v1/scenarios/validate` | `200 ScheduleValidateV2` | body `ScenarioScheduleV2Dto`; fingerprint/identity only, creates no run |
+| `POST` | `/v1/scenarios/compile` | `200 ScheduleCompileV2` | body `ScenarioScheduleV2Dto`; normalized tape + fingerprint, creates no run |
+| `GET` | `/v1/scenarios/{run_id}` | `200 ScenarioRunV1` / `200 ScheduleRunV2` / `400` / `404` | serves both versions; run IDs share one namespace; lowercase status values |
+| `DELETE` | `/v1/scenarios/{run_id}` | `200 ScenarioRunV1` / `200 ScheduleRunV2` / `400` / `404` | cancels both versions |
 
 Scenario/metrics semantics belong to
 `scenario-observability.md`; this file records only the route/status
@@ -317,9 +319,11 @@ Global flags (`main.rs:9-24`):
 | `connection list` | `GET /v1/connections` | |
 | `connection get <id:u64>` | `GET /v1/connections/{id}` | |
 | `connection kill <id:u64>` | `DELETE /v1/connections/{id}` | |
-| `scenario apply <file>` | `POST /v1/scenarios/apply` | JSON `ScenarioV1` file, at most 1 MiB |
-| `scenario get <run_id:u64>` | `GET /v1/scenarios/{run_id}` | |
-| `scenario cancel <run_id:u64>` | `DELETE /v1/scenarios/{run_id}` | |
+| `scenario apply <file>` | `POST /v1/scenarios/apply` | v1 JSON `ScenarioV1` or v2 JSON/TOML schedule (`.toml` extension selects TOML → shared DTO → JSON), at most 1 MiB; CLI never expands phases or derives fingerprints |
+| `scenario validate <file>` | `POST /v1/scenarios/validate` | v2 JSON/TOML file; fingerprint/identity only, creates no run |
+| `scenario compile <file>` | `POST /v1/scenarios/compile` | v2 JSON/TOML file; normalized tape + fingerprint, creates no run |
+| `scenario get <run_id:u64>` | `GET /v1/scenarios/{run_id}` | serves v1 and v2 runs |
+| `scenario cancel <run_id:u64>` | `DELETE /v1/scenarios/{run_id}` | cancels v1 and v2 runs |
 | `history` | `GET /v1/history` | |
 | `metrics` | `GET /metrics` | raw text in human mode; `{"body":"..."}` in JSON mode |
 

@@ -75,7 +75,7 @@ impl ControlState {
             ));
         }
         text.push_str(&format!(
-            "# HELP eggchaos_termination_requests_total Injected termination requests observed at close\n# TYPE eggchaos_termination_requests_total counter\neggchaos_termination_requests_total{{request=\"graceful\"}} {}\neggchaos_termination_requests_total{{request=\"hard_reset\"}} {}\n# HELP eggchaos_reset_results_total Abortive-close outcomes at the TCP edge\n# TYPE eggchaos_reset_results_total counter\neggchaos_reset_results_total{{result=\"applied\"}} {}\neggchaos_reset_results_total{{result=\"unsupported\"}} {}\neggchaos_reset_results_total{{result=\"failed\"}} {}\n# HELP eggchaos_bytes_total Bytes by flow across closed connections\n# TYPE eggchaos_bytes_total counter\neggchaos_bytes_total{{flow=\"accepted\"}} {}\neggchaos_bytes_total{{flow=\"forwarded\"}} {}\neggchaos_bytes_total{{flow=\"discarded\"}} {}\n# HELP eggchaos_policy_transitions_total Completed live-policy transitions\n# TYPE eggchaos_policy_transitions_total counter\neggchaos_policy_transitions_total {}\n",
+            "# HELP eggchaos_termination_requests_total Injected termination requests observed at close\n# TYPE eggchaos_termination_requests_total counter\neggchaos_termination_requests_total{{request=\"graceful\"}} {}\neggchaos_termination_requests_total{{request=\"hard_reset\"}} {}\n# HELP eggchaos_reset_results_total Abortive-close outcomes at the TCP edge\n# TYPE eggchaos_reset_results_total counter\neggchaos_reset_results_total{{result=\"applied\"}} {}\neggchaos_reset_results_total{{result=\"unsupported\"}} {}\neggchaos_reset_results_total{{result=\"failed\"}} {}\n# HELP eggchaos_bytes_total Bytes by flow across closed connections\n# TYPE eggchaos_bytes_total counter\neggchaos_bytes_total{{flow=\"accepted\"}} {}\neggchaos_bytes_total{{flow=\"forwarded\"}} {}\neggchaos_bytes_total{{flow=\"discarded\"}} {}\n# HELP eggchaos_policy_transitions_total Completed live-policy transitions\n# TYPE eggchaos_policy_transitions_total counter\neggchaos_policy_transitions_total {}\n# HELP eggchaos_schedule_v2_runs_total V2 schedule runs started\n# TYPE eggchaos_schedule_v2_runs_total counter\neggchaos_schedule_v2_runs_total {}\n# HELP eggchaos_schedule_v2_events_total V2 schedule events applied\n# TYPE eggchaos_schedule_v2_events_total counter\neggchaos_schedule_v2_events_total {}\n# HELP eggchaos_schedule_v2_late_events_total V2 schedule events applied after their deadline\n# TYPE eggchaos_schedule_v2_late_events_total counter\neggchaos_schedule_v2_late_events_total {}\n",
             self.runtime.metrics.graceful_requests.load(Ordering::Relaxed),
             self.runtime.metrics.hard_reset_requests.load(Ordering::Relaxed),
             self.runtime.metrics.reset_applied.load(Ordering::Relaxed),
@@ -85,6 +85,12 @@ impl ControlState {
             self.runtime.metrics.bytes_forwarded.load(Ordering::Relaxed),
             self.runtime.metrics.bytes_discarded.load(Ordering::Relaxed),
             self.runtime.metrics.transitions.load(Ordering::Relaxed),
+            self.runtime.metrics.schedule_v2_runs.load(Ordering::Relaxed),
+            self.runtime.metrics.schedule_v2_events.load(Ordering::Relaxed),
+            self.runtime
+                .metrics
+                .schedule_v2_late_events
+                .load(Ordering::Relaxed),
         ));
         {
             let tables = self.runtime.metrics.tables.lock().expect("metrics lock");
@@ -1472,6 +1478,188 @@ impl ControlState {
         let mut scenarios = self.runtime.scenario_tasks.lock().await;
         while scenarios.join_next().await.is_some() {}
         self.runtime.datagrams.shutdown().await;
+    }
+
+    /// Current upstream/downstream generations for a stream proxy.
+    /// Reads the live atomic snapshots without holding a data-plane lock.
+    pub async fn current_generations(&self, name: &str) -> Option<(u64, u64)> {
+        let (upstream, downstream) = self.snapshot_policies(name).await?;
+        Some((upstream.generation, downstream.generation))
+    }
+
+    /// Current upstream/downstream generations for a datagram proxy.
+    pub async fn datagram_current_generations(&self, name: &str) -> Option<(u64, u64)> {
+        let (_, g_up, _) = self
+            .runtime
+            .datagrams
+            .fault_plan(name, Direction::Upstream)
+            .await?;
+        let (_, g_down, _) = self
+            .runtime
+            .datagrams
+            .fault_plan(name, Direction::Downstream)
+            .await?;
+        Some((g_up, g_down))
+    }
+
+    /// Start an owned v2 schedule run. The source compiles entirely
+    /// upfront; a compile failure creates no run and no side effects.
+    /// The compiled tape plays through the shared scenario JoinSet with
+    /// a child of the service shutdown token, so no v2 task outlives
+    /// the service untracked and no second supervisor registry exists.
+    pub async fn start_schedule_v2(
+        &self,
+        source: crate::scenario_v2::ScenarioScheduleV2,
+    ) -> Result<crate::scenario_v2::run::ScenarioScheduleRunRecord, EggchaosError> {
+        let compiled = crate::scenario_v2::compile_schedule(&source)
+            .map_err(|error| EggchaosError::Control(ControlError::Invalid(error.to_string())))?;
+        let fingerprint = crate::scenario_v2::compiled_fingerprint(&compiled);
+        let run_id = self.runtime.next_run_id.fetch_add(1, Ordering::AcqRel);
+        let record = crate::scenario_v2::run::ScenarioScheduleRunRecord {
+            run_id,
+            seed: source.seed,
+            execution_key: source.execution_key,
+            schedule_fingerprint: fingerprint,
+            compiler_semantics_version: compiled.compiler_semantics_version,
+            isolation: source.isolation,
+            cleanup_policy: source.cleanup,
+            status: crate::scenario_v2::run::ScheduleRunStatus::Pending,
+            applied: 0,
+            failure: None,
+            events: Vec::new(),
+            cleanup: None,
+        };
+        {
+            let mut runs = self.runtime.schedule_v2_runs.lock().await;
+            let active = runs
+                .values()
+                .filter(|record| {
+                    matches!(
+                        record.status,
+                        crate::scenario_v2::run::ScheduleRunStatus::Pending
+                            | crate::scenario_v2::run::ScheduleRunStatus::Running
+                            | crate::scenario_v2::run::ScheduleRunStatus::Cancelling
+                    )
+                })
+                .count();
+            if active >= Self::MAX_SCENARIO_RUNS {
+                return Err(EggchaosError::Control(ControlError::Conflict(
+                    "too many active scenario runs".into(),
+                )));
+            }
+            while runs.len() >= Self::MAX_SCENARIO_RUNS {
+                let oldest_finished = runs
+                    .iter()
+                    .find(|(_, record)| {
+                        !matches!(
+                            record.status,
+                            crate::scenario_v2::run::ScheduleRunStatus::Pending
+                                | crate::scenario_v2::run::ScheduleRunStatus::Running
+                                | crate::scenario_v2::run::ScheduleRunStatus::Cancelling
+                        )
+                    })
+                    .map(|(id, _)| *id);
+                let Some(oldest) = oldest_finished else {
+                    break;
+                };
+                runs.remove(&oldest);
+            }
+            runs.insert(run_id, record.clone());
+        }
+        let token = self.runtime.shutdown_token.child_token();
+        self.runtime
+            .schedule_v2_tokens
+            .lock()
+            .await
+            .insert(run_id, token.clone());
+        self.runtime
+            .metrics
+            .schedule_v2_runs
+            .fetch_add(1, Ordering::Relaxed);
+        let state = self.clone();
+        self.runtime.scenario_tasks.lock().await.spawn(
+            crate::scenario_v2::runtime::drive_schedule_v2_run(state, run_id, compiled, token),
+        );
+        Ok(record)
+    }
+
+    /// Fetch one v2 schedule run record.
+    pub async fn get_schedule_v2(
+        &self,
+        run_id: u64,
+    ) -> Option<crate::scenario_v2::run::ScenarioScheduleRunRecord> {
+        self.runtime
+            .schedule_v2_runs
+            .lock()
+            .await
+            .get(&run_id)
+            .cloned()
+    }
+
+    /// Cancel an active v2 schedule run, returning its latest record.
+    /// Returns `None` for unknown run IDs. Cancelling a finished run
+    /// returns its final record unchanged.
+    pub async fn cancel_schedule_v2(
+        &self,
+        run_id: u64,
+    ) -> Option<crate::scenario_v2::run::ScenarioScheduleRunRecord> {
+        let token = self.runtime.schedule_v2_tokens.lock().await.remove(&run_id);
+        if let Some(token) = token {
+            token.cancel();
+            self.update_schedule_v2_run(run_id, |record| {
+                if matches!(
+                    record.status,
+                    crate::scenario_v2::run::ScheduleRunStatus::Pending
+                        | crate::scenario_v2::run::ScheduleRunStatus::Running
+                ) {
+                    record.status = crate::scenario_v2::run::ScheduleRunStatus::Cancelling;
+                }
+            })
+            .await;
+        }
+        self.get_schedule_v2(run_id).await
+    }
+
+    /// Apply a record mutation for a v2 schedule run, if still retained.
+    pub async fn update_schedule_v2_run(
+        &self,
+        run_id: u64,
+        update: impl FnOnce(&mut crate::scenario_v2::run::ScenarioScheduleRunRecord),
+    ) {
+        if let Some(record) = self.runtime.schedule_v2_runs.lock().await.get_mut(&run_id) {
+            update(record);
+        }
+    }
+
+    /// Append one per-event evidence entry to a v2 run record and bump
+    /// the applied count. No-op if the run was already pruned. Coarse
+    /// v2 metrics count applied and late events without run, phase, or
+    /// fingerprint labels.
+    pub async fn append_schedule_v2_event(
+        &self,
+        run_id: u64,
+        event: crate::scenario_v2::run::ScheduleEventResult,
+    ) {
+        let late = event.late_by_ns > 0;
+        if let Some(record) = self.runtime.schedule_v2_runs.lock().await.get_mut(&run_id) {
+            record.applied += 1;
+            record.events.push(event);
+        }
+        self.runtime
+            .metrics
+            .schedule_v2_events
+            .fetch_add(1, Ordering::Relaxed);
+        if late {
+            self.runtime
+                .metrics
+                .schedule_v2_late_events
+                .fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    /// Drop a finished v2 run's cancellation token.
+    pub async fn remove_schedule_v2_token(&self, run_id: u64) {
+        self.runtime.schedule_v2_tokens.lock().await.remove(&run_id);
     }
 
     /// Actual bound addresses for running proxies.

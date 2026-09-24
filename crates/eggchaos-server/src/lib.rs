@@ -28,8 +28,10 @@ pub use native::{
     NATIVE_DEFAULT_SLICE_AVERAGE_SIZE,
 };
 pub use native_v2::{
-    to_canonical_json, ScenarioActionDto, ScenarioPhaseV2Dto, ScenarioRepeatV2Dto,
-    ScenarioScheduleV2Dto, ScenarioScheduleV2Toml,
+    phase_identity_string, to_canonical_json, ScenarioActionDto, ScenarioPhaseV2Dto,
+    ScenarioRepeatV2Dto, ScenarioScheduleV2Dto, ScenarioScheduleV2Toml, ScheduleCleanupResourceV2,
+    ScheduleCleanupV2, ScheduleCompileV2, ScheduleCompiledEventV2, ScheduleRunEventV2,
+    ScheduleRunV2, ScheduleValidateV2,
 };
 pub use runtime::{
     AdmissionLimits, ClosedConnection, ConnectionEvidence, ConnectionOutcome, ConnectionSnapshot,
@@ -45,8 +47,10 @@ pub use scenario::{
     ScenarioEventResult, ScenarioRunRecord, ScenarioRunStatus,
 };
 pub use scenario_v2::{
-    compile_schedule, compiled_fingerprint, expanded_event_count, fingerprint_hex, CleanupPolicyV2,
-    CompiledEventV2, CompiledPhaseIdentity, CompiledScenarioV2, IsolationPolicyV2,
-    ScenarioScheduleV2, ScheduleError, SchedulePhaseV2, ScheduleRepeatV2,
-    COMPILER_SEMANTICS_VERSION, MAX_COMPILED_EVENTS, MAX_REPEAT_COUNT, SCHEDULE_SCHEMA_VERSION,
+    compile_schedule, compiled_fingerprint, expanded_event_count, fingerprint_hex, CleanupOutcome,
+    CleanupPolicyV2, CleanupResourceOutcome, CleanupResourceRecord, CompiledEventV2,
+    CompiledPhaseIdentity, CompiledScenarioV2, IsolationPolicyV2, ScenarioScheduleRunRecord,
+    ScenarioScheduleV2, ScheduleError, ScheduleEventResult, SchedulePhaseV2, ScheduleRepeatV2,
+    ScheduleResource, ScheduleRunStatus, ScheduleTransport, COMPILER_SEMANTICS_VERSION,
+    MAX_COMPILED_EVENTS, MAX_REPEAT_COUNT, SCHEDULE_SCHEMA_VERSION,
 };

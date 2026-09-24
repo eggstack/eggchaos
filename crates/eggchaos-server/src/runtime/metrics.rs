@@ -33,6 +33,12 @@ pub struct MetricsCounters {
     pub bytes_discarded: AtomicU64,
     /// Completed live-policy transitions across all closed connections.
     pub transitions: AtomicU64,
+    /// V2 schedule runs started (coarse total, no run/fingerprint labels).
+    pub schedule_v2_runs: AtomicU64,
+    /// V2 schedule events applied (coarse total).
+    pub schedule_v2_events: AtomicU64,
+    /// V2 schedule events applied after their deadline (`late_by_ns > 0`).
+    pub schedule_v2_late_events: AtomicU64,
     /// Bounded per-proxy and activation tables.
     pub tables: StdMutex<MetricTables>,
 }

@@ -312,8 +312,13 @@ enum DatagramAssociationCommand {
 
 #[derive(Subcommand)]
 enum ScenarioCommand {
-    /// Apply a scenario document from a JSON file.
+    /// Apply a scenario document from a JSON file (v1) or a JSON/TOML
+    /// schedule file (v2, selected by extension).
     Apply { file: PathBuf },
+    /// Validate a v2 schedule file server-side without creating a run.
+    Validate { file: PathBuf },
+    /// Compile a v2 schedule file server-side without creating a run.
+    Compile { file: PathBuf },
     /// Get a scenario run record.
     Get { run_id: u64 },
     /// Cancel a scenario run.
@@ -363,18 +368,36 @@ async fn dispatch(
         Command::Metrics => request(admin, admin_token, "GET", "/metrics", None, json).await,
         Command::Scenario { command } => match command {
             ScenarioCommand::Apply { file } => {
-                let file = tokio::fs::File::open(file).await?;
-                let mut bytes = Vec::with_capacity(1024 * 1024 + 1);
-                file.take(1024 * 1024 + 1).read_to_end(&mut bytes).await?;
-                if bytes.len() > 1024 * 1024 {
-                    return Err("scenario document exceeds the 1 MiB request limit".into());
-                }
-                let document: serde_json::Value = serde_json::from_slice(&bytes)?;
+                let document = read_scenario_document(&file).await?;
                 request(
                     admin,
                     admin_token,
                     "POST",
                     "/v1/scenarios/apply",
+                    Some(document),
+                    json,
+                )
+                .await
+            }
+            ScenarioCommand::Validate { file } => {
+                let document = read_scenario_document(&file).await?;
+                request(
+                    admin,
+                    admin_token,
+                    "POST",
+                    "/v1/scenarios/validate",
+                    Some(document),
+                    json,
+                )
+                .await
+            }
+            ScenarioCommand::Compile { file } => {
+                let document = read_scenario_document(&file).await?;
+                request(
+                    admin,
+                    admin_token,
+                    "POST",
+                    "/v1/scenarios/compile",
                     Some(document),
                     json,
                 )
@@ -691,6 +714,38 @@ async fn dispatch(
                 DatagramAssociationCommand::Kill { id } => request(admin, admin_token, "DELETE", &format!("/v1/datagram-associations/{id}"), None, json).await,
             },
         },
+    }
+}
+
+/// Read a scenario/schedule file and return the semantic JSON document
+/// to send to the server-side validation/compiler authority.
+///
+/// Files ending in `.toml` are parsed as v2 TOML schedules through the
+/// shared server DTO and re-encoded as JSON; every other file is sent
+/// through as JSON unchanged (v1 scenarios and v2 JSON schedules).
+/// The CLI never expands phases or derives fingerprints itself.
+async fn read_scenario_document(
+    path: &std::path::Path,
+) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    let file = tokio::fs::File::open(path).await?;
+    let mut bytes = Vec::with_capacity(1024 * 1024 + 1);
+    file.take(1024 * 1024 + 1).read_to_end(&mut bytes).await?;
+    if bytes.len() > 1024 * 1024 {
+        return Err("scenario document exceeds the 1 MiB request limit".into());
+    }
+    let is_toml = path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("toml"));
+    if is_toml {
+        let text = std::str::from_utf8(&bytes)?;
+        let schedule = eggchaos_server::ScenarioScheduleV2Toml::from_toml_str(text)
+            .map_err(|error| format!("invalid TOML schedule: {error}"))?;
+        Ok(serde_json::to_value(
+            eggchaos_server::ScenarioScheduleV2Dto::from(schedule),
+        )?)
+    } else {
+        Ok(serde_json::from_slice(&bytes)?)
     }
 }
 

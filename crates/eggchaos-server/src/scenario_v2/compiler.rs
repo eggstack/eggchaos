@@ -26,7 +26,7 @@ pub const COMPILER_SEMANTICS_VERSION: u32 = 1;
 
 /// Phase identity inside the compiled tape. Stable, two-bit classification
 /// that the runtime can switch on without parsing human labels.
-#[derive(Debug, Clone, Copy, PartialEq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum CompiledPhaseIdentity {
     /// Top-level phase index.
     Top { index: u32 },

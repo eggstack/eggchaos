@@ -303,11 +303,98 @@ It deliberately ships:
 - no run supervisor task for v2 schedules;
 - no change to stream or datagram engine semantics.
 
-M027 wires the compiled tape into the owned scenario supervisor via
-`ControlState` and the existing publication paths. M028 qualifies the
-combined surface on an exact candidate. Until those plans land, v2
-sources can be parsed, compiled, fingerprinted, and queried for the
-namespace — but cannot start a run.
+M027 (below) wires the compiled tape into the owned scenario
+supervisor via `ControlState` and the existing publication paths.
+M028 qualifies the combined surface on an exact candidate.
+
+### 1.9 Scenario v2 runtime, isolation, and lifecycle (M027)
+
+Owner: `crates/eggchaos-server/src/scenario_v2/runtime.rs`,
+`run.rs`, plus `ControlState::start_schedule_v2` and friends
+(`runtime/control.rs`), routes (`admin.rs`), and CLI (`main.rs`).
+
+`ControlState::start_schedule_v2` compiles the source entirely
+upfront — a compile failure creates no run and consumes no run ID —
+then registers a `ScenarioScheduleRunRecord` (run ID from the shared
+`next_run_id`, so v1/v2 IDs share one namespace), stores a child of
+the service shutdown token, and spawns `drive_schedule_v2_run` on
+the **shared** `scenario_tasks` JoinSet. There is no second
+supervisor registry; shutdown joins v2 tasks with v1 tasks, and the
+32-record `MAX_SCENARIO_RUNS` bound applies to the v2 map as it does
+to v1. `cancel_schedule_v2` mirrors `cancel_scenario`, and
+`GET`/`DELETE /v1/scenarios/{run_id}` serve both versions.
+
+#### 1.9.1 Epoch-anchored driver
+
+At task entry the driver captures `epoch =
+tokio::time::Instant::now()` once, then for each compiled event waits
+for `deadline = epoch + event.offset_ns` with `sleep_until` raced
+against cancellation (`biased` select so cancellation wins). An
+already-due deadline skips the sleep and applies immediately in
+compiled-index order, so slow event application never shifts later
+deadlines. Actual elapsed time is measured from the same epoch and
+`late_by_ns = max(applied_elapsed - scheduled_offset, 0)` is
+recorded per event. `SystemTime` never participates in schedule
+authority.
+
+#### 1.9.2 Strict/live generation ownership
+
+Before the first event the driver snapshots every touched
+directional policy (plan + generation for stream, plan/generation
+for datagram); a missing proxy fails the run before anything
+publishes. Strict mode (default) publishes each event against the
+generation last owned by the run — an external manual/scenario move
+makes the next event's expected-generation guard fail, so the run
+fails fast instead of incorporating or overwriting external state.
+Live mode re-reads the live generation at fire time, so a completed
+manual update may become the base, while a concurrent move during
+publication still conflicts. Both modes publish through the existing
+`publish_direction_expected` / `publish_datagram_plan` authority;
+the v2 namespace for each event is
+`derive_schedule_policy_seed(seed, execution_key, fingerprint,
+compiled_index)` and never involves `run_id` or lateness.
+
+#### 1.9.3 CAS-safe cleanup
+
+After the terminal outcome (Completed, Failed, or Cancelled) the
+driver runs cleanup once. `leave` records `NotRequested` per
+resource and publishes nothing. `restore-initial` republishes each
+touched resource's snapshotted initial plan only when the live
+generation still equals the generation last owned by the run;
+otherwise it records `Conflict` and leaves external state intact.
+Cleanup of one conflicted resource never blocks bounded cleanup of
+the others, and the original run outcome is retained alongside the
+cleanup outcome. Cleanup performs in-process publications only — it
+never waits on data-plane drain.
+
+#### 1.9.4 Run evidence and operator surface
+
+`ScenarioScheduleRunRecord` (`run.rs`) carries `run_id`, `seed`,
+`execution_key`, 32-byte `schedule_fingerprint`, compiler version,
+isolation/cleanup policy, status, applied count, bounded failure
+detail, the per-event trail (`compiled_index`, phase identity,
+scheduled/applied/late nanoseconds, action summary, proxy/direction/
+transport, resulting generations), and the cleanup outcome. No
+payload bytes. The native responses (`ScheduleRunV2`,
+`ScheduleValidateV2`, `ScheduleCompileV2` in `native_v2.rs`) render
+the fingerprint as lowercase hex and the phase as `top/{i}` or
+`repeat/{iter}/{i}`. Metrics add three coarse counters
+(`eggchaos_schedule_v2_runs_total`,
+`eggchaos_schedule_v2_events_total`,
+`eggchaos_schedule_v2_late_events_total`) with no run, fingerprint,
+phase, or key labels.
+
+#### 1.9.5 Replay limits for v2
+
+Policy/event identity is exact across daemon restarts and run
+ordering: the same schedule document replays identical seed
+namespaces and therefore identical fault decisions for the same
+connection keys. Live connection timing (accept order → connection
+keys), datagram arrival timing, wall-clock event-application cost,
+and scheduler lateness are not replayed; lateness is diagnostic
+evidence recorded per event, never an RNG input. Strict-mode
+conflict/cleanup-conflict evidence distinguishes "the world moved"
+from "the schedule is wrong".
 
 ## 2. Observability
 
@@ -392,10 +479,13 @@ Owners: `runtime.rs:627-760` (counters/tables), `runtime.rs:1007-1114`
 - `MetricsCounters` (`runtime.rs:629-658`): `accepted / completed /
   rejected` totals, `outcomes[8]`, `graceful_requests /
   hard_reset_requests`, `reset_applied / reset_unsupported / reset_failed`,
-  `bytes_accepted / forwarded / discarded`, `transitions`, plus
-  `tables: StdMutex<MetricTables>`. Totals derive from final stream
+  `bytes_accepted / forwarded / discarded`, `transitions`,
+  `schedule_v2_runs / schedule_v2_events / schedule_v2_late_events`,
+  plus `tables: StdMutex<MetricTables>`. Totals derive from final stream
   evidence in `aggregate_close_metrics` (`runtime.rs:2512-2596`), so
-  counters always agree with the history records they summarize.
+  counters always agree with the history records they summarize. The
+  three v2 schedule counters are coarse run/event/late totals with no
+  labels at all.
 - `MetricTables` (`runtime.rs:692-746`): bounded low-cardinality tables
   with overflow buckets. `MAX_METRIC_PROXIES = 1024`,
   `MAX_METRIC_ACTIVATIONS = 8192` (`runtime.rs:673-675`). Per-proxy

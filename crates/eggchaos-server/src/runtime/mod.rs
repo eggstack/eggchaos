@@ -304,12 +304,19 @@ pub struct RuntimeInner {
     root: Mutex<Vec<(String, JoinHandle<()>)>>,
     /// Owned scenario run tasks. Shutdown cancels their tokens (children
     /// of the service token) and then joins every task, so no scenario
-    /// outlives the service untracked.
+    /// outlives the service untracked. V2 schedule runs share this
+    /// JoinSet so no second supervisor registry exists.
     scenario_tasks: Mutex<JoinSet<()>>,
     /// Scenario run records by run ID, bounded (finished runs prune FIFO).
     scenario_runs: Mutex<BTreeMap<u64, crate::scenario::ScenarioRunRecord>>,
     /// Cancellation tokens for active scenario runs.
     scenario_tokens: Mutex<HashMap<u64, CancellationToken>>,
+    /// V2 schedule run records by run ID, bounded like v1 (finished
+    /// runs prune FIFO). Separate map because the record shape differs,
+    /// but the same MAX_SCENARIO_RUNS bound and JoinSet apply.
+    schedule_v2_runs: Mutex<BTreeMap<u64, crate::scenario_v2::run::ScenarioScheduleRunRecord>>,
+    /// Cancellation tokens for active v2 schedule runs.
+    schedule_v2_tokens: Mutex<HashMap<u64, CancellationToken>>,
     /// Next scenario run ID.
     next_run_id: AtomicU64,
 }
@@ -338,6 +345,8 @@ impl RuntimeInner {
             scenario_tasks: Mutex::new(JoinSet::new()),
             scenario_runs: Mutex::new(BTreeMap::new()),
             scenario_tokens: Mutex::new(HashMap::new()),
+            schedule_v2_runs: Mutex::new(BTreeMap::new()),
+            schedule_v2_tokens: Mutex::new(HashMap::new()),
             next_run_id: AtomicU64::new(1),
         }
     }

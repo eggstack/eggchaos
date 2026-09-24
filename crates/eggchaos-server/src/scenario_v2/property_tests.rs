@@ -156,6 +156,10 @@ proptest! {
             .new_tree(&mut runner)
             .expect("shrink")
             .current();
+        // The generator can emit action bodies that fail FaultPlan
+        // validation (e.g. duplicate fault ids); those cases exercise
+        // rejection elsewhere, so assume a compilable schedule here.
+        prop_assume!(compile_schedule(&s).is_ok());
         let mut prev: Option<[u8; 32]> = None;
         for trial in 0..4 {
             s.seed = seed.wrapping_add(trial as u64);

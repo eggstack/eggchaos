@@ -339,3 +339,140 @@ async fn datagram_cli_is_json_first_and_uses_native_routes() {
     admin.wait().await;
     control.shutdown_and_join().await;
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn cli_scenario_v2_validate_compile_apply_json_and_toml() {
+    let origin = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let origin_addr = origin.local_addr().unwrap();
+    let origin_task = tokio::spawn(async move {
+        loop {
+            let Ok((mut stream, _)) = origin.accept().await else {
+                break;
+            };
+            tokio::spawn(async move {
+                let mut buffer = [0; 4096];
+                loop {
+                    match stream.read(&mut buffer).await {
+                        Ok(0) => break,
+                        Ok(n) => {
+                            if stream.write_all(&buffer[..n]).await.is_err() {
+                                break;
+                            }
+                        }
+                        Err(_) => break,
+                    }
+                }
+            });
+        }
+    });
+    let control = ControlState::default();
+    let mut admin = NativeAdmin::start(
+        AdminConfig {
+            bind: "127.0.0.1:0".parse().unwrap(),
+            ..AdminConfig::default()
+        },
+        control.clone(),
+    )
+    .await
+    .unwrap();
+    let admin_addr = admin.local_addr();
+    let (ok, out) = cli(
+        admin_addr,
+        &[
+            "proxy",
+            "add",
+            "p1",
+            "--listen",
+            "127.0.0.1:0",
+            "--upstream",
+            &origin_addr.to_string(),
+        ],
+    );
+    assert!(ok, "{out}");
+
+    let pid = std::process::id();
+    let json_path = std::env::temp_dir().join(format!("eggchaos-schedule-v2-{pid}.json"));
+    let toml_path = std::env::temp_dir().join(format!("eggchaos-schedule-v2-{pid}.toml"));
+    std::fs::write(
+        &json_path,
+        r#"{"version":2,"seed":30,"execution_key":31,"isolation":"strict","cleanup":"restore-initial","phases":[{"name":"warmup","duration_ns":10000000,"actions":[{"type":"set-plan","proxy":"p1","direction":"downstream","faults":[{"id":"a","probability":1.0,"kind":{"type":"latency","delay_ns":5000000,"jitter_ns":0,"max_buffer_bytes":1024}}]}]}]}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        &toml_path,
+        "version = 2\nseed = 30\nexecution_key = 31\nisolation = \"strict\"\ncleanup = \"restore-initial\"\n\n[[phases]]\nname = \"warmup\"\nduration_ns = 10000000\n\n[[phases.actions]]\ntype = \"set-plan\"\nproxy = \"p1\"\ndirection = \"downstream\"\n\n[[phases.actions.faults]]\nid = \"a\"\nprobability = 1.0\n\n[phases.actions.faults.kind]\ntype = \"latency\"\ndelay_ns = 5000000\njitter_ns = 0\nmax_buffer_bytes = 1024\n",
+    )
+    .unwrap();
+    let json_str = json_path.to_str().unwrap();
+    let toml_str = toml_path.to_str().unwrap();
+
+    // Validate creates no run and reports the fingerprint.
+    let (ok, out) = cli(admin_addr, &["scenario", "validate", json_str]);
+    assert!(ok, "{out}");
+    let validated: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(validated["compiler_semantics_version"], 1);
+    assert_eq!(validated["event_count"], 1);
+    let fingerprint = validated["schedule_fingerprint"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert_eq!(fingerprint.len(), 64);
+
+    // TOML validates to the same fingerprint.
+    let (ok, out) = cli(admin_addr, &["scenario", "validate", toml_str]);
+    assert!(ok, "{out}");
+    let validated_toml: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(validated_toml["schedule_fingerprint"], fingerprint);
+
+    // Compile returns the normalized tape without creating a run.
+    let (ok, out) = cli(admin_addr, &["scenario", "compile", json_str]);
+    assert!(ok, "{out}");
+    let compiled: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(compiled["schedule_fingerprint"], fingerprint);
+    assert_eq!(compiled["events"].as_array().unwrap().len(), 1);
+    assert_eq!(compiled["events"][0]["offset_ns"], 0);
+    assert_eq!(compiled["events"][0]["phase"], "top/0");
+
+    // Apply runs the schedule; the run carries stable identity plus
+    // scheduled/applied timing and cleanup evidence.
+    let (ok, out) = cli(admin_addr, &["scenario", "apply", json_str]);
+    assert!(ok, "{out}");
+    let applied: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(applied["schedule_fingerprint"], fingerprint);
+    let run_id = applied["run_id"].as_u64().unwrap().to_string();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    let record = loop {
+        let (ok, out) = cli(admin_addr, &["scenario", "get", &run_id]);
+        assert!(ok, "{out}");
+        let record: serde_json::Value = serde_json::from_str(&out).unwrap();
+        if record["status"] == "completed" {
+            break record;
+        }
+        assert!(tokio::time::Instant::now() < deadline, "v2 run completes");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    };
+    assert_eq!(record["applied"], 1);
+    assert_eq!(record["events"][0]["scheduled_offset_ns"], 0);
+    assert!(record["events"][0]["applied_elapsed_ns"].as_u64().is_some());
+    assert_eq!(record["cleanup"]["policy"], "restore-initial");
+    assert_eq!(record["cleanup"]["resources"][0]["outcome"], "restored");
+
+    // TOML applies to the same fingerprint.
+    let (ok, out) = cli(admin_addr, &["scenario", "apply", toml_str]);
+    assert!(ok, "{out}");
+    let applied_toml: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(applied_toml["schedule_fingerprint"], fingerprint);
+
+    // A v2 cancel of a finished run returns the final record unchanged.
+    let (ok, out) = cli(admin_addr, &["scenario", "cancel", &run_id]);
+    assert!(ok, "{out}");
+    let cancelled: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(cancelled["status"], "completed");
+
+    let _ = std::fs::remove_file(&json_path);
+    let _ = std::fs::remove_file(&toml_path);
+    admin.shutdown();
+    admin.wait().await;
+    control.shutdown_and_join().await;
+    origin_task.abort();
+}

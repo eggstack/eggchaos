@@ -773,8 +773,23 @@ async fn route(method: &str, segments: &[&str], body: &[u8], state: &ControlStat
         ("GET", ["v1", "history"]) => {
             RouteOutcome::Response(json_response(StatusCode::OK, &state.history().await))
         }
-        ("POST", ["v1", "scenarios", "apply"]) => {
-            match serde_json::from_slice::<crate::ScenarioV1>(body) {
+        ("POST", ["v1", "scenarios", "apply"]) => match version_of(body) {
+            Some(2) => match serde_json::from_slice::<crate::ScenarioScheduleV2Dto>(body) {
+                Ok(dto) => match dto.into_internal() {
+                    Ok(source) => match state.start_schedule_v2(source).await {
+                        Ok(record) => RouteOutcome::Response(json_response(
+                            StatusCode::new(202).expect("accepted status"),
+                            &crate::ScheduleRunV2::from(record),
+                        )),
+                        Err(error) => RouteOutcome::ControlError(crate::ControlError::Invalid(
+                            error.to_string(),
+                        )),
+                    },
+                    Err(error) => RouteOutcome::ControlError(crate::ControlError::Invalid(error)),
+                },
+                Err(error) => RouteOutcome::BadJson(error.to_string()),
+            },
+            _ => match serde_json::from_slice::<crate::ScenarioV1>(body) {
                 Ok(scenario) => match scenario.into_runtime() {
                     Ok(scenario) => match state.start_scenario(scenario).await {
                         Ok(record) => RouteOutcome::Response(json_response(
@@ -788,32 +803,82 @@ async fn route(method: &str, segments: &[&str], body: &[u8], state: &ControlStat
                     Err(error) => RouteOutcome::ControlError(crate::ControlError::Invalid(error)),
                 },
                 Err(error) => RouteOutcome::BadJson(error.to_string()),
+            },
+        },
+        ("POST", ["v1", "scenarios", "validate"]) => {
+            match serde_json::from_slice::<crate::ScenarioScheduleV2Dto>(body) {
+                Ok(dto) => match dto.into_internal() {
+                    Ok(source) => match crate::compile_schedule(&source) {
+                        Ok(compiled) => RouteOutcome::Response(json_response(
+                            StatusCode::OK,
+                            &crate::ScheduleValidateV2::from_compiled(&compiled),
+                        )),
+                        Err(error) => RouteOutcome::ControlError(crate::ControlError::Invalid(
+                            error.to_string(),
+                        )),
+                    },
+                    Err(error) => RouteOutcome::ControlError(crate::ControlError::Invalid(error)),
+                },
+                Err(error) => RouteOutcome::BadJson(error.to_string()),
+            }
+        }
+        ("POST", ["v1", "scenarios", "compile"]) => {
+            match serde_json::from_slice::<crate::ScenarioScheduleV2Dto>(body) {
+                Ok(dto) => match dto.into_internal() {
+                    Ok(source) => match crate::compile_schedule(&source) {
+                        Ok(compiled) => RouteOutcome::Response(json_response(
+                            StatusCode::OK,
+                            &crate::ScheduleCompileV2::from_compiled(&compiled),
+                        )),
+                        Err(error) => RouteOutcome::ControlError(crate::ControlError::Invalid(
+                            error.to_string(),
+                        )),
+                    },
+                    Err(error) => RouteOutcome::ControlError(crate::ControlError::Invalid(error)),
+                },
+                Err(error) => RouteOutcome::BadJson(error.to_string()),
             }
         }
         ("GET", ["v1", "scenarios", id]) => match id.parse::<u64>() {
-            Ok(run_id) => match state.get_scenario(run_id).await {
-                Some(record) => RouteOutcome::Response(json_response(
-                    StatusCode::OK,
-                    &crate::ScenarioRunV1::from(record),
-                )),
-                None => RouteOutcome::ControlError(crate::ControlError::NotFound(format!(
-                    "scenario run {run_id}"
-                ))),
-            },
+            Ok(run_id) => {
+                if let Some(record) = state.get_scenario(run_id).await {
+                    RouteOutcome::Response(json_response(
+                        StatusCode::OK,
+                        &crate::ScenarioRunV1::from(record),
+                    ))
+                } else if let Some(record) = state.get_schedule_v2(run_id).await {
+                    RouteOutcome::Response(json_response(
+                        StatusCode::OK,
+                        &crate::ScheduleRunV2::from(record),
+                    ))
+                } else {
+                    RouteOutcome::ControlError(crate::ControlError::NotFound(format!(
+                        "scenario run {run_id}"
+                    )))
+                }
+            }
             Err(_) => RouteOutcome::ControlError(crate::ControlError::Invalid(
                 "scenario run id must be an integer".into(),
             )),
         },
         ("DELETE", ["v1", "scenarios", id]) => match id.parse::<u64>() {
-            Ok(run_id) => match state.cancel_scenario(run_id).await {
-                Some(record) => RouteOutcome::Response(json_response(
-                    StatusCode::OK,
-                    &crate::ScenarioRunV1::from(record),
-                )),
-                None => RouteOutcome::ControlError(crate::ControlError::NotFound(format!(
-                    "scenario run {run_id}"
-                ))),
-            },
+            Ok(run_id) => {
+                if let Some(record) = state.cancel_scenario(run_id).await {
+                    RouteOutcome::Response(json_response(
+                        StatusCode::OK,
+                        &crate::ScenarioRunV1::from(record),
+                    ))
+                } else if let Some(record) = state.cancel_schedule_v2(run_id).await {
+                    RouteOutcome::Response(json_response(
+                        StatusCode::OK,
+                        &crate::ScheduleRunV2::from(record),
+                    ))
+                } else {
+                    RouteOutcome::ControlError(crate::ControlError::NotFound(format!(
+                        "scenario run {run_id}"
+                    )))
+                }
+            }
             Err(_) => RouteOutcome::ControlError(crate::ControlError::Invalid(
                 "scenario run id must be an integer".into(),
             )),
@@ -828,6 +893,15 @@ fn constant_time_equal(left: &[u8], right: &[u8]) -> bool {
         diff |= usize::from(*a ^ *b);
     }
     diff == 0
+}
+
+/// Peek the `version` field of a scenario apply body without fully
+/// parsing it, so version-aware dispatch can route v1 documents to
+/// the v1 path and v2 schedules to the v2 path. Returns `None` when
+/// the body is not JSON or carries no numeric version.
+fn version_of(body: &[u8]) -> Option<u32> {
+    let value: serde_json::Value = serde_json::from_slice(body).ok()?;
+    value.get("version")?.as_u64()?.try_into().ok()
 }
 
 fn json_response<T: Serialize>(status: StatusCode, value: &T) -> Response {
