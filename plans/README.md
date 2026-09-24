@@ -11,7 +11,7 @@ Eggchaos is intended to be a small Rust-native successor to the useful core of T
 | `roadmap.md` | Long-term architecture, sequencing, release stages, and future extensions. |
 | `registry.md` | Current milestone status and dependency source of truth. |
 | `000-architecture-and-scope-baseline.md` | Investigated baseline, reuse decisions, scope boundaries, and initial dependency graph. |
-| `001-*.md` ... `023-*.md` | Bounded implementation, corrective, cleanup, feature, and qualification handoffs in execution order. |
+| `001-*.md` ... `024-*.md` | Bounded implementation, corrective, cleanup, feature, qualification, and maintenance handoffs in execution order. |
 | `adrs/` | Durable architecture decisions that should not be silently changed by implementation. |
 | `reference/toxiproxy-parity.md` | Compatibility target and semantic mapping. |
 | `reference/verification-matrix.md` | Required evidence across faults, platforms, APIs, and performance. |
@@ -26,7 +26,9 @@ M000–M015 and M008 remain closed historical work. A 2026-09-23 post-M015 repos
 
 M016–M019 are closed. M019 completed the pinned Toxiproxy oracle gate and is the final exact-candidate release qualification authority. The owner may proceed with the v0.1.0 tag, crates.io publication, and GitHub release as separate release actions.
 
-The first activated post-release feature tranche was UDP/datagram impairment under ADR 003: `M020 -> M021 -> M022 -> M023`. All four plans are formally closed with exact-candidate evidence in `plans/closure/`; M023 qualified candidate `ae2ab733b2be199d7693e40cdc558df01ee9a9de`. This does not alter M019's historical v0.1.0 authority. Follow-on datagram work needs a separate plan and, where semantics change, an ADR.
+The first activated post-release feature tranche was UDP/datagram impairment under ADR 003: `M020 -> M021 -> M022 -> M023`. All four plans are formally closed with exact-candidate evidence in `plans/closure/`; M023 qualified candidate `ae2ab733b2be199d7693e40cdc558df01ee9a9de`. This does not alter M019's historical v0.1.0 authority.
+
+M024 is now the only ready handoff: a semantics-preserving datagram hot-path performance and runtime-maintainability pass. It first separates unavoidable proxy-hop cost from chaos-engine overhead with a topology-matched bare relay benchmark, then applies evidence-driven scheduler/hot-path optimization, removes association setup lock-across-await, and decomposes the datagram runtime internally. No ADR change is required unless implementation discovers a semantic change is necessary.
 
 Historical closure records remain preserved at their real candidate commits. M015 remains valid qualification evidence for `cd88b22`; M019 is the final current release-candidate authority at `ca527db`.
 
