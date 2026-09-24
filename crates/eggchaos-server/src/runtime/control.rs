@@ -1,5 +1,23 @@
 use super::*;
 
+fn map_datagram_error(error: DatagramRuntimeError) -> ControlError {
+    match error {
+        DatagramRuntimeError::Invalid(message) => ControlError::Invalid(message),
+        DatagramRuntimeError::Duplicate(name) => {
+            ControlError::Conflict(format!("datagram proxy {name} already exists"))
+        }
+        DatagramRuntimeError::NotFound(name) => ControlError::NotFound(name),
+        DatagramRuntimeError::Bind(error) => ControlError::BindFailed {
+            proxy: "datagram".into(),
+            reason: error.to_string(),
+        },
+        DatagramRuntimeError::AssociationLimit => {
+            ControlError::Invalid("datagram association limit reached".into())
+        }
+        DatagramRuntimeError::Conflict(message) => ControlError::Conflict(message),
+    }
+}
+
 impl ControlState {
     /// Create state holding validated but not yet started definitions.
     /// Definitions report `running: false` until `start_all` or
@@ -147,7 +165,248 @@ impl ControlState {
                 queued.get(&(name.as_str(), "downstream")).copied().unwrap_or(0),
             ));
         }
+        let datagram_proxies = self.runtime.datagrams.proxies().await;
+        let datagram_evidence = self.runtime.datagrams.all_associations().await;
+        text.push_str("# HELP eggchaos_datagram_associations_active Active UDP client associations\n# TYPE eggchaos_datagram_associations_active gauge\n");
+        text.push_str("# HELP eggchaos_datagram_evidence Current plus retained association evidence; kind labels are fixed\n# TYPE eggchaos_datagram_evidence gauge\n");
+        text.push_str("# HELP eggchaos_datagram_fault_activations Current plus retained datagram fault activations\n# TYPE eggchaos_datagram_fault_activations gauge\n");
+        text.push_str("# HELP eggchaos_datagram_proxy_drops Proxy-level UDP admission/drop observations\n# TYPE eggchaos_datagram_proxy_drops gauge\n");
+        text.push_str("# HELP eggchaos_datagram_administrative_discards Queued datagrams discarded by operator lifecycle actions\n# TYPE eggchaos_datagram_administrative_discards gauge\n");
+        for proxy in &datagram_proxies {
+            text.push_str(&format!(
+                "eggchaos_datagram_associations_active{{proxy=\"{}\"}} {}\n",
+                proxy.name, proxy.active_associations
+            ));
+            for (kind, value) in [
+                ("oversize", proxy.oversize_datagrams),
+                ("capacity_rejection", proxy.association_capacity_rejections),
+                ("ingress_queue_overflow", proxy.ingress_queue_overflow),
+                (
+                    "association_setup_failure",
+                    proxy.association_setup_failures,
+                ),
+            ] {
+                text.push_str(&format!(
+                    "eggchaos_datagram_proxy_drops{{proxy=\"{}\",kind=\"{kind}\"}} {value}\n",
+                    proxy.name
+                ));
+            }
+            let administrative_discards = datagram_evidence
+                .iter()
+                .filter(|association| association.proxy == proxy.name)
+                .fold(0u64, |total, association| {
+                    total.saturating_add(association.administrative_discards)
+                });
+            text.push_str(&format!("eggchaos_datagram_administrative_discards{{proxy=\"{}\"}} {administrative_discards}\n", proxy.name));
+            for direction in ["upstream", "downstream"] {
+                let mut totals = [0u64; 12];
+                let mut activations = [0u64; 6];
+                for association in datagram_evidence
+                    .iter()
+                    .filter(|association| association.proxy == proxy.name)
+                {
+                    let evidence = if direction == "upstream" {
+                        &association.upstream_evidence
+                    } else {
+                        &association.downstream_evidence
+                    };
+                    totals[0] = totals[0].saturating_add(evidence.admitted_datagrams);
+                    totals[1] = totals[1].saturating_add(evidence.admitted_bytes);
+                    totals[2] = totals[2].saturating_add(evidence.emitted_datagrams);
+                    totals[3] = totals[3].saturating_add(evidence.emitted_bytes);
+                    totals[4] = totals[4].saturating_add(evidence.configured_loss);
+                    totals[5] = totals[5].saturating_add(evidence.queue_overflow);
+                    totals[6] = totals[6].saturating_add(evidence.duplicated_copies);
+                    totals[7] = totals[7].saturating_add(evidence.corrupted_candidates);
+                    totals[8] = totals[8].saturating_add(evidence.queued_datagrams);
+                    totals[9] = totals[9].saturating_add(evidence.queued_bytes);
+                    totals[10] = totals[10].saturating_add(evidence.high_water_datagrams);
+                    totals[11] = totals[11].saturating_add(evidence.high_water_bytes);
+                    for (slot, value) in activations.iter_mut().zip(evidence.fault_activations) {
+                        *slot = slot.saturating_add(value);
+                    }
+                }
+                for (kind, value) in [
+                    "ingress_datagrams",
+                    "ingress_bytes",
+                    "egress_datagrams",
+                    "egress_bytes",
+                    "configured_loss",
+                    "queue_overflow",
+                    "duplicated_copies",
+                    "corrupted_candidates",
+                    "queued_datagrams",
+                    "queued_bytes",
+                    "high_water_datagrams",
+                    "high_water_bytes",
+                ]
+                .into_iter()
+                .zip(totals)
+                {
+                    text.push_str(&format!("eggchaos_datagram_evidence{{proxy=\"{}\",direction=\"{direction}\",kind=\"{kind}\"}} {value}\n", proxy.name));
+                }
+                for (fault_type, value) in eggchaos_core::DATAGRAM_FAULT_TYPE_NAMES
+                    .into_iter()
+                    .zip(activations)
+                {
+                    text.push_str(&format!("eggchaos_datagram_fault_activations{{proxy=\"{}\",direction=\"{direction}\",fault_type=\"{fault_type}\"}} {value}\n", proxy.name));
+                }
+            }
+        }
         text
+    }
+
+    /// Create and bind a fixed-target UDP proxy in the shared runtime authority.
+    pub async fn create_datagram_proxy(
+        &self,
+        proxy: DatagramProxySpec,
+    ) -> Result<(DatagramProxyView, u64), ControlError> {
+        self.runtime
+            .datagrams
+            .create_proxy(proxy)
+            .await
+            .map(|view| (view, self.next_generation()))
+            .map_err(map_datagram_error)
+    }
+
+    /// List fixed-target UDP proxies.
+    pub async fn datagram_proxies(&self) -> Vec<DatagramProxyView> {
+        self.runtime.datagrams.proxies().await
+    }
+
+    /// Get one fixed-target UDP proxy.
+    pub async fn get_datagram_proxy(&self, name: &str) -> Option<DatagramProxyView> {
+        self.runtime.datagrams.proxy(name).await
+    }
+
+    /// Enable or disable a datagram listener, joining all work when disabled.
+    pub async fn set_datagram_proxy_enabled(
+        &self,
+        name: &str,
+        enabled: bool,
+    ) -> Result<(DatagramProxyView, u64), ControlError> {
+        let view = if enabled {
+            self.runtime
+                .datagrams
+                .enable_proxy(name)
+                .await
+                .map_err(|error| match error {
+                    DatagramRuntimeError::Bind(reason) => ControlError::BindFailed {
+                        proxy: name.into(),
+                        reason: reason.to_string(),
+                    },
+                    other => map_datagram_error(other),
+                })?
+        } else {
+            self.runtime
+                .datagrams
+                .disable_proxy(name)
+                .await
+                .map_err(map_datagram_error)?;
+            self.runtime
+                .datagrams
+                .proxy(name)
+                .await
+                .ok_or_else(|| ControlError::NotFound(name.into()))?
+        };
+        Ok((view, self.next_generation()))
+    }
+
+    /// Apply supported datagram listener/target changes with bind-before-swap
+    /// behavior for a running listener.
+    pub async fn update_datagram_proxy(
+        &self,
+        name: &str,
+        listen: Option<SocketAddr>,
+        upstream: Option<SocketAddr>,
+        max_associations: Option<usize>,
+        association_idle_timeout_ms: Option<u64>,
+        enabled: Option<bool>,
+    ) -> Result<(DatagramProxyView, u64), ControlError> {
+        if association_idle_timeout_ms.is_some_and(|timeout| timeout == 0 || timeout > 86_400_000) {
+            return Err(ControlError::Invalid(
+                "association_idle_timeout_ms must be in 1..=86400000".into(),
+            ));
+        }
+        let view = self
+            .runtime
+            .datagrams
+            .update_proxy(
+                name,
+                listen,
+                upstream,
+                max_associations,
+                association_idle_timeout_ms.map(Duration::from_millis),
+                enabled,
+            )
+            .await
+            .map_err(|error| match error {
+                DatagramRuntimeError::Bind(reason) => ControlError::RestartFailed { proxy: name.into(), reason: format!("replacement listener was not bound; existing definition remains active: {reason}") },
+                other => map_datagram_error(other),
+            })?;
+        Ok((view, self.next_generation()))
+    }
+
+    /// Delete a fixed-target UDP proxy and join all owned work.
+    pub async fn delete_datagram_proxy(&self, name: &str) -> Result<u64, ControlError> {
+        if !self
+            .runtime
+            .datagrams
+            .delete_proxy(name)
+            .await
+            .map_err(map_datagram_error)?
+        {
+            return Err(ControlError::NotFound(name.to_owned()));
+        }
+        Ok(self.next_generation())
+    }
+
+    /// Read one datagram fault plan snapshot.
+    pub async fn get_datagram_plan(
+        &self,
+        name: &str,
+        direction: Direction,
+    ) -> Result<(eggchaos_core::DatagramPlan, u64, u64), ControlError> {
+        self.runtime
+            .datagrams
+            .fault_plan(name, direction)
+            .await
+            .ok_or_else(|| ControlError::NotFound(name.to_owned()))
+    }
+
+    /// Publish one datagram plan. Expected generation prevents stale scenario
+    /// actions from overwriting a concurrent manual change.
+    pub async fn publish_datagram_plan(
+        &self,
+        name: &str,
+        direction: Direction,
+        plan: eggchaos_core::DatagramPlan,
+        seed_namespace: u64,
+        expected_generation: Option<u64>,
+    ) -> Result<u64, ControlError> {
+        let generation = self
+            .runtime
+            .datagrams
+            .publish_fault_plan(name, direction, plan, seed_namespace, expected_generation)
+            .await
+            .map_err(map_datagram_error)?;
+        self.next_generation();
+        Ok(generation)
+    }
+
+    /// List live datagram associations.
+    pub async fn datagram_associations(&self) -> Vec<DatagramAssociationSnapshot> {
+        self.runtime.datagrams.all_associations().await
+    }
+
+    /// Get active or retained datagram association evidence.
+    pub async fn get_datagram_association(&self, id: u64) -> Option<DatagramAssociationSnapshot> {
+        self.runtime.datagrams.association(id).await
+    }
+
+    /// Administratively terminate an active datagram association.
+    pub async fn kill_datagram_association(&self, id: u64) -> bool {
+        self.runtime.datagrams.kill_association(id).await
     }
 
     /// Current configuration generation.
@@ -1088,6 +1347,7 @@ impl ControlState {
     /// transaction; proxies whose bind fails stay disabled and are reported.
     pub async fn reset(&self) -> Result<ResetReport, ControlError> {
         let mut failed_enables = Vec::new();
+        let mut failed_datagram_enables = Vec::new();
         let to_start: Vec<String> = {
             let mut map = self.runtime.proxies.write().await;
             // Terminate active connections through level-triggered tokens.
@@ -1130,10 +1390,59 @@ impl ControlState {
                 failed_enables.push(name);
             }
         }
+        // Reset is global: terminate each association, clear both directional
+        // plans, and make disabled datagram listeners enabled again.
+        let datagram_proxies = self.runtime.datagrams.proxies().await;
+        for proxy in datagram_proxies {
+            for association in self
+                .runtime
+                .datagrams
+                .associations()
+                .await
+                .into_iter()
+                .filter(|a| a.proxy == proxy.name)
+            {
+                self.runtime
+                    .datagrams
+                    .kill_association(association.id)
+                    .await;
+            }
+            for direction in [Direction::Upstream, Direction::Downstream] {
+                if let Some((_, generation, seed)) = self
+                    .runtime
+                    .datagrams
+                    .fault_plan(&proxy.name, direction)
+                    .await
+                {
+                    self.runtime
+                        .datagrams
+                        .publish_fault_plan(
+                            &proxy.name,
+                            direction,
+                            eggchaos_core::DatagramPlan::empty(),
+                            seed,
+                            Some(generation),
+                        )
+                        .await
+                        .map_err(map_datagram_error)?;
+                }
+            }
+            if !proxy.running
+                && self
+                    .runtime
+                    .datagrams
+                    .enable_proxy(&proxy.name)
+                    .await
+                    .is_err()
+            {
+                failed_datagram_enables.push(proxy.name);
+            }
+        }
         Ok(ResetReport {
             generation: self.next_generation(),
             reset: true,
             failed_enables,
+            failed_datagram_enables,
         })
     }
 
@@ -1162,6 +1471,7 @@ impl ControlState {
         }
         let mut scenarios = self.runtime.scenario_tasks.lock().await;
         while scenarios.join_next().await.is_some() {}
+        self.runtime.datagrams.shutdown().await;
     }
 
     /// Actual bound addresses for running proxies.

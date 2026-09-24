@@ -136,3 +136,11 @@ fault type, live per-proxy connection gauges, policy generation gauges,
 and queued-byte gauges. Labels never carry connection IDs, peer addresses,
 scenario run IDs, arbitrary fault IDs, or hostnames. Per-proxy and
 activation series are bounded with overflow buckets.
+
+## Datagram resources
+
+Datagrams use a separate `/v1/datagram-proxies` family: list/create/get/patch/delete proxies, manage directional faults at `/v1/datagram-proxies/{name}/faults[/{id}]`, and list/get/kill associations at `/v1/datagram-associations[/{id}]`. A datagram proxy create body uses `listen`, fixed `upstream`, `max_associations`, `association_idle_timeout_ms`, `max_queued_datagrams`, `max_queued_bytes`, `max_datagram_size`, `seed`, and optional `upstream_faults`/`downstream_faults`. Proxy patches accept listener/upstream changes, association bounds/idle timeout, and `enabled`; a running listener address change binds the replacement first, while a bind failure leaves the current listener serving.
+
+Datagram fault DTOs are separate from stream `FaultKindV1`; `type` is one of `delay`, `loss`, `duplicate`, `reorder`, `payload-corrupt`, or `bandwidth`. Durations use unsigned integer nanoseconds. Association responses include addresses, counters, directional engine evidence, generations, and queue bounds; payload bytes are never captured. Association/client/run/fault IDs never become Prometheus labels. `POST /v1/reset` resets both TCP and UDP definitions: it clears plans, terminates active work, and re-enables listeners; the report separates failed TCP and datagram re-enables. Toxiproxy v2.12 remains TCP/stream-only.
+
+The `datagram` CLI namespace includes `proxy list|get|add|enable|disable|remove`, `fault list|get|add|set|remove`, and `association list|get|kill`. JSON mode remains one document per operation. Scenario v1 adds `set-datagram-plan` and `remove-datagram-fault`; the action carries direction-explicit datagram faults and publishes the scenario-derived seed namespace with an expected-generation guard.

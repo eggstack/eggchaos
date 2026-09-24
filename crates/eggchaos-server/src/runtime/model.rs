@@ -238,6 +238,9 @@ pub struct ResetReport {
     /// Proxies that could not be re-enabled because their bind failed.
     /// Those proxies retain their definitions and stay disabled.
     pub failed_enables: Vec<String>,
+    /// Datagram proxies that could not be re-enabled because their bind failed.
+    #[serde(default)]
+    pub failed_datagram_enables: Vec<String>,
 }
 
 /// Typed control-plane failures with stable machine codes.

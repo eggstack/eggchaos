@@ -7,7 +7,7 @@ use std::{
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
     sync::{
         atomic::{AtomicU64, AtomicUsize, Ordering},
-        Arc, Mutex,
+        Arc, Mutex, RwLock as StdRwLock,
     },
     time::Duration,
 };
@@ -36,7 +36,7 @@ const MAX_INGRESS_BUFFER_BYTES: usize = 1_073_741_824;
 const MAX_IDLE_TIMEOUT: Duration = Duration::from_secs(86_400);
 
 /// Global resource bounds for the datagram runtime.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 pub struct DatagramRuntimeLimits {
     /// Maximum proxy definitions in this runtime.
     pub max_proxies: usize,
@@ -63,7 +63,7 @@ impl Default for DatagramRuntimeLimits {
 }
 
 impl DatagramRuntimeLimits {
-    fn validate(self) -> Result<Self, DatagramRuntimeError> {
+    pub fn validate(self) -> Result<Self, DatagramRuntimeError> {
         if self.max_proxies == 0 || self.max_proxies > MAX_DATAGRAM_PROXIES {
             return Err(DatagramRuntimeError::Invalid(
                 "max_proxies must be 1..=1024".into(),
@@ -144,7 +144,7 @@ impl DatagramProxySpec {
         })
     }
 
-    fn validate(&self, global_associations: usize) -> Result<(), DatagramRuntimeError> {
+    pub(crate) fn validate(&self, global_associations: usize) -> Result<(), DatagramRuntimeError> {
         if self.name.is_empty()
             || self.name.len() > 128
             || !self
@@ -213,6 +213,11 @@ pub struct DatagramProxyView {
     pub upstream: SocketAddr,
     pub running: bool,
     pub max_associations: usize,
+    pub association_idle_timeout_ms: u64,
+    pub max_datagram_size: u64,
+    pub max_queued_datagrams: u64,
+    pub max_queued_bytes: u64,
+    pub seed: u64,
     pub active_associations: usize,
     pub upstream_generation: u64,
     pub downstream_generation: u64,
@@ -256,6 +261,8 @@ pub enum DatagramRuntimeError {
     Bind(#[source] io::Error),
     #[error("datagram runtime has reached its association limit")]
     AssociationLimit,
+    #[error("datagram policy conflict: {0}")]
+    Conflict(String),
 }
 
 struct RuntimeInner {
@@ -279,7 +286,8 @@ struct ListenerOwner {
 }
 
 struct ProxyState {
-    spec: DatagramProxySpec,
+    spec: StdRwLock<DatagramProxySpec>,
+    policy_mutation: AsyncMutex<()>,
     associations: AsyncMutex<HashMap<SocketAddr, Arc<Association>>>,
     global_active: Arc<AtomicUsize>,
     next_id: Arc<AtomicU64>,
@@ -427,7 +435,8 @@ impl DatagramRuntime {
         );
         let bound = socket.local_addr().map_err(DatagramRuntimeError::Bind)?;
         let state = Arc::new(ProxyState {
-            spec: spec.clone(),
+            spec: StdRwLock::new(spec.clone()),
+            policy_mutation: AsyncMutex::new(()),
             associations: AsyncMutex::new(HashMap::new()),
             global_active: self.inner.active_associations.clone(),
             next_id: self.inner.next_association.clone(),
@@ -494,7 +503,13 @@ impl DatagramRuntime {
                 )
                 .await);
             }
-            (managed.state.clone(), managed.state.spec.listen)
+            let listen = managed
+                .state
+                .spec
+                .read()
+                .expect("datagram proxy spec")
+                .listen;
+            (managed.state.clone(), listen)
         };
         let socket = Arc::new(
             UdpSocket::bind(listen)
@@ -551,6 +566,186 @@ impl DatagramRuntime {
         views
     }
 
+    /// Snapshot one named proxy.
+    pub async fn proxy(&self, name: &str) -> Option<DatagramProxyView> {
+        let proxies = self.inner.proxies.lock().await;
+        let managed = proxies.get(name)?;
+        Some(
+            proxy_view(
+                &managed.state,
+                managed.listener.as_ref().map(|owner| owner.bound),
+                managed.listener.is_some(),
+            )
+            .await,
+        )
+    }
+
+    /// Update listener/target/lifecycle settings. Address changes bind a
+    /// replacement listener before stopping the current one; target changes
+    /// retain the listener but cancel existing associations so only future
+    /// associations use the new fixed target.
+    pub async fn update_proxy(
+        &self,
+        name: &str,
+        listen: Option<SocketAddr>,
+        upstream: Option<SocketAddr>,
+        max_associations: Option<usize>,
+        association_idle_timeout: Option<Duration>,
+        enabled: Option<bool>,
+    ) -> Result<DatagramProxyView, DatagramRuntimeError> {
+        let (state, running, mut next) = {
+            let proxies = self.inner.proxies.lock().await;
+            let managed = proxies
+                .get(name)
+                .ok_or_else(|| DatagramRuntimeError::NotFound(name.into()))?;
+            let next = managed
+                .state
+                .spec
+                .read()
+                .expect("datagram proxy spec")
+                .clone();
+            (managed.state.clone(), managed.listener.is_some(), next)
+        };
+        let old = state.spec.read().expect("datagram proxy spec").clone();
+        if let Some(listen) = listen {
+            next.listen = listen;
+        }
+        if let Some(upstream) = upstream {
+            next.upstream = upstream;
+        }
+        if let Some(max_associations) = max_associations {
+            next.max_associations = max_associations;
+        }
+        if let Some(timeout) = association_idle_timeout {
+            next.association_idle_timeout = timeout;
+        }
+        next.validate(self.inner.limits.max_associations)?;
+        if state.associations.lock().await.len() > next.max_associations {
+            return Err(DatagramRuntimeError::Invalid(
+                "max_associations cannot be lower than the current active count".into(),
+            ));
+        }
+        let listen_changed = next.listen != old.listen;
+        let upstream_changed = next.upstream != old.upstream;
+        let desired_running = enabled.unwrap_or(running);
+        let prebound = if desired_running && (!running || listen_changed) {
+            Some(Arc::new(
+                UdpSocket::bind(next.listen)
+                    .await
+                    .map_err(DatagramRuntimeError::Bind)?,
+            ))
+        } else {
+            None
+        };
+        let bound = if let Some(socket) = &prebound {
+            Some(socket.local_addr().map_err(DatagramRuntimeError::Bind)?)
+        } else {
+            None
+        };
+        let must_stop_old = running && (!desired_running || listen_changed);
+        let old_owner = if must_stop_old {
+            let mut proxies = self.inner.proxies.lock().await;
+            proxies
+                .get_mut(name)
+                .and_then(|managed| managed.listener.take())
+        } else {
+            None
+        };
+        if let Some(owner) = old_owner {
+            owner.cancel.cancel();
+            let _ = owner.task.await;
+        }
+        if upstream_changed && !must_stop_old {
+            let stale = {
+                let mut associations = state.associations.lock().await;
+                *state.spec.write().expect("datagram proxy spec") = next;
+                associations
+                    .drain()
+                    .map(|(_, association)| association)
+                    .collect::<Vec<_>>()
+            };
+            for association in stale {
+                stop_association(&state, association, true).await;
+            }
+        } else {
+            *state.spec.write().expect("datagram proxy spec") = next;
+        }
+        if let Some(socket) = prebound {
+            let owner = spawn_listener(socket, state.clone());
+            let mut proxies = self.inner.proxies.lock().await;
+            let managed = proxies
+                .get_mut(name)
+                .ok_or_else(|| DatagramRuntimeError::NotFound(name.into()))?;
+            managed.listener = Some(owner);
+        }
+        let proxies = self.inner.proxies.lock().await;
+        let managed = proxies
+            .get(name)
+            .ok_or_else(|| DatagramRuntimeError::NotFound(name.into()))?;
+        Ok(proxy_view(
+            &state,
+            bound.or_else(|| managed.listener.as_ref().map(|owner| owner.bound)),
+            managed.listener.is_some(),
+        )
+        .await)
+    }
+
+    /// Read a directional plan and its generation/namespace as one snapshot.
+    pub async fn fault_plan(
+        &self,
+        name: &str,
+        direction: Direction,
+    ) -> Option<(DatagramPlan, u64, u64)> {
+        let proxies = self.inner.proxies.lock().await;
+        let state = &proxies.get(name)?.state;
+        let spec = state.spec.read().expect("datagram proxy spec").clone();
+        let snapshot = match direction {
+            Direction::Upstream => spec.upstream_policy.snapshot(),
+            Direction::Downstream => spec.downstream_policy.snapshot(),
+        };
+        Some((
+            (*snapshot.plan).clone(),
+            snapshot.generation,
+            snapshot.seed_namespace,
+        ))
+    }
+
+    /// Publish one directional plan with optional expected-generation guard.
+    pub async fn publish_fault_plan(
+        &self,
+        name: &str,
+        direction: Direction,
+        plan: DatagramPlan,
+        seed_namespace: u64,
+        expected_generation: Option<u64>,
+    ) -> Result<u64, DatagramRuntimeError> {
+        plan.validate()
+            .map_err(|error| DatagramRuntimeError::Invalid(error.into()))?;
+        let proxies = self.inner.proxies.lock().await;
+        let state = &proxies
+            .get(name)
+            .ok_or_else(|| DatagramRuntimeError::NotFound(name.into()))?
+            .state;
+        let _guard = state.policy_mutation.lock().await;
+        let spec = state.spec.read().expect("datagram proxy spec").clone();
+        let policy = match direction {
+            Direction::Upstream => &spec.upstream_policy,
+            Direction::Downstream => &spec.downstream_policy,
+        };
+        let current = policy.snapshot();
+        if expected_generation.is_some_and(|expected| expected != current.generation) {
+            return Err(DatagramRuntimeError::Conflict(format!(
+                "generation moved from {} to {}",
+                expected_generation.unwrap(),
+                current.generation
+            )));
+        }
+        policy
+            .publish(plan, seed_namespace)
+            .map(|snapshot| snapshot.generation)
+            .map_err(|error| DatagramRuntimeError::Invalid(error.into()))
+    }
+
     /// Active association snapshots.
     pub async fn associations(&self) -> Vec<DatagramAssociationSnapshot> {
         let proxies = self.inner.proxies.lock().await;
@@ -568,6 +763,21 @@ impl DatagramRuntime {
             }
         }
         views.sort_by_key(|x| x.id);
+        views
+    }
+
+    /// Active plus retained completed association evidence, newest last.
+    pub async fn all_associations(&self) -> Vec<DatagramAssociationSnapshot> {
+        let mut views = self
+            .inner
+            .history
+            .lock()
+            .expect("association history")
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        views.extend(self.associations().await);
+        views.sort_by_key(|view| view.id);
         views
     }
 
@@ -628,16 +838,25 @@ async fn proxy_view(
     bound: Option<SocketAddr>,
     running: bool,
 ) -> DatagramProxyView {
+    let spec = state.spec.read().expect("datagram proxy spec").clone();
     DatagramProxyView {
-        name: state.spec.name.clone(),
-        listen: state.spec.listen,
+        name: spec.name.clone(),
+        listen: spec.listen,
         bound_addr: bound,
-        upstream: state.spec.upstream,
+        upstream: spec.upstream,
         running,
-        max_associations: state.spec.max_associations,
+        max_associations: spec.max_associations,
+        association_idle_timeout_ms: spec
+            .association_idle_timeout
+            .as_millis()
+            .min(u64::MAX as u128) as u64,
+        max_datagram_size: spec.queue_limits.max_datagram_bytes.get(),
+        max_queued_datagrams: spec.queue_limits.max_queued_datagrams.get(),
+        max_queued_bytes: spec.queue_limits.max_queued_bytes.get(),
+        seed: spec.seed,
         active_associations: state.associations.lock().await.len(),
-        upstream_generation: state.spec.upstream_policy.snapshot().generation,
-        downstream_generation: state.spec.downstream_policy.snapshot().generation,
+        upstream_generation: spec.upstream_policy.snapshot().generation,
+        downstream_generation: spec.downstream_policy.snapshot().generation,
         oversize_datagrams: state.counters.oversize_datagrams.load(Ordering::Relaxed),
         association_capacity_rejections: state.counters.capacity_rejections.load(Ordering::Relaxed),
         ingress_queue_overflow: state.counters.ingress_overflow.load(Ordering::Relaxed),
@@ -710,7 +929,8 @@ async fn receive_client_datagram(
     client: SocketAddr,
     payload: Bytes,
 ) {
-    if payload.len() as u64 > state.spec.queue_limits.max_datagram_bytes.get() {
+    let spec = state.spec.read().expect("datagram proxy spec").clone();
+    if payload.len() as u64 > spec.queue_limits.max_datagram_bytes.get() {
         state
             .counters
             .oversize_datagrams
@@ -743,7 +963,7 @@ async fn receive_client_datagram(
             }
         },
     };
-    let policy = state.spec.upstream_policy.snapshot();
+    let policy = spec.upstream_policy.snapshot();
     let ingress_bytes = payload.len() as u64;
     let Some(reservation) = reserve_ingress(
         state.ingress_buffered_bytes.clone(),
@@ -797,7 +1017,8 @@ async fn create_association(
     if let Some(association) = associations.get(&client) {
         return Ok(association.clone());
     }
-    if associations.len() >= state.spec.max_associations {
+    let spec = state.spec.read().expect("datagram proxy spec").clone();
+    if associations.len() >= spec.max_associations {
         return Err(DatagramRuntimeError::AssociationLimit);
     }
     let prior = state.global_active.fetch_add(1, Ordering::AcqRel);
@@ -805,7 +1026,7 @@ async fn create_association(
         state.global_active.fetch_sub(1, Ordering::AcqRel);
         return Err(DatagramRuntimeError::AssociationLimit);
     }
-    let local = match state.spec.upstream.ip() {
+    let local = match spec.upstream.ip() {
         IpAddr::V4(_) => SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0),
         IpAddr::V6(_) => SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0),
     };
@@ -816,7 +1037,7 @@ async fn create_association(
             return Err(DatagramRuntimeError::Bind(error));
         }
     };
-    if let Err(error) = upstream.connect(state.spec.upstream).await {
+    if let Err(error) = upstream.connect(spec.upstream).await {
         state.global_active.fetch_sub(1, Ordering::AcqRel);
         return Err(DatagramRuntimeError::Bind(error));
     }
@@ -824,9 +1045,9 @@ async fn create_association(
     let now = Instant::now();
     let record = Arc::new(Mutex::new(AssociationRecord {
         id,
-        proxy: state.spec.name.clone(),
+        proxy: spec.name.clone(),
         client,
-        upstream: state.spec.upstream,
+        upstream: spec.upstream,
         created: now,
         last_activity: now,
         ingress_datagrams: 0,
@@ -855,7 +1076,7 @@ async fn create_association(
     let worker = tokio::spawn(association_loop(
         upstream,
         socket,
-        state.spec.clone(),
+        spec,
         receiver,
         association.clone(),
         record,
@@ -1019,6 +1240,11 @@ fn update_evidence(
 
 async fn reap_idle(state: &Arc<ProxyState>) {
     let now = Instant::now();
+    let idle_timeout = state
+        .spec
+        .read()
+        .expect("datagram proxy spec")
+        .association_idle_timeout;
     let expired: Vec<SocketAddr> = {
         let associations = state.associations.lock().await;
         associations
@@ -1029,8 +1255,7 @@ async fn reap_idle(state: &Arc<ProxyState>) {
                     && record.downstream_evidence.queued_datagrams == 0;
                 (queues_empty
                     && association.pending_ingress.load(Ordering::Relaxed) == 0
-                    && now.saturating_duration_since(record.last_activity)
-                        >= state.spec.association_idle_timeout)
+                    && now.saturating_duration_since(record.last_activity) >= idle_timeout)
                     .then_some(*client)
             })
             .collect()
@@ -1390,6 +1615,37 @@ mod tests {
         let snapshot = runtime.associations().await.remove(0);
         assert_eq!(snapshot.upstream_evidence.duplicated_copies, 1);
         assert_eq!(snapshot.downstream_evidence.duplicated_copies, 2);
+        runtime.shutdown().await;
+        stop_target.cancel();
+    }
+
+    #[tokio::test]
+    async fn restart_patch_bind_failure_keeps_old_udp_listener_serving() {
+        let (target, stop_target) = echo_target().await;
+        let runtime = DatagramRuntime::new(DatagramRuntimeLimits::default()).unwrap();
+        let spec =
+            DatagramProxySpec::new("rollback", "127.0.0.1:0".parse().unwrap(), target, limits())
+                .unwrap();
+        let original = runtime.create_proxy(spec).await.unwrap();
+        let blocker = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let conflict_addr = blocker.local_addr().unwrap();
+        let result = runtime
+            .update_proxy("rollback", Some(conflict_addr), None, None, None, None)
+            .await;
+        assert!(matches!(result, Err(DatagramRuntimeError::Bind(_))));
+        let current = runtime.proxy("rollback").await.unwrap();
+        assert_eq!(current.bound_addr, original.bound_addr);
+        let client = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        client
+            .send_to(b"still-serving", current.bound_addr.unwrap())
+            .await
+            .unwrap();
+        let mut buf = [0u8; 32];
+        let (size, _) = timeout(Duration::from_secs(2), client.recv_from(&mut buf))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(&buf[..size], b"still-serving");
         runtime.shutdown().await;
         stop_target.cancel();
     }

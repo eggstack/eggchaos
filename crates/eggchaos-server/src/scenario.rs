@@ -1,6 +1,8 @@
 use std::time::Duration;
 
-use eggchaos_core::{derive_policy_seed, Direction, FaultId, FaultPlan, FaultSpec};
+use eggchaos_core::{
+    derive_policy_seed, DatagramFaultSpec, DatagramPlan, Direction, FaultId, FaultPlan, FaultSpec,
+};
 use serde::{Deserialize, Serialize};
 use tokio::time::sleep;
 
@@ -38,6 +40,18 @@ pub enum ScenarioAction {
     },
     /// Remove one fault from a directional plan.
     RemoveFault {
+        proxy: String,
+        direction: Direction,
+        id: String,
+    },
+    /// Replace one directional datagram fault plan.
+    SetDatagramPlan {
+        proxy: String,
+        direction: Direction,
+        faults: Vec<DatagramFaultSpec>,
+    },
+    /// Remove one directional datagram fault by identity.
+    RemoveDatagramFault {
         proxy: String,
         direction: Direction,
         id: String,
@@ -131,6 +145,58 @@ async fn validate_action(
     state: &ControlState,
     action: &ScenarioAction,
 ) -> Result<(), EggchaosError> {
+    match action {
+        ScenarioAction::SetDatagramPlan {
+            proxy,
+            direction,
+            faults,
+        } => {
+            DatagramPlan::new(faults.clone())
+                .map_err(|error| EggchaosError::InvalidProxy(error.into()))?;
+            state.get_datagram_proxy(proxy).await.ok_or_else(|| {
+                EggchaosError::InvalidProxy("scenario datagram proxy not found".into())
+            })?;
+            let other_direction = match direction {
+                Direction::Upstream => Direction::Downstream,
+                Direction::Downstream => Direction::Upstream,
+            };
+            let (other, _, _) = state
+                .get_datagram_plan(proxy, other_direction)
+                .await
+                .map_err(EggchaosError::Control)?;
+            if faults.iter().any(|fault| {
+                other
+                    .faults()
+                    .iter()
+                    .any(|existing| existing.id == fault.id)
+            }) {
+                return Err(EggchaosError::InvalidProxy(
+                    "datagram fault IDs must be unique across directions".into(),
+                ));
+            }
+            return Ok(());
+        }
+        ScenarioAction::RemoveDatagramFault {
+            proxy,
+            direction,
+            id,
+        } => {
+            FaultId::new(id.clone()).map_err(|error| {
+                EggchaosError::InvalidProxy(format!("invalid fault id: {error}"))
+            })?;
+            let (plan, _, _) = state
+                .get_datagram_plan(proxy, *direction)
+                .await
+                .map_err(EggchaosError::Control)?;
+            if !plan.faults().iter().any(|fault| fault.id.as_str() == id) {
+                return Err(EggchaosError::InvalidProxy(format!(
+                    "scenario datagram fault {id} not present on {proxy}"
+                )));
+            }
+            return Ok(());
+        }
+        _ => {}
+    }
     let (proxy, direction, id) = match action {
         ScenarioAction::SetPlan {
             proxy,
@@ -149,6 +215,9 @@ async fn validate_action(
                 EggchaosError::InvalidProxy(format!("invalid fault id: {error}"))
             })?;
             (proxy, *direction, Some(id.clone()))
+        }
+        ScenarioAction::SetDatagramPlan { .. } | ScenarioAction::RemoveDatagramFault { .. } => {
+            unreachable!()
         }
     };
     let Some((upstream, downstream)) = state.snapshot_policies(proxy).await else {
@@ -209,8 +278,149 @@ pub async fn drive_scenario_run(
             }
             | ScenarioAction::RemoveFault {
                 proxy, direction, ..
+            }
+            | ScenarioAction::SetDatagramPlan {
+                proxy, direction, ..
+            }
+            | ScenarioAction::RemoveDatagramFault {
+                proxy, direction, ..
             } => (proxy.clone(), *direction),
         };
+        if matches!(
+            &event.action,
+            ScenarioAction::SetDatagramPlan { .. } | ScenarioAction::RemoveDatagramFault { .. }
+        ) {
+            let (base, expected, _) = match state.get_datagram_plan(&proxy, direction).await {
+                Ok(snapshot) => snapshot,
+                Err(error) => {
+                    fail_run(
+                        &state,
+                        run_id,
+                        format!("scenario datagram proxy {proxy} not found: {error}"),
+                    )
+                    .await;
+                    return;
+                }
+            };
+            let mut faults = base.faults().to_vec();
+            let summary = match &event.action {
+                ScenarioAction::SetDatagramPlan {
+                    faults: replacement,
+                    ..
+                } => {
+                    match DatagramPlan::new(replacement.clone()) {
+                        Ok(plan) => faults = plan.faults().to_vec(),
+                        Err(error) => {
+                            fail_run(
+                                &state,
+                                run_id,
+                                format!("scenario datagram plan invalid: {error}"),
+                            )
+                            .await;
+                            return;
+                        }
+                    }
+                    let other_direction = match direction {
+                        Direction::Upstream => Direction::Downstream,
+                        Direction::Downstream => Direction::Upstream,
+                    };
+                    let (other, _, _) = match state.get_datagram_plan(&proxy, other_direction).await
+                    {
+                        Ok(value) => value,
+                        Err(error) => {
+                            fail_run(
+                                &state,
+                                run_id,
+                                format!("scenario datagram proxy {proxy} not found: {error}"),
+                            )
+                            .await;
+                            return;
+                        }
+                    };
+                    if replacement.iter().any(|fault| {
+                        other
+                            .faults()
+                            .iter()
+                            .any(|existing| existing.id == fault.id)
+                    }) {
+                        fail_run(
+                            &state,
+                            run_id,
+                            "datagram fault IDs must be unique across directions".into(),
+                        )
+                        .await;
+                        return;
+                    }
+                    "set-datagram-plan"
+                }
+                ScenarioAction::RemoveDatagramFault { id, .. } => {
+                    if !faults.iter().any(|fault| fault.id.as_str() == id) {
+                        fail_run(
+                            &state,
+                            run_id,
+                            format!("scenario datagram fault {id} not present on {proxy}"),
+                        )
+                        .await;
+                        return;
+                    }
+                    faults.retain(|fault| fault.id.as_str() != id);
+                    "remove-datagram-fault"
+                }
+                _ => unreachable!(),
+            };
+            let plan = match DatagramPlan::new(faults) {
+                Ok(plan) => plan,
+                Err(error) => {
+                    fail_run(
+                        &state,
+                        run_id,
+                        format!("scenario datagram plan invalid: {error}"),
+                    )
+                    .await;
+                    return;
+                }
+            };
+            let namespace = derive_policy_seed(scenario.seed, run_id, index as u64);
+            let published = state
+                .publish_datagram_plan(&proxy, direction, plan, namespace, Some(expected))
+                .await;
+            let generation = match published {
+                Ok(value) => value,
+                Err(error) => {
+                    fail_run(&state, run_id, format!("scenario event failed: {error}")).await;
+                    return;
+                }
+            };
+            let other_direction = match direction {
+                Direction::Upstream => Direction::Downstream,
+                Direction::Downstream => Direction::Upstream,
+            };
+            let (_, other_generation, _) = state
+                .get_datagram_plan(&proxy, other_direction)
+                .await
+                .expect("proxy remains registered");
+            let (upstream_generation, downstream_generation) = match direction {
+                Direction::Upstream => (generation, other_generation),
+                Direction::Downstream => (other_generation, generation),
+            };
+            let trail = ScenarioEventResult {
+                index,
+                at_ms: event.at_ms,
+                action: summary.into(),
+                proxy,
+                direction,
+                global_generation: state.generation(),
+                upstream_generation,
+                downstream_generation,
+            };
+            state
+                .update_scenario_run(run_id, |record| {
+                    record.applied += 1;
+                    record.trail.push(trail);
+                })
+                .await;
+            continue;
+        }
         let Some((base_upstream, base_downstream)) = state.snapshot_policies(&proxy).await else {
             fail_run(&state, run_id, format!("scenario proxy {proxy} not found")).await;
             return;
@@ -251,6 +461,9 @@ pub async fn drive_scenario_run(
                     Direction::Downstream => downstream = downstream.without_fault(id),
                 }
                 "remove-fault"
+            }
+            ScenarioAction::SetDatagramPlan { .. } | ScenarioAction::RemoveDatagramFault { .. } => {
+                unreachable!()
             }
         };
         // The scenario seed participates in deterministic engine decisions

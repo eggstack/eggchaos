@@ -52,6 +52,11 @@ enum Command {
         #[command(subcommand)]
         command: ConnectionCommand,
     },
+    /// Operate on fixed-target UDP datagram resources.
+    Datagram {
+        #[command(subcommand)]
+        command: DatagramCommand,
+    },
     /// Apply or inspect a deterministic scenario run.
     Scenario {
         #[command(subcommand)]
@@ -183,6 +188,125 @@ enum ConnectionCommand {
     /// Get one active connection.
     Get { id: u64 },
     /// Terminate one active connection.
+    Kill { id: u64 },
+}
+
+#[derive(Subcommand)]
+enum DatagramCommand {
+    Proxy {
+        #[command(subcommand)]
+        command: DatagramProxyCommand,
+    },
+    Fault {
+        #[command(subcommand)]
+        command: DatagramFaultCommand,
+    },
+    Association {
+        #[command(subcommand)]
+        command: DatagramAssociationCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum DatagramProxyCommand {
+    List,
+    Get {
+        name: String,
+    },
+    Add {
+        name: String,
+        #[arg(long)]
+        listen: SocketAddr,
+        #[arg(long)]
+        upstream: SocketAddr,
+        #[arg(long, default_value_t = 256)]
+        max_associations: usize,
+        #[arg(long, default_value_t = 60_000)]
+        association_idle_timeout_ms: u64,
+        #[arg(long, default_value_t = 1024)]
+        max_queued_datagrams: u64,
+        #[arg(long, default_value_t = 4 * 1024 * 1024)]
+        max_queued_bytes: u64,
+        #[arg(long, default_value_t = 65_507)]
+        max_datagram_size: u64,
+        #[arg(long, default_value_t = 0)]
+        seed: u64,
+    },
+    Set {
+        name: String,
+        #[arg(long)]
+        listen: Option<SocketAddr>,
+        #[arg(long)]
+        upstream: Option<SocketAddr>,
+        #[arg(long)]
+        max_associations: Option<usize>,
+        #[arg(long)]
+        association_idle_timeout_ms: Option<u64>,
+        #[arg(long, conflicts_with = "disable")]
+        enable: bool,
+        #[arg(long)]
+        disable: bool,
+    },
+    Enable {
+        name: String,
+    },
+    Disable {
+        name: String,
+    },
+    Remove {
+        name: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum DatagramFaultCommand {
+    List {
+        proxy: String,
+    },
+    Get {
+        proxy: String,
+        id: String,
+    },
+    Add {
+        proxy: String,
+        id: String,
+        #[arg(long, default_value = "upstream")]
+        direction: String,
+        #[arg(long, default_value_t = 1.0)]
+        probability: f64,
+        #[arg(long)]
+        kind: String,
+        #[arg(long)]
+        delay_ns: Option<u64>,
+        #[arg(long)]
+        jitter_ns: Option<u64>,
+        #[arg(long)]
+        additional_copies: Option<u8>,
+        #[arg(long)]
+        hold_ns: Option<u64>,
+        #[arg(long)]
+        bytes: Option<u64>,
+        #[arg(long)]
+        bytes_per_second: Option<u64>,
+        #[arg(long)]
+        burst_bytes: Option<u64>,
+    },
+    Set {
+        proxy: String,
+        id: String,
+        #[arg(long)]
+        probability: f64,
+    },
+    Remove {
+        proxy: String,
+        id: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum DatagramAssociationCommand {
+    List,
+    Get { id: u64 },
     Kill { id: u64 },
 }
 
@@ -522,6 +646,51 @@ async fn dispatch(
                 .await
             }
         },
+        Command::Datagram { command } => match command {
+            DatagramCommand::Proxy { command } => match command {
+                DatagramProxyCommand::List => request(admin, admin_token, "GET", "/v1/datagram-proxies", None, json).await,
+                DatagramProxyCommand::Get { name } => request(admin, admin_token, "GET", &format!("/v1/datagram-proxies/{name}"), None, json).await,
+                DatagramProxyCommand::Add { name, listen, upstream, max_associations, association_idle_timeout_ms, max_queued_datagrams, max_queued_bytes, max_datagram_size, seed } => request(admin, admin_token, "POST", "/v1/datagram-proxies", Some(serde_json::json!({"name":name,"listen":listen,"upstream":upstream,"max_associations":max_associations,"association_idle_timeout_ms":association_idle_timeout_ms,"max_queued_datagrams":max_queued_datagrams,"max_queued_bytes":max_queued_bytes,"max_datagram_size":max_datagram_size,"seed":seed})), json).await,
+                DatagramProxyCommand::Set { name, listen, upstream, max_associations, association_idle_timeout_ms, enable, disable } => {
+                    let mut patch = serde_json::Map::new();
+                    if let Some(value) = listen { patch.insert("listen".into(), serde_json::to_value(value)?); }
+                    if let Some(value) = upstream { patch.insert("upstream".into(), serde_json::to_value(value)?); }
+                    if let Some(value) = max_associations { patch.insert("max_associations".into(), value.into()); }
+                    if let Some(value) = association_idle_timeout_ms { patch.insert("association_idle_timeout_ms".into(), value.into()); }
+                    if enable { patch.insert("enabled".into(), true.into()); }
+                    if disable { patch.insert("enabled".into(), false.into()); }
+                    if patch.is_empty() { return Err("datagram proxy set requires at least one field".into()); }
+                    request(admin, admin_token, "PATCH", &format!("/v1/datagram-proxies/{name}"), Some(patch.into()), json).await
+                }
+                DatagramProxyCommand::Enable { name } => request(admin, admin_token, "PATCH", &format!("/v1/datagram-proxies/{name}"), Some(serde_json::json!({"enabled":true})), json).await,
+                DatagramProxyCommand::Disable { name } => request(admin, admin_token, "PATCH", &format!("/v1/datagram-proxies/{name}"), Some(serde_json::json!({"enabled":false})), json).await,
+                DatagramProxyCommand::Remove { name } => request(admin, admin_token, "DELETE", &format!("/v1/datagram-proxies/{name}"), None, json).await,
+            },
+            DatagramCommand::Fault { command } => match command {
+                DatagramFaultCommand::List { proxy } => request(admin, admin_token, "GET", &format!("/v1/datagram-proxies/{proxy}/faults"), None, json).await,
+                DatagramFaultCommand::Get { proxy, id } => request(admin, admin_token, "GET", &format!("/v1/datagram-proxies/{proxy}/faults/{}", encode_path_component(&id)), None, json).await,
+                DatagramFaultCommand::Set { proxy, id, probability } => request(admin, admin_token, "PATCH", &format!("/v1/datagram-proxies/{proxy}/faults/{}", encode_path_component(&id)), Some(serde_json::json!({"probability":probability})), json).await,
+                DatagramFaultCommand::Remove { proxy, id } => request(admin, admin_token, "DELETE", &format!("/v1/datagram-proxies/{proxy}/faults/{}", encode_path_component(&id)), None, json).await,
+                DatagramFaultCommand::Add { proxy, id, direction, probability, kind, delay_ns, jitter_ns, additional_copies, hold_ns, bytes, bytes_per_second, burst_bytes } => {
+                    check_direction(&direction)?;
+                    let behavior = match kind.as_str() {
+                        "delay" => serde_json::json!({"type":"delay","delay_ns":required("delay-ns",delay_ns)?,"jitter_ns":jitter_ns.unwrap_or(0)}),
+                        "loss" => serde_json::json!({"type":"loss"}),
+                        "duplicate" => serde_json::json!({"type":"duplicate","additional_copies":required("additional-copies",additional_copies)?}),
+                        "reorder" => serde_json::json!({"type":"reorder","hold_ns":required("hold-ns",hold_ns)?}),
+                        "payload-corrupt" => serde_json::json!({"type":"payload-corrupt","bytes":required("bytes",bytes)?}),
+                        "bandwidth" => serde_json::json!({"type":"bandwidth","bytes_per_second":required("bytes-per-second",bytes_per_second)?,"burst_bytes":required("burst-bytes",burst_bytes)?}),
+                        _ => return Err("kind must be delay, loss, duplicate, reorder, payload-corrupt, or bandwidth".into()),
+                    };
+                    request(admin, admin_token, "POST", &format!("/v1/datagram-proxies/{proxy}/faults"), Some(serde_json::json!({"direction":direction,"id":id,"probability":probability,"kind":behavior})), json).await
+                }
+            },
+            DatagramCommand::Association { command } => match command {
+                DatagramAssociationCommand::List => request(admin, admin_token, "GET", "/v1/datagram-associations", None, json).await,
+                DatagramAssociationCommand::Get { id } => request(admin, admin_token, "GET", &format!("/v1/datagram-associations/{id}"), None, json).await,
+                DatagramAssociationCommand::Kill { id } => request(admin, admin_token, "DELETE", &format!("/v1/datagram-associations/{id}"), None, json).await,
+            },
+        },
     }
 }
 
@@ -602,9 +771,11 @@ fn build_kind(
 async fn serve(path: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     let config = NativeConfig::load(path).await?;
     let proxies = config.compile_proxies()?;
+    let datagram_proxies = config.compile_datagram_proxies()?;
     let runtime = config.runtime;
     let service = ServiceBuilder::new(config.seed)
         .proxy_all(proxies.clone())
+        .datagram_proxy_all(datagram_proxies)
         .limits(
             runtime
                 .limits()
@@ -619,6 +790,11 @@ async fn serve(path: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
             runtime
                 .termination_grace()
                 .map_err(|error| format!("invalid runtime config: {error}"))?,
+        )
+        .datagram_limits(
+            runtime
+                .datagram_limits()
+                .map_err(|error| format!("invalid datagram runtime config: {error}"))?,
         )
         .build()?;
     let handle = service.start().await?;

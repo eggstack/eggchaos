@@ -1,16 +1,17 @@
 # eggchaos
 
-Rust-native, fixed-target chaos proxy with an embeddable deterministic
-byte-stream fault engine.
+Rust-native, fixed-target chaos proxy with embeddable deterministic stream and
+whole-datagram fault engines.
 
 Put eggchaos between your service and a dependency, then inject latency,
 bandwidth limits, blackholes, byte limits, slow closes, slicing, or
 disconnects — reproducibly, from versioned seeds. Faults apply per direction
 (`upstream` is client→target, `downstream` is target→client).
 
-Eggchaos is not a forward proxy, packet-loss simulator, TLS intercept, or UDP
-impairment engine. Faults are user-space byte-stream operations, not IP/TCP
-packet behavior.
+Eggchaos is not a forward proxy, TLS intercept, or IP-layer impairment tool.
+Its TCP faults shape user-space byte streams; its fixed-target UDP runtime
+shapes whole application datagrams and does not simulate fragmentation,
+checksums, or lower-layer packet behavior.
 
 ## Install
 
@@ -74,6 +75,13 @@ eggchaos connection list
 eggchaos connection kill <id>
 eggchaos reset
 ```
+
+For a fixed-target UDP service, configure a `[[datagram_proxies]]` entry or use
+`eggchaos datagram proxy add dns --listen 127.0.0.1:15353 --upstream 127.0.0.1:5353`.
+Manage whole-datagram faults with `eggchaos datagram fault add dns loss --kind loss
+--direction upstream`, and inspect client associations with
+`eggchaos datagram association list`. These native resources do not extend the
+Toxiproxy v2.12 TCP compatibility API.
 
 The admin API defaults to `http://127.0.0.1:8475` (override with
 `--admin <url>`); add `--json` for one machine-readable JSON document per

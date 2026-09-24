@@ -6,8 +6,9 @@ use std::{
 };
 
 use eggchaos_core::{
-    BandwidthConfig, BlackholeConfig, DisconnectConfig, FaultId, FaultKind, FaultPlan, FaultSpec,
-    LatencyConfig, LimitDataConfig, Probability, SliceConfig, SlowCloseConfig,
+    BandwidthConfig, BlackholeConfig, DatagramFaultKind, DatagramFaultSpec, DatagramPlan,
+    DatagramQueueLimits, DisconnectConfig, FaultId, FaultKind, FaultPlan, FaultSpec, LatencyConfig,
+    LimitDataConfig, Probability, SliceConfig, SlowCloseConfig,
 };
 use serde::{Deserialize, Serialize};
 
@@ -471,6 +472,67 @@ pub struct RuntimeConfigV1 {
     /// Graceful termination drain period in milliseconds.
     #[serde(default = "default_termination_grace_ms")]
     pub termination_grace_ms: u64,
+    /// Datagram runtime global bounds.
+    #[serde(default)]
+    pub datagram: DatagramRuntimeConfigV1,
+}
+
+/// Global limits for the separate datagram resource family.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DatagramRuntimeConfigV1 {
+    #[serde(default = "default_dgram_proxies")]
+    pub max_proxies: usize,
+    #[serde(default = "default_dgram_associations")]
+    pub max_associations: usize,
+    #[serde(default = "default_dgram_history")]
+    pub history: usize,
+    #[serde(default = "default_dgram_ingress_slots")]
+    pub ingress_per_association: usize,
+    #[serde(default = "default_dgram_ingress_bytes")]
+    pub max_ingress_queue_bytes: usize,
+}
+
+const fn default_dgram_proxies() -> usize {
+    128
+}
+const fn default_dgram_associations() -> usize {
+    4096
+}
+const fn default_dgram_history() -> usize {
+    1024
+}
+const fn default_dgram_ingress_slots() -> usize {
+    16
+}
+const fn default_dgram_ingress_bytes() -> usize {
+    64 * 1024 * 1024
+}
+
+impl Default for DatagramRuntimeConfigV1 {
+    fn default() -> Self {
+        Self {
+            max_proxies: default_dgram_proxies(),
+            max_associations: default_dgram_associations(),
+            history: default_dgram_history(),
+            ingress_per_association: default_dgram_ingress_slots(),
+            max_ingress_queue_bytes: default_dgram_ingress_bytes(),
+        }
+    }
+}
+
+impl DatagramRuntimeConfigV1 {
+    pub fn limits(self) -> Result<crate::DatagramRuntimeLimits, String> {
+        crate::DatagramRuntimeLimits {
+            max_proxies: self.max_proxies,
+            max_associations: self.max_associations,
+            history: self.history,
+            ingress_per_association: self.ingress_per_association,
+            max_ingress_queue_bytes: self.max_ingress_queue_bytes,
+        }
+        .validate()
+        .map_err(|error| error.to_string())
+    }
 }
 
 const fn default_global_connections() -> usize {
@@ -490,6 +552,7 @@ impl Default for RuntimeConfigV1 {
             history: default_history(),
             relay_buffer_bytes: default_buffer_bytes(),
             termination_grace_ms: default_termination_grace_ms(),
+            datagram: DatagramRuntimeConfigV1::default(),
         }
     }
 }
@@ -532,6 +595,11 @@ impl RuntimeConfigV1 {
         }
         Ok(Duration::from_millis(self.termination_grace_ms))
     }
+
+    /// Convert the datagram runtime bounds.
+    pub fn datagram_limits(self) -> Result<crate::DatagramRuntimeLimits, String> {
+        self.datagram.limits()
+    }
 }
 
 /// Native scenario input document for `/v1/scenarios/apply`.
@@ -568,6 +636,18 @@ pub enum ScenarioActionV1 {
     },
     /// Remove one fault by identity.
     RemoveFault {
+        proxy: String,
+        direction: eggchaos_core::Direction,
+        id: String,
+    },
+    /// Replace one directional datagram fault plan.
+    SetDatagramPlan {
+        proxy: String,
+        direction: eggchaos_core::Direction,
+        faults: Vec<DatagramFaultSpecV1>,
+    },
+    /// Remove one datagram fault by identity.
+    RemoveDatagramFault {
         proxy: String,
         direction: eggchaos_core::Direction,
         id: String,
@@ -610,6 +690,12 @@ impl ScenarioV1 {
                 crate::ScenarioAction::RemoveFault { id, .. } => {
                     FaultId::new(id.clone()).map_err(|error| error.to_string())?;
                 }
+                crate::ScenarioAction::SetDatagramPlan { faults, .. } => {
+                    DatagramPlan::new(faults.clone()).map_err(|error| error.to_string())?;
+                }
+                crate::ScenarioAction::RemoveDatagramFault { id, .. } => {
+                    FaultId::new(id.clone()).map_err(|error| error.to_string())?;
+                }
             }
         }
         Ok(())
@@ -645,6 +731,31 @@ impl ScenarioV1 {
                     direction,
                     id,
                 } => crate::ScenarioAction::RemoveFault {
+                    proxy,
+                    direction,
+                    id,
+                },
+                ScenarioActionV1::SetDatagramPlan {
+                    proxy,
+                    direction,
+                    faults,
+                } => {
+                    let converted = faults
+                        .into_iter()
+                        .map(DatagramFaultSpecV1::into_runtime)
+                        .collect::<Result<Vec<_>, _>>()?;
+                    DatagramPlan::new(converted.clone()).map_err(|error| error.to_string())?;
+                    crate::ScenarioAction::SetDatagramPlan {
+                        proxy,
+                        direction,
+                        faults: converted,
+                    }
+                }
+                ScenarioActionV1::RemoveDatagramFault {
+                    proxy,
+                    direction,
+                    id,
+                } => crate::ScenarioAction::RemoveDatagramFault {
                     proxy,
                     direction,
                     id,
@@ -743,6 +854,399 @@ impl From<crate::ScenarioRunRecord> for ScenarioRunV1 {
                     downstream_generation: event.downstream_generation,
                 })
                 .collect(),
+        }
+    }
+}
+
+/// Explicit native schema for one datagram fault stage.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DatagramFaultSpecV1 {
+    pub id: String,
+    #[serde(default = "default_one")]
+    pub probability: f64,
+    pub kind: DatagramFaultKindV1,
+}
+
+/// Versioned datagram fault vocabulary. Durations are integer nanoseconds.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "kebab-case", deny_unknown_fields)]
+pub enum DatagramFaultKindV1 {
+    Delay {
+        delay_ns: u64,
+        #[serde(default)]
+        jitter_ns: u64,
+    },
+    Loss,
+    Duplicate {
+        additional_copies: u8,
+    },
+    Reorder {
+        hold_ns: u64,
+    },
+    PayloadCorrupt {
+        bytes: u64,
+    },
+    Bandwidth {
+        bytes_per_second: u64,
+        burst_bytes: u64,
+    },
+}
+
+impl DatagramFaultKindV1 {
+    fn into_runtime(self) -> Result<DatagramFaultKind, String> {
+        let duration = Duration::from_nanos;
+        Ok(match self {
+            Self::Delay {
+                delay_ns,
+                jitter_ns,
+            } => DatagramFaultKind::Delay {
+                delay: duration(delay_ns),
+                jitter: duration(jitter_ns),
+            },
+            Self::Loss => DatagramFaultKind::Loss,
+            Self::Duplicate { additional_copies } => {
+                DatagramFaultKind::Duplicate { additional_copies }
+            }
+            Self::Reorder { hold_ns } => DatagramFaultKind::Reorder {
+                hold: duration(hold_ns),
+            },
+            Self::PayloadCorrupt { bytes } => DatagramFaultKind::PayloadCorrupt {
+                bytes: NonZeroU64::new(bytes).ok_or("bytes must be nonzero")?,
+            },
+            Self::Bandwidth {
+                bytes_per_second,
+                burst_bytes,
+            } => DatagramFaultKind::Bandwidth {
+                bytes_per_second: NonZeroU64::new(bytes_per_second)
+                    .ok_or("bytes_per_second must be nonzero")?,
+                burst_bytes: NonZeroU64::new(burst_bytes).ok_or("burst_bytes must be nonzero")?,
+            },
+        })
+    }
+
+    fn from_runtime(kind: DatagramFaultKind) -> Self {
+        let ns = |duration: Duration| duration.as_nanos().min(u64::MAX as u128) as u64;
+        match kind {
+            DatagramFaultKind::Delay { delay, jitter } => Self::Delay {
+                delay_ns: ns(delay),
+                jitter_ns: ns(jitter),
+            },
+            DatagramFaultKind::Loss => Self::Loss,
+            DatagramFaultKind::Duplicate { additional_copies } => {
+                Self::Duplicate { additional_copies }
+            }
+            DatagramFaultKind::Reorder { hold } => Self::Reorder { hold_ns: ns(hold) },
+            DatagramFaultKind::PayloadCorrupt { bytes } => {
+                Self::PayloadCorrupt { bytes: bytes.get() }
+            }
+            DatagramFaultKind::Bandwidth {
+                bytes_per_second,
+                burst_bytes,
+            } => Self::Bandwidth {
+                bytes_per_second: bytes_per_second.get(),
+                burst_bytes: burst_bytes.get(),
+            },
+        }
+    }
+}
+
+impl DatagramFaultSpecV1 {
+    pub(crate) fn into_runtime(self) -> Result<DatagramFaultSpec, String> {
+        Ok(DatagramFaultSpec {
+            id: FaultId::new(self.id).map_err(|error| error.to_string())?,
+            probability: Probability::new(self.probability).map_err(|error| error.to_string())?,
+            kind: self.kind.into_runtime()?,
+        })
+    }
+}
+
+/// Add one datagram fault to a proxy direction.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DatagramFaultUpsertV1 {
+    pub direction: eggchaos_core::Direction,
+    #[serde(flatten)]
+    pub fault: DatagramFaultSpecV1,
+}
+
+impl From<DatagramFaultSpec> for DatagramFaultSpecV1 {
+    fn from(value: DatagramFaultSpec) -> Self {
+        Self {
+            id: value.id.to_string(),
+            probability: value.probability.get(),
+            kind: DatagramFaultKindV1::from_runtime(value.kind),
+        }
+    }
+}
+
+/// Explicit datagram proxy create schema for `/v1`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NativeDatagramProxyRequestV1 {
+    pub name: String,
+    pub listen: SocketAddr,
+    pub upstream: SocketAddr,
+    #[serde(default = "default_datagram_associations")]
+    pub max_associations: usize,
+    #[serde(default = "default_datagram_idle_ms")]
+    pub association_idle_timeout_ms: u64,
+    #[serde(default = "default_datagram_queue_count")]
+    pub max_queued_datagrams: u64,
+    #[serde(default = "default_datagram_queue_bytes")]
+    pub max_queued_bytes: u64,
+    #[serde(default = "default_datagram_size")]
+    pub max_datagram_size: u64,
+    #[serde(default)]
+    pub seed: u64,
+    #[serde(default)]
+    pub upstream_faults: Vec<DatagramFaultSpecV1>,
+    #[serde(default)]
+    pub downstream_faults: Vec<DatagramFaultSpecV1>,
+}
+
+fn default_datagram_associations() -> usize {
+    256
+}
+fn default_datagram_idle_ms() -> u64 {
+    60_000
+}
+fn default_datagram_queue_count() -> u64 {
+    1024
+}
+fn default_datagram_queue_bytes() -> u64 {
+    4 * 1024 * 1024
+}
+fn default_datagram_size() -> u64 {
+    65_507
+}
+
+impl NativeDatagramProxyRequestV1 {
+    pub(crate) fn into_runtime(self) -> Result<crate::DatagramProxySpec, String> {
+        if self.association_idle_timeout_ms == 0 || self.association_idle_timeout_ms > 86_400_000 {
+            return Err("association_idle_timeout_ms must be in 1..=86400000".into());
+        }
+        let limits = DatagramQueueLimits {
+            max_queued_datagrams: NonZeroU64::new(self.max_queued_datagrams)
+                .ok_or("max_queued_datagrams must be nonzero")?,
+            max_queued_bytes: NonZeroU64::new(self.max_queued_bytes)
+                .ok_or("max_queued_bytes must be nonzero")?,
+            max_datagram_bytes: NonZeroU64::new(self.max_datagram_size)
+                .ok_or("max_datagram_size must be nonzero")?,
+        }
+        .validate()
+        .map_err(|error| error.to_string())?;
+        let upstream = self
+            .upstream_faults
+            .into_iter()
+            .map(DatagramFaultSpecV1::into_runtime)
+            .collect::<Result<Vec<_>, _>>()?;
+        let downstream = self
+            .downstream_faults
+            .into_iter()
+            .map(DatagramFaultSpecV1::into_runtime)
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut ids = std::collections::HashSet::new();
+        for fault in upstream.iter().chain(downstream.iter()) {
+            if !ids.insert(fault.id.as_str()) {
+                return Err(
+                    "datagram fault IDs must be unique across directions for path lookup".into(),
+                );
+            }
+        }
+        let mut spec = crate::DatagramProxySpec::new(self.name, self.listen, self.upstream, limits)
+            .map_err(|error| error.to_string())?;
+        spec.max_associations = self.max_associations;
+        spec.association_idle_timeout = Duration::from_millis(self.association_idle_timeout_ms);
+        spec.seed = self.seed;
+        spec.upstream_policy = eggchaos_core::DatagramLivePolicy::new(
+            DatagramPlan::new(upstream).map_err(|error| error.to_string())?,
+            self.seed,
+        )
+        .map_err(|error| error.to_string())?;
+        spec.downstream_policy = eggchaos_core::DatagramLivePolicy::new(
+            DatagramPlan::new(downstream).map_err(|error| error.to_string())?,
+            self.seed,
+        )
+        .map_err(|error| error.to_string())?;
+        spec.validate(65_536).map_err(|error| error.to_string())?;
+        Ok(spec)
+    }
+}
+
+/// Enable or disable a datagram listener without changing its definition.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NativeDatagramProxyPatchV1 {
+    pub enabled: Option<bool>,
+    pub listen: Option<SocketAddr>,
+    pub upstream: Option<SocketAddr>,
+    pub max_associations: Option<usize>,
+    pub association_idle_timeout_ms: Option<u64>,
+}
+
+/// Patch one datagram fault's probability or behavior.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DatagramFaultPatchV1 {
+    pub probability: Option<f64>,
+    pub kind: Option<DatagramFaultKindV1>,
+}
+
+impl DatagramFaultPatchV1 {
+    pub(crate) fn into_parts(self) -> Result<(Option<f64>, Option<DatagramFaultKind>), String> {
+        let probability = self
+            .probability
+            .map(|value| Probability::new(value).map_err(|error| error.to_string()))
+            .transpose()?;
+        let kind = self
+            .kind
+            .map(DatagramFaultKindV1::into_runtime)
+            .transpose()?;
+        Ok((probability.map(Probability::get), kind))
+    }
+}
+
+/// Stable v1 representation of per-direction datagram evidence.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct NativeDatagramEvidenceV1 {
+    pub admitted_datagrams: u64,
+    pub admitted_bytes: u64,
+    pub emitted_datagrams: u64,
+    pub emitted_bytes: u64,
+    pub configured_loss: u64,
+    pub queue_overflow: u64,
+    pub oversize_datagrams: u64,
+    pub duplicated_copies: u64,
+    pub corrupted_candidates: u64,
+    pub reorder_activations: u64,
+    pub queued_datagrams: u64,
+    pub queued_bytes: u64,
+    pub high_water_datagrams: u64,
+    pub high_water_bytes: u64,
+    pub fault_activations: [u64; 6],
+    pub injected_delay_nanos: u128,
+    pub bandwidth_delay_nanos: u128,
+    pub last_generation: u64,
+    pub last_seed_namespace: u64,
+    pub rng_version: eggchaos_core::RngVersion,
+}
+
+impl From<eggchaos_core::DatagramEvidence> for NativeDatagramEvidenceV1 {
+    fn from(value: eggchaos_core::DatagramEvidence) -> Self {
+        Self {
+            admitted_datagrams: value.admitted_datagrams,
+            admitted_bytes: value.admitted_bytes,
+            emitted_datagrams: value.emitted_datagrams,
+            emitted_bytes: value.emitted_bytes,
+            configured_loss: value.configured_loss,
+            queue_overflow: value.queue_overflow,
+            oversize_datagrams: value.oversize_datagrams,
+            duplicated_copies: value.duplicated_copies,
+            corrupted_candidates: value.corrupted_candidates,
+            reorder_activations: value.reorder_activations,
+            queued_datagrams: value.queued_datagrams,
+            queued_bytes: value.queued_bytes,
+            high_water_datagrams: value.high_water_datagrams,
+            high_water_bytes: value.high_water_bytes,
+            fault_activations: value.fault_activations,
+            injected_delay_nanos: value.injected_delay_nanos,
+            bandwidth_delay_nanos: value.bandwidth_delay_nanos,
+            last_generation: value.last_generation,
+            last_seed_namespace: value.last_seed_namespace,
+            rng_version: value.rng_version,
+        }
+    }
+}
+
+/// Explicit datagram proxy view DTO.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NativeDatagramProxyViewV1 {
+    pub name: String,
+    pub listen: SocketAddr,
+    pub bound_addr: Option<SocketAddr>,
+    pub upstream: SocketAddr,
+    pub running: bool,
+    pub max_associations: usize,
+    pub active_associations: usize,
+    pub association_idle_timeout_ms: u64,
+    pub max_datagram_size: u64,
+    pub max_queued_datagrams: u64,
+    pub max_queued_bytes: u64,
+    pub seed: u64,
+    pub upstream_generation: u64,
+    pub downstream_generation: u64,
+    pub oversize_datagrams: u64,
+    pub association_capacity_rejections: u64,
+    pub ingress_queue_overflow: u64,
+    pub association_setup_failures: u64,
+}
+
+impl From<crate::DatagramProxyView> for NativeDatagramProxyViewV1 {
+    fn from(value: crate::DatagramProxyView) -> Self {
+        Self {
+            name: value.name,
+            listen: value.listen,
+            bound_addr: value.bound_addr,
+            upstream: value.upstream,
+            running: value.running,
+            max_associations: value.max_associations,
+            active_associations: value.active_associations,
+            association_idle_timeout_ms: value.association_idle_timeout_ms,
+            max_datagram_size: value.max_datagram_size,
+            max_queued_datagrams: value.max_queued_datagrams,
+            max_queued_bytes: value.max_queued_bytes,
+            seed: value.seed,
+            upstream_generation: value.upstream_generation,
+            downstream_generation: value.downstream_generation,
+            oversize_datagrams: value.oversize_datagrams,
+            association_capacity_rejections: value.association_capacity_rejections,
+            ingress_queue_overflow: value.ingress_queue_overflow,
+            association_setup_failures: value.association_setup_failures,
+        }
+    }
+}
+
+/// Explicit datagram association evidence DTO. Payloads are never captured.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NativeDatagramAssociationViewV1 {
+    pub id: u64,
+    pub proxy: String,
+    pub client: SocketAddr,
+    pub upstream: SocketAddr,
+    pub age_ms: u64,
+    pub idle_ms: u64,
+    pub ingress_datagrams: u64,
+    pub ingress_bytes: u64,
+    pub egress_datagrams: u64,
+    pub egress_bytes: u64,
+    pub ingress_queue_overflow: u64,
+    pub oversize_datagrams: u64,
+    pub administrative_discards: u64,
+    pub send_errors: u64,
+    pub upstream_evidence: NativeDatagramEvidenceV1,
+    pub downstream_evidence: NativeDatagramEvidenceV1,
+}
+
+impl From<crate::DatagramAssociationSnapshot> for NativeDatagramAssociationViewV1 {
+    fn from(value: crate::DatagramAssociationSnapshot) -> Self {
+        Self {
+            id: value.id,
+            proxy: value.proxy,
+            client: value.client,
+            upstream: value.upstream,
+            age_ms: value.age_ms,
+            idle_ms: value.idle_ms,
+            ingress_datagrams: value.ingress_datagrams,
+            ingress_bytes: value.ingress_bytes,
+            egress_datagrams: value.egress_datagrams,
+            egress_bytes: value.egress_bytes,
+            ingress_queue_overflow: value.ingress_queue_overflow,
+            oversize_datagrams: value.oversize_datagrams,
+            administrative_discards: value.administrative_discards,
+            send_errors: value.send_errors,
+            upstream_evidence: value.upstream_evidence.into(),
+            downstream_evidence: value.downstream_evidence.into(),
         }
     }
 }
@@ -857,6 +1361,38 @@ mod tests {
     }
 
     #[test]
+    fn datagram_fault_v1_roundtrips_all_six_explicit_kinds() {
+        let fixtures = [
+            r#"{"id":"delay","probability":1.0,"kind":{"type":"delay","delay_ns":10,"jitter_ns":2}}"#,
+            r#"{"id":"loss","probability":0.25,"kind":{"type":"loss"}}"#,
+            r#"{"id":"dupe","probability":0.5,"kind":{"type":"duplicate","additional_copies":2}}"#,
+            r#"{"id":"reorder","probability":1.0,"kind":{"type":"reorder","hold_ns":30}}"#,
+            r#"{"id":"corrupt","probability":1.0,"kind":{"type":"payload-corrupt","bytes":1}}"#,
+            r#"{"id":"bandwidth","probability":1.0,"kind":{"type":"bandwidth","bytes_per_second":100,"burst_bytes":50}}"#,
+        ];
+        for fixture in fixtures {
+            let dto: DatagramFaultSpecV1 = serde_json::from_str(fixture).unwrap();
+            dto.clone().into_runtime().unwrap();
+            assert_eq!(serde_json::to_string(&dto).unwrap(), fixture);
+        }
+    }
+
+    #[test]
+    fn datagram_proxy_v1_defaults_and_rejects_empty_queue_limits() {
+        let request: NativeDatagramProxyRequestV1 = serde_json::from_str(
+            r#"{"name":"dns","listen":"127.0.0.1:0","upstream":"127.0.0.1:5353"}"#,
+        )
+        .unwrap();
+        let spec = request.into_runtime().unwrap();
+        assert_eq!(spec.max_associations, 256);
+        assert_eq!(spec.association_idle_timeout, Duration::from_secs(60));
+        let invalid: NativeDatagramProxyRequestV1 = serde_json::from_str(
+            r#"{"name":"dns","listen":"127.0.0.1:0","upstream":"127.0.0.1:5353","max_queued_bytes":0}"#,
+        ).unwrap();
+        assert!(invalid.into_runtime().is_err());
+    }
+
+    #[test]
     fn native_proxy_create_and_patch_use_connect_timeout_ms() {
         let create = NativeProxyRequestV1 {
             name: "cache".into(),
@@ -916,5 +1452,12 @@ mod tests {
             serde_json::to_string(&ScenarioStatusV1::Completed).unwrap(),
             "\"completed\""
         );
+        let datagram = r#"{"version":1,"seed":4,"events":[{"at_ms":0,"action":{"type":"set-datagram-plan","proxy":"dns","direction":"upstream","faults":[{"id":"loss","probability":1.0,"kind":{"type":"loss"}}]}}]}"#;
+        let dto: ScenarioV1 = serde_json::from_str(datagram).unwrap();
+        assert_eq!(serde_json::to_string(&dto).unwrap(), datagram);
+        assert!(matches!(
+            dto.into_runtime().unwrap().events[0].action,
+            crate::ScenarioAction::SetDatagramPlan { .. }
+        ));
     }
 }

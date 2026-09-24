@@ -38,6 +38,73 @@ async fn echo_server() -> (SocketAddr, JoinHandle<()>) {
     (addr, task)
 }
 
+#[tokio::test]
+async fn datagram_scenario_publishes_seeded_directional_plan() {
+    use eggchaos_core::{DatagramFaultKind, DatagramFaultSpec, DatagramQueueLimits};
+    use std::num::NonZeroU64;
+    let target = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let spec = DatagramProxySpec::new(
+        "scenario-udp",
+        "127.0.0.1:0".parse().unwrap(),
+        target.local_addr().unwrap(),
+        DatagramQueueLimits {
+            max_queued_datagrams: NonZeroU64::new(8).unwrap(),
+            max_queued_bytes: NonZeroU64::new(4096).unwrap(),
+            max_datagram_bytes: NonZeroU64::new(2048).unwrap(),
+        },
+    )
+    .unwrap();
+    let control = ControlState::default();
+    control.create_datagram_proxy(spec).await.unwrap();
+    let scenario = Scenario {
+        version: 1,
+        seed: 123,
+        events: vec![ScenarioEvent {
+            at_ms: 0,
+            action: ScenarioAction::SetDatagramPlan {
+                proxy: "scenario-udp".into(),
+                direction: Direction::Downstream,
+                faults: vec![DatagramFaultSpec {
+                    id: FaultId::new("loss").unwrap(),
+                    probability: Probability::new(1.0).unwrap(),
+                    kind: DatagramFaultKind::Loss,
+                }],
+            },
+        }],
+    };
+    let initial = control.start_scenario(scenario).await.unwrap();
+    let run_id = initial.run_id;
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            if control
+                .get_scenario(run_id)
+                .await
+                .is_some_and(|record| record.status == ScenarioRunStatus::Completed)
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    let (_, generation, namespace) = control
+        .get_datagram_plan("scenario-udp", Direction::Downstream)
+        .await
+        .unwrap();
+    assert_eq!(generation, 2);
+    assert_eq!(namespace, derive_policy_seed(123, run_id, 0));
+    assert_eq!(
+        control
+            .get_datagram_plan("scenario-udp", Direction::Upstream)
+            .await
+            .unwrap()
+            .1,
+        1
+    );
+    control.shutdown_and_join().await;
+}
+
 async fn exchange(addr: SocketAddr, message: &[u8]) -> Vec<u8> {
     let mut client = TcpStream::connect(addr).await.unwrap();
     client.write_all(message).await.unwrap();

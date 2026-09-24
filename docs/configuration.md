@@ -51,3 +51,40 @@ human-authored surface; both inputs compile through the same typed
 The service half-close policy is intentionally not configurable in schema v1;
 the runtime keeps its existing `Drain` default until the policy has a stable
 operator-facing spelling and semantics.
+
+## Datagram proxies
+
+Schema v1 accepts an optional `[[datagram_proxies]]` collection. Its absence
+preserves existing configuration behavior; adding it is backward-compatible
+within schema v1. Each entry has a fixed UDP target and bounded association,
+idle, datagram-size, scheduler-count/byte, and directional fault settings.
+The optional `[runtime.datagram]` table sets global proxy, association,
+history, per-association ingress-slot, and total ingress-byte limits.
+
+```toml
+[runtime.datagram]
+max_proxies = 128
+max_associations = 4096
+history = 1024
+ingress_per_association = 16
+max_ingress_queue_bytes = 67108864
+
+[[datagram_proxies]]
+name = "dns"
+listen = "127.0.0.1:0"
+upstream = "127.0.0.1:5353"
+max_associations = 256
+association_idle_timeout_ms = 60000
+max_datagram_size = 65507
+max_queued_datagrams = 1024
+max_queued_bytes = 4194304
+seed = 0
+upstream_faults = [{ id = "loss", probability = 0.05, kind = { type = "loss" } }]
+```
+
+Datagram fault `type` values and fields match the separate native datagram
+DTO schema: `delay` (`delay_ns`, optional `jitter_ns`), `loss`, `duplicate`
+(`additional_copies`), `reorder` (`hold_ns`), `payload-corrupt` (`bytes`), and
+`bandwidth` (`bytes_per_second`, `burst_bytes`). All bounds are compiled
+before listener activation, and unknown fields are rejected in the native
+fault DTOs. Existing stream proxy/fault TOML fields are unchanged.

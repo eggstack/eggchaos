@@ -519,3 +519,19 @@ When reviewing this surface, confirm:
 - Record any un-runnable oracle/platform as incomplete evidence; do not
   substitute inspection for execution (per `AGENTS.md` verification
   discipline).
+
+## Datagram v1 operator surface (M022)
+
+Datagrams are explicit sibling resources, not `transport` fields on TCP
+proxies. The route inventory is `GET/POST /v1/datagram-proxies`,
+`GET/PATCH/DELETE /v1/datagram-proxies/{name}`, directional fault CRUD below
+`/faults`, and `GET /v1/datagram-associations[/{id}]` plus association `DELETE`
+for administrative termination. Native DTOs describe the six M020 fault
+kinds and convert into the M021 `DatagramRuntime`; config, HTTP, scenario, and
+CLI do not retain shadow registries. Schema v1 adds the optional
+`datagram_proxies` collection and `[runtime.datagram]` global bounds.
+`POST /v1/reset` now resets both resource families and reports TCP/datagram
+re-enable failures separately. Metrics expose UDP association and evidence
+gauges with bounded `proxy`, `direction`, `kind`, and fault-type labels; IDs
+and peer addresses are never labels. The `eggchaos datagram` CLI stays an
+Eggfetch-backed HTTP adapter. Toxiproxy v2.12 remains unchanged and TCP-only.

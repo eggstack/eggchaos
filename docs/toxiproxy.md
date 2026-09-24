@@ -43,3 +43,6 @@ Run a standalone compat server with
 binary and verifies its pinned SHA-256. For a mandatory run, set
 `TOXIPROXY_SERVER` to that path and run
 `EGGCHAOS_REQUIRE_TOXIPROXY_ORACLE=1 ./scripts/qualify_toxiproxy_v2_12.sh`.
+
+Native fixed-target UDP datagram resources are a separate API and do not extend
+Toxiproxy v2.12; the compatibility adapter remains stream/TCP-only.

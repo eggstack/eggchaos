@@ -202,6 +202,8 @@ pub struct RuntimeParams {
     /// Grace period for a graceful termination to drain before the relay
     /// is aborted. Bounded; aborts record `drained: false`.
     pub term_grace: Duration,
+    /// Bounded UDP proxy/association/ingress runtime resources.
+    pub datagram_limits: DatagramRuntimeLimits,
 }
 
 impl Default for RuntimeParams {
@@ -213,6 +215,7 @@ impl Default for RuntimeParams {
             relay_buffer: NonZeroUsize::new(crate::native::NATIVE_DEFAULT_BUFFER_BYTES as usize)
                 .expect("non-zero buffer"),
             term_grace: Duration::from_millis(crate::native::NATIVE_DEFAULT_PROXY_TIMEOUT_MS),
+            datagram_limits: DatagramRuntimeLimits::default(),
         }
     }
 }
@@ -283,6 +286,7 @@ impl Clone for ManagedProxy {
 /// maintains a parallel listener registry.
 pub struct RuntimeInner {
     params: RuntimeParams,
+    datagrams: DatagramRuntime,
     proxies: RwLock<BTreeMap<String, ManagedProxy>>,
     generation: AtomicU64,
     next_conn_id: AtomicU64,
@@ -313,9 +317,12 @@ pub struct RuntimeInner {
 impl RuntimeInner {
     fn new(params: RuntimeParams) -> Self {
         let shutdown_token = CancellationToken::new();
+        let datagrams = DatagramRuntime::new(params.datagram_limits)
+            .expect("validated datagram runtime limits");
         let _ = &shutdown_token;
         Self {
             params,
+            datagrams,
             proxies: RwLock::new(BTreeMap::new()),
             generation: AtomicU64::new(1),
             next_conn_id: AtomicU64::new(1),
@@ -396,10 +403,12 @@ impl Default for ControlState {
 pub struct ServiceBuilder {
     seed: u64,
     proxies: Vec<ProxySpec>,
+    datagram_proxies: Vec<DatagramProxySpec>,
     limits: AdmissionLimits,
     half_close: HalfClosePolicy,
     relay_buffer: NonZeroUsize,
     term_grace: Duration,
+    datagram_limits: DatagramRuntimeLimits,
 }
 impl ServiceBuilder {
     /// Create a builder with an explicit run seed.
@@ -407,11 +416,13 @@ impl ServiceBuilder {
         Self {
             seed,
             proxies: Vec::new(),
+            datagram_proxies: Vec::new(),
             limits: AdmissionLimits::default(),
             half_close: HalfClosePolicy::Drain,
             relay_buffer: NonZeroUsize::new(crate::native::NATIVE_DEFAULT_BUFFER_BYTES as usize)
                 .expect("non-zero buffer"),
             term_grace: Duration::from_millis(crate::native::NATIVE_DEFAULT_PROXY_TIMEOUT_MS),
+            datagram_limits: DatagramRuntimeLimits::default(),
         }
     }
     /// Add a fixed-target proxy.
@@ -422,6 +433,19 @@ impl ServiceBuilder {
     /// Add several fixed-target proxies.
     pub fn proxy_all(mut self, proxies: impl IntoIterator<Item = ProxySpec>) -> Self {
         self.proxies.extend(proxies);
+        self
+    }
+    /// Add a fixed-target UDP proxy definition.
+    pub fn datagram_proxy(mut self, proxy: DatagramProxySpec) -> Self {
+        self.datagram_proxies.push(proxy);
+        self
+    }
+    /// Add several fixed-target UDP proxy definitions.
+    pub fn datagram_proxy_all(
+        mut self,
+        proxies: impl IntoIterator<Item = DatagramProxySpec>,
+    ) -> Self {
+        self.datagram_proxies.extend(proxies);
         self
     }
     /// Set admission limits.
@@ -444,12 +468,23 @@ impl ServiceBuilder {
         self.term_grace = grace;
         self
     }
+    /// Set UDP proxy, association, history, and ingress memory bounds.
+    pub fn datagram_limits(mut self, limits: DatagramRuntimeLimits) -> Self {
+        self.datagram_limits = limits;
+        self
+    }
     /// Validate and create a startable service.
     pub fn build(self) -> Result<EggchaosService, EggchaosError> {
         let mut names = std::collections::HashSet::new();
         for proxy in &self.proxies {
             proxy.validate()?;
             if !names.insert(proxy.name.clone()) {
+                return Err(EggchaosError::DuplicateProxy(proxy.name.clone()));
+            }
+        }
+        let mut datagram_names = std::collections::HashSet::new();
+        for proxy in &self.datagram_proxies {
+            if !datagram_names.insert(proxy.name.clone()) {
                 return Err(EggchaosError::DuplicateProxy(proxy.name.clone()));
             }
         }
@@ -468,6 +503,14 @@ impl ServiceBuilder {
                 "runtime buffer/grace setting is outside the supported range".into(),
             ));
         }
+        self.datagram_limits
+            .validate()
+            .map_err(|error| EggchaosError::InvalidProxy(error.to_string()))?;
+        if self.datagram_proxies.len() > self.datagram_limits.max_proxies {
+            return Err(EggchaosError::InvalidProxy(
+                "datagram proxy definitions exceed the configured proxy limit".into(),
+            ));
+        }
         Ok(EggchaosService {
             params: RuntimeParams {
                 seed: self.seed,
@@ -475,8 +518,10 @@ impl ServiceBuilder {
                 half_close: self.half_close,
                 relay_buffer: self.relay_buffer,
                 term_grace: self.term_grace,
+                datagram_limits: self.datagram_limits,
             },
             proxies: self.proxies,
+            datagram_proxies: self.datagram_proxies,
         })
     }
 }
@@ -485,6 +530,7 @@ impl ServiceBuilder {
 pub struct EggchaosService {
     params: RuntimeParams,
     proxies: Vec<ProxySpec>,
+    datagram_proxies: Vec<DatagramProxySpec>,
 }
 
 impl EggchaosService {
@@ -501,6 +547,15 @@ impl EggchaosService {
                 control.create_proxy(proxy).await?;
             } else {
                 control.import_definition(proxy).await?;
+            }
+        }
+        for proxy in self.datagram_proxies {
+            if let Err(error) = control.create_datagram_proxy(proxy).await {
+                control.shutdown_and_join().await;
+                return Err(EggchaosError::Io {
+                    context: "starting configured UDP proxy".into(),
+                    source: io::Error::other(error.to_string()),
+                });
             }
         }
         Ok(ServiceHandle { control })

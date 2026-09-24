@@ -10,11 +10,15 @@ pub mod scenario;
 
 pub use admin::{AdminConfig, AdminError, AdminHandle, NativeAdmin};
 pub use config::{
-    AdminFileConfig, FaultFileConfig, NativeConfig, NativeConfigError, ProxyFileConfig,
+    AdminFileConfig, DatagramProxyFileConfig, FaultFileConfig, NativeConfig, NativeConfigError,
+    ProxyFileConfig,
 };
 pub use eggchaos_core::{ActiveFault, FAULT_TYPE_NAMES};
 pub use native::{
-    FaultKindV1, FaultPatchV1, FaultUpsertV1, NativeFaultViewV1, NativeProxyPatchV1,
+    DatagramFaultKindV1, DatagramFaultPatchV1, DatagramFaultSpecV1, DatagramFaultUpsertV1,
+    DatagramRuntimeConfigV1, FaultKindV1, FaultPatchV1, FaultUpsertV1,
+    NativeDatagramAssociationViewV1, NativeDatagramEvidenceV1, NativeDatagramProxyPatchV1,
+    NativeDatagramProxyRequestV1, NativeDatagramProxyViewV1, NativeFaultViewV1, NativeProxyPatchV1,
     NativeProxyRequestV1, NativeProxyViewV1, RuntimeConfigV1, ScenarioActionV1, ScenarioEventV1,
     ScenarioFaultV1, ScenarioRunV1, ScenarioStatusV1, ScenarioV1,
     NATIVE_DEFAULT_BANDWIDTH_BURST_BYTES, NATIVE_DEFAULT_BANDWIDTH_BYTES_PER_SECOND,

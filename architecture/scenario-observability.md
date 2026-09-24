@@ -425,3 +425,24 @@ noted):
   (e.g. `wait_scenario`, `runtime.rs:4736-4756`), never unbounded waits.
 - Record any platform or external-oracle gap as incomplete evidence; do
   not substitute source inspection for execution.
+
+## Datagram scenario and evidence additions (M022)
+
+Scenario v1 has two explicit datagram actions: `set-datagram-plan` and
+`remove-datagram-fault`. They address the sibling datagram proxy registry and
+validate against the current directional `DatagramPlan`. At fire time they
+read the current plan/generation, apply only that direction, derive the seed
+namespace from `(scenario seed, run id, event index)`, and publish with an
+expected-generation guard. A concurrent manual datagram publication therefore
+fails the run instead of overwriting newer state. Datagram policy publication
+uses admission-time snapshots, so queued datagrams retain their decisions.
+
+`GET /v1/datagram-associations` includes live and retained association
+summaries; `GET` by ID reads active or retained evidence and `DELETE` is an
+administrative kill. `/metrics` adds datagram active-association gauges,
+per-proxy drop observations, directional datagram evidence/queue/high-water
+gauges, and fixed-vocabulary activation series. Those summaries are explicitly
+current-plus-retained evidence; no association, client, run, hostname, or fault
+identity enters metric labels, and no payload bytes are recorded. Global reset
+clears datagram plans, cancels associations, and restarts stored datagram
+listeners alongside the existing stream reset.

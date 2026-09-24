@@ -274,3 +274,68 @@ async fn cli_authenticates_and_round_trips_opaque_fault_ids() {
     }
     admin.shutdown();
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn datagram_cli_is_json_first_and_uses_native_routes() {
+    let target = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let target_addr = target.local_addr().unwrap();
+    let control = ControlState::default();
+    let mut admin = NativeAdmin::start(
+        AdminConfig {
+            bind: "127.0.0.1:0".parse().unwrap(),
+            ..AdminConfig::default()
+        },
+        control.clone(),
+    )
+    .await
+    .unwrap();
+    let (ok, output) = cli(
+        admin.local_addr(),
+        &[
+            "datagram",
+            "proxy",
+            "add",
+            "dns",
+            "--listen",
+            "127.0.0.1:0",
+            "--upstream",
+            &target_addr.to_string(),
+        ],
+    );
+    assert!(ok, "{output}");
+    let created: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert!(created["proxy"]["running"].as_bool().unwrap());
+    let (ok, output) = cli(
+        admin.local_addr(),
+        &[
+            "datagram",
+            "fault",
+            "add",
+            "dns",
+            "loss",
+            "--kind",
+            "loss",
+            "--direction",
+            "upstream",
+        ],
+    );
+    assert!(ok, "{output}");
+    let fault: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(fault["fault"]["kind"]["type"], "loss");
+    let (ok, output) = cli(admin.local_addr(), &["datagram", "fault", "list", "dns"]);
+    assert!(ok, "{output}");
+    let listed: serde_json::Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(listed["upstream"]["faults"].as_array().unwrap().len(), 1);
+    let (ok, output) = cli(admin.local_addr(), &["datagram", "proxy", "disable", "dns"]);
+    assert!(ok, "{output}");
+    assert!(
+        !serde_json::from_str::<serde_json::Value>(&output).unwrap()["proxy"]["running"]
+            .as_bool()
+            .unwrap()
+    );
+    let (ok, output) = cli(admin.local_addr(), &["datagram", "proxy", "remove", "dns"]);
+    assert!(ok, "{output}");
+    admin.shutdown();
+    admin.wait().await;
+    control.shutdown_and_join().await;
+}

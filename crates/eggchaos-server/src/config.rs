@@ -5,9 +5,10 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::{
-    FaultKindV1, ProxySpec, RuntimeConfigV1, NATIVE_DEFAULT_BANDWIDTH_BURST_BYTES,
-    NATIVE_DEFAULT_BANDWIDTH_BYTES_PER_SECOND, NATIVE_DEFAULT_BUFFER_BYTES,
-    NATIVE_DEFAULT_LIMIT_BYTES, NATIVE_DEFAULT_PROXY_TIMEOUT_MS, NATIVE_DEFAULT_SLICE_AVERAGE_SIZE,
+    DatagramFaultSpecV1, FaultKindV1, NativeDatagramProxyRequestV1, ProxySpec, RuntimeConfigV1,
+    NATIVE_DEFAULT_BANDWIDTH_BURST_BYTES, NATIVE_DEFAULT_BANDWIDTH_BYTES_PER_SECOND,
+    NATIVE_DEFAULT_BUFFER_BYTES, NATIVE_DEFAULT_LIMIT_BYTES, NATIVE_DEFAULT_PROXY_TIMEOUT_MS,
+    NATIVE_DEFAULT_SLICE_AVERAGE_SIZE,
 };
 
 /// Versioned native TOML configuration.
@@ -27,6 +28,9 @@ pub struct NativeConfig {
     /// Fixed-target proxy definitions.
     #[serde(rename = "proxy", default)]
     pub proxies: Vec<ProxyFileConfig>,
+    /// Fixed-target UDP datagram proxy definitions (optional in schema v1).
+    #[serde(default, rename = "datagram_proxies")]
+    pub datagram_proxies: Vec<DatagramProxyFileConfig>,
 }
 
 /// TOML admin settings.
@@ -62,6 +66,7 @@ impl std::fmt::Debug for NativeConfig {
             .field("seed", &self.seed)
             .field("admin", &self.admin)
             .field("proxies", &self.proxies)
+            .field("datagram_proxies", &self.datagram_proxies)
             .finish()
     }
 }
@@ -181,6 +186,12 @@ impl NativeConfig {
                 message: "too many proxies".into(),
             });
         }
+        if config.datagram_proxies.len() > 128 {
+            return Err(NativeConfigError::Field {
+                field: "datagram_proxies".into(),
+                message: "too many datagram proxies".into(),
+            });
+        }
         config
             .runtime
             .limits()
@@ -202,6 +213,19 @@ impl NativeConfig {
                 field: "runtime.termination_grace_ms".into(),
                 message,
             })?;
+        config
+            .runtime
+            .datagram_limits()
+            .map_err(|message| NativeConfigError::Field {
+                field: "runtime.datagram".into(),
+                message,
+            })?;
+        if config.datagram_proxies.len() > config.runtime.datagram.max_proxies {
+            return Err(NativeConfigError::Field {
+                field: "datagram_proxies".into(),
+                message: "datagram proxy count exceeds runtime.datagram.max_proxies".into(),
+            });
+        }
         let mut names = std::collections::HashSet::new();
         for proxy in &config.proxies {
             if !names.insert(&proxy.name) {
@@ -212,6 +236,30 @@ impl NativeConfig {
             }
             let _ = proxy.compile()?;
         }
+        let mut datagram_names = std::collections::HashSet::new();
+        for proxy in &config.datagram_proxies {
+            if !datagram_names.insert(&proxy.name) {
+                return Err(NativeConfigError::Field {
+                    field: "datagram_proxies.name".into(),
+                    message: format!("duplicate datagram proxy {}", proxy.name),
+                });
+            }
+            let compiled = proxy.compile()?;
+            let global =
+                config
+                    .runtime
+                    .datagram_limits()
+                    .map_err(|message| NativeConfigError::Field {
+                        field: "runtime.datagram".into(),
+                        message,
+                    })?;
+            compiled
+                .validate(global.max_associations)
+                .map_err(|error| NativeConfigError::Field {
+                    field: format!("datagram_proxies.{}", proxy.name),
+                    message: error.to_string(),
+                })?;
+        }
         Ok(config)
     }
     /// Load and parse a TOML file.
@@ -221,6 +269,96 @@ impl NativeConfig {
     /// Compile service proxy definitions.
     pub fn compile_proxies(&self) -> Result<Vec<ProxySpec>, NativeConfigError> {
         self.proxies.iter().map(ProxyFileConfig::compile).collect()
+    }
+    /// Compile datagram definitions through the same v1 authority as HTTP.
+    pub fn compile_datagram_proxies(
+        &self,
+    ) -> Result<Vec<crate::DatagramProxySpec>, NativeConfigError> {
+        let global =
+            self.runtime
+                .datagram_limits()
+                .map_err(|message| NativeConfigError::Field {
+                    field: "runtime.datagram".into(),
+                    message,
+                })?;
+        self.datagram_proxies
+            .iter()
+            .map(|proxy| {
+                let compiled = proxy.compile()?;
+                compiled
+                    .validate(global.max_associations)
+                    .map_err(|error| NativeConfigError::Field {
+                        field: format!("datagram_proxies.{}", proxy.name),
+                        message: error.to_string(),
+                    })?;
+                Ok(compiled)
+            })
+            .collect()
+    }
+}
+
+/// TOML fixed-target UDP proxy settings.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DatagramProxyFileConfig {
+    pub name: String,
+    pub listen: SocketAddr,
+    pub upstream: SocketAddr,
+    #[serde(default = "default_datagram_associations")]
+    pub max_associations: usize,
+    #[serde(default = "default_datagram_idle_ms")]
+    pub association_idle_timeout_ms: u64,
+    #[serde(default = "default_datagram_queue_count")]
+    pub max_queued_datagrams: u64,
+    #[serde(default = "default_datagram_queue_bytes")]
+    pub max_queued_bytes: u64,
+    #[serde(default = "default_datagram_size")]
+    pub max_datagram_size: u64,
+    #[serde(default)]
+    pub seed: u64,
+    #[serde(default)]
+    pub upstream_faults: Vec<DatagramFaultSpecV1>,
+    #[serde(default)]
+    pub downstream_faults: Vec<DatagramFaultSpecV1>,
+}
+
+fn default_datagram_associations() -> usize {
+    256
+}
+fn default_datagram_idle_ms() -> u64 {
+    60_000
+}
+fn default_datagram_queue_count() -> u64 {
+    1024
+}
+fn default_datagram_queue_bytes() -> u64 {
+    4 * 1024 * 1024
+}
+fn default_datagram_size() -> u64 {
+    65_507
+}
+
+impl DatagramProxyFileConfig {
+    fn compile(&self) -> Result<crate::DatagramProxySpec, NativeConfigError> {
+        let request = NativeDatagramProxyRequestV1 {
+            name: self.name.clone(),
+            listen: self.listen,
+            upstream: self.upstream,
+            max_associations: self.max_associations,
+            association_idle_timeout_ms: self.association_idle_timeout_ms,
+            max_queued_datagrams: self.max_queued_datagrams,
+            max_queued_bytes: self.max_queued_bytes,
+            max_datagram_size: self.max_datagram_size,
+            seed: self.seed,
+            upstream_faults: self.upstream_faults.clone(),
+            downstream_faults: self.downstream_faults.clone(),
+        };
+        request
+            .into_runtime()
+            .map_err(|message| NativeConfigError::Field {
+                field: format!("datagram_proxies.{}", self.name),
+                message,
+            })
     }
 }
 
@@ -403,6 +541,38 @@ delay = "250ms"
         let proxies = config.compile_proxies().unwrap();
         assert_eq!(proxies.len(), 1);
         assert_eq!(proxies[0].downstream_faults.faults().len(), 1);
+    }
+
+    #[test]
+    fn schema_v1_datagram_collection_compiles_with_defaults_and_faults() {
+        let config = NativeConfig::parse(
+            r#"
+version = 1
+[[datagram_proxies]]
+name = "dns"
+listen = "127.0.0.1:0"
+upstream = "127.0.0.1:5353"
+upstream_faults = [{ id = "loss", probability = 0.5, kind = { type = "loss" } }]
+"#,
+        )
+        .unwrap();
+        let proxies = config.compile_datagram_proxies().unwrap();
+        assert_eq!(proxies.len(), 1);
+        assert_eq!(proxies[0].max_associations, 256);
+        assert_eq!(proxies[0].upstream_policy.snapshot().plan.faults().len(), 1);
+        let default_config = NativeConfig::parse("version = 1\n").unwrap();
+        assert!(default_config
+            .compile_datagram_proxies()
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn schema_v1_rejects_invalid_datagram_global_bounds_and_proxy_addresses() {
+        let limits = NativeConfig::parse("version=1\n[runtime.datagram]\nmax_associations=0\n");
+        assert!(limits.is_err());
+        let target = NativeConfig::parse("version=1\n[[datagram_proxies]]\nname='dns'\nlisten='127.0.0.1:0'\nupstream='0.0.0.0:53'\n");
+        assert!(target.is_err());
     }
 
     #[test]
