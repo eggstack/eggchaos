@@ -1,6 +1,6 @@
 # Eggchaos Long-Term Roadmap
 
-Status: M008 and M009–M019 are closed work. M019 passed final pre-tag qualification at `ca527db`; the owner may proceed with the v0.1.0 tag and separate publication/release actions.
+Status: M008 and M009–M019 are closed work. M019 passed final pre-tag qualification at `ca527db`; the owner may proceed with the v0.1.0 tag and separate publication/release actions. ADR 003 is accepted and post-release UDP/datagram work is registered as M020–M023; M020 is ready.
 
 ## 1. Mission
 
@@ -84,7 +84,7 @@ Toxiproxy v2.12.0 compatibility maps its seven toxics—latency, bandwidth, slow
 
 Current Toxiproxy `main` includes `packet_loss`, which was not present in the v2.12.0 release tag. Eggchaos may add a compatibility spelling after M006, but the native model should call this stream-chunk loss or byte-stream corruption. Dropping user-space TCP stream chunks is not equivalent to IP/TCP packet loss because it bypasses retransmission semantics.
 
-Real packet loss/reordering belongs in a future datagram or lower-layer impairment subsystem.
+Real packet loss/reordering belongs in a datagram or lower-layer impairment subsystem. The user-space UDP/datagram line is activated by ADR 003 and M020–M023; lower-layer IP/qdisc phenomena remain out of scope.
 
 ## 5. Determinism
 
@@ -308,6 +308,27 @@ M018 is maintenance-only structural hardening: preserve one `RuntimeInner`/`Cont
 
 M019 is the final pre-tag authority. It makes the pinned Toxiproxy oracle mandatory in release mode, expands fuzz/differential evidence, and reruns Eggfetch/security/package/artifact/performance gates. It closed on exact candidate `ca527db`; no further corrective milestone is blocked.
 
+## 11C. Activated post-release UDP/datagram sequence
+
+ADR 003 activates a separate datagram impairment subsystem rather than extending stream `FaultKind`/`DirectionEngine` with UDP-specific branches.
+
+```text
+M020 deterministic datagram fault engine
+  -> M021 fixed-target UDP runtime + per-client associations
+  -> M022 native control/config/CLI/scenarios/observability
+  -> M023 cross-platform qualification + measured performance budget
+```
+
+M020 defines ordered whole-datagram delay/jitter, loss, duplication, reorder-by-hold, payload corruption, and bandwidth semantics with per-datagram probability, domain-separated deterministic RNG, bounded deadline scheduling, explicit drop-newest overflow, and admission-time generation snapshots.
+
+M021 adds a fixed-target UDP listener whose client `SocketAddr` maps to a bounded association with its own connected upstream UDP socket. That model is required to prevent reply cross-delivery and to support multiple or unsolicited target responses. It must audit the exact published Eggress seam/version before choosing production reuse; routing/SOCKS-heavy UDP APIs are not imported merely for convenience.
+
+M022 adds sibling native resources under `/v1/datagram-proxies` and `/v1/datagram-associations`, plus TOML, CLI, explicit datagram scenario actions, metrics, and bounded evidence. Toxiproxy v2.12 remains TCP/stream-only.
+
+M023 freezes exact deterministic traces, runs real multi-client UDP tests on supported host OSes, expands fuzz/bounds/security evidence, measures the first no-fault datagram performance baseline and only then freezes a regression budget, and reruns existing stream/Toxiproxy/Eggfetch release regressions.
+
+This tranche is post-release work. It does not rewrite M019 closure evidence and is not part of the historical v0.1.0 qualification gate.
+
 ## 12. Performance targets
 
 No-fault overhead is a first-class regression metric.
@@ -340,7 +361,7 @@ After M008 closes, reassess rather than automatically expanding scope.
 
 Potential next lines:
 
-- datagram/UDP impairment using a separate `ChaosDatagram` contract;
+- datagram/UDP impairment is activated as ADR 003 + M020–M023; follow-on datagram models require separate planning;
 - optional upstream chains via `eggress-outbound`;
 - eggreplay integration so recorded flows can replay with timing/failure profiles;
 - eggprobe integration for controlled diagnostic experiments;

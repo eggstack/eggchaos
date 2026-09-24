@@ -1,6 +1,6 @@
 # Eggchaos Plan Registry
 
-Last reconciled: 2026-09-23 (M019 closed; final pre-tag gate passed)
+Last reconciled: 2026-09-24 (UDP/datagram tranche registered; M020 ready)
 
 This file is the compact source of truth for active milestone state. Detailed scope lives in the numbered plans. Historical closure evidence belongs in `plans/closure/`.
 
@@ -26,6 +26,10 @@ This file is the compact source of truth for active milestone state. Detailed sc
 | M017 | `017-native-control-contract-and-operator-surface-consolidation.md` | closed | M016 | Closed at `58c4345`; evidence in `plans/closure/M017-native-control-contract-and-operator-surface-consolidation-closure.md`. Pinned Toxiproxy differential remains incomplete and is an explicit M019 gate. |
 | M018 | `018-runtime-modularization-and-dependency-hygiene.md` | closed | M017 | Closed at `7e33d03`; evidence in `plans/closure/M018-runtime-modularization-and-dependency-hygiene-closure.md`. Runtime authority and public root exports preserved; six unused direct deps removed. |
 | M019 | `019-qualification-expansion-and-final-corrective-requalification.md` | closed | M016, M017, M018 | Closed at `ca527db`; evidence in `plans/closure/M019-qualification-expansion-and-final-corrective-requalification-closure.md`. Final pre-tag gate passed on exact candidate across local/remote CI, pinned oracle, fuzz, Eggfetch, artifacts, security, package, and performance evidence. |
+| M020 | `020-deterministic-datagram-fault-engine.md` | ready | M019 + ADR 003 | Post-release datagram semantic foundation; no sockets or control surface. |
+| M021 | `021-fixed-target-udp-runtime-and-association-lifecycle.md` | blocked | M020 | Fixed-target UDP runtime and per-client association lifecycle. |
+| M022 | `022-datagram-native-control-scenarios-cli-observability.md` | blocked | M021 | Native API/config/CLI/scenario/metrics surface for the proven datagram runtime. |
+| M023 | `023-datagram-qualification-performance-release-hardening.md` | blocked | M022 | Exact-candidate cross-platform datagram qualification and first measured performance budget. |
 
 ## Execution state
 
@@ -41,13 +45,19 @@ The historical pre-tag sequence through M015 is complete. M016 has now closed cl
 
 M015 qualified `cd88b22` and remains valid historical evidence. M016–M019 changed/requalified release-relevant code, so `cd88b22` is not the final candidate. M019 closed at `ca527db`; the owner may proceed with tagging, crates.io publication, and GitHub release creation as separate actions.
 
-## Future roadmap items not yet activated
+A post-release UDP/datagram tranche is now registered under ADR 003:
 
-These remain post-release or separately planned work and must not be pulled into the corrective sequence.
+`M020 (ready) -> M021 (blocked) -> M022 (blocked) -> M023 (blocked)`
+
+This registration does not rewrite M019 closure evidence and does not make datagram support part of the historical v0.1.0 qualification candidate. M020 is the only implementation handoff currently ready.
+
+## Post-release roadmap state
+
+The UDP/datagram line is activated below; the remaining items are post-release or separately planned work and must not be pulled into another milestone implicitly.
 
 | Area | State | Gate |
 | --- | --- | --- |
-| UDP/datagram impairment engine | future | M008 closed; separate datagram semantics ADR required. |
+| UDP/datagram impairment engine | active tranche | ADR 003 accepted; M020 ready; M021–M023 blocked in dependency order. |
 | Optional `eggress-outbound` chained upstreams | future | M008 closed; prove demand without turning eggchaos into a second proxy framework. |
 | eggreplay timing/fault integration | future | eggreplay stable flow model + M008. |
 | eggprobe controlled impairment experiments | future | eggprobe stable diagnostics contract + M008. |
@@ -59,11 +69,13 @@ These remain post-release or separately planned work and must not be pulled into
 
 Completed historical work: M000–M015 and M008 are closed.
 
-Active: none.
+Active: M020.
 
-Blocked: none.
+Blocked: M021, M022, M023.
 
-Current pre-tag execution order: `M016 (closed) -> M017 (closed) -> M018 (closed) -> M019 (closed)`. No corrective successor is blocked. The owner may proceed with the v0.1.0 tag, crates.io publication, and GitHub release as separate release actions.
+Historical pre-tag execution order: `M016 (closed) -> M017 (closed) -> M018 (closed) -> M019 (closed)`. The owner may proceed with the v0.1.0 tag, crates.io publication, and GitHub release as separate release actions.
+
+Current post-release execution order: `M020 (ready) -> M021 (blocked) -> M022 (blocked) -> M023 (blocked)`.
 
 ## Closure requirements
 

@@ -11,7 +11,7 @@ Eggchaos is intended to be a small Rust-native successor to the useful core of T
 | `roadmap.md` | Long-term architecture, sequencing, release stages, and future extensions. |
 | `registry.md` | Current milestone status and dependency source of truth. |
 | `000-architecture-and-scope-baseline.md` | Investigated baseline, reuse decisions, scope boundaries, and initial dependency graph. |
-| `001-*.md` ... `019-*.md` | Bounded implementation, corrective, cleanup, and qualification handoffs in execution order. |
+| `001-*.md` ... `023-*.md` | Bounded implementation, corrective, cleanup, feature, and qualification handoffs in execution order. |
 | `adrs/` | Durable architecture decisions that should not be silently changed by implementation. |
 | `reference/toxiproxy-parity.md` | Compatibility target and semantic mapping. |
 | `reference/verification-matrix.md` | Required evidence across faults, platforms, APIs, and performance. |
@@ -25,6 +25,8 @@ M000–M015 and M008 remain closed historical work. A 2026-09-23 post-M015 repos
 `M016 correctness/security -> M017 native contract/operator surface -> M018 runtime modularization -> M019 final corrective requalification`
 
 M016–M019 are closed. M019 completed the pinned Toxiproxy oracle gate and is the final exact-candidate release qualification authority. The owner may proceed with the v0.1.0 tag, crates.io publication, and GitHub release as separate release actions.
+
+The first activated post-release feature tranche is UDP/datagram impairment under ADR 003: `M020 ready -> M021 blocked -> M022 blocked -> M023 blocked`. M020 defines core datagram semantics, M021 adds the fixed-target UDP association runtime, M022 adds native control/config/CLI/scenario/observability, and M023 performs exact-candidate cross-platform qualification. This does not alter M019's historical v0.1.0 authority.
 
 Historical closure records remain preserved at their real candidate commits. M015 remains valid qualification evidence for `cd88b22`; M019 is the final current release-candidate authority at `ca527db`.
 
@@ -54,7 +56,7 @@ The initial architecture is deliberately narrow:
 
 The native admin plane should use the leaf `eggserve-server` + `eggserve-primitives` H1 substrate. The CLI should use a minimal `eggfetch-core` HTTP profile to call it. `eggress-admin` is not used because its state model is specific to Eggress routing, UDP, metrics, and reverse-proxy administration.
 
-The first release is TCP byte-stream focused. UDP/datagram chaos, arbitrary outbound proxy chains, language bindings, and cross-project integration with eggreplay/eggprobe are roadmap items rather than MVP scope.
+The first release is TCP byte-stream focused. UDP/datagram chaos is now an activated post-release tranche (ADR 003, M020–M023) but remains outside the first-release/M019 historical scope. Arbitrary outbound proxy chains, language bindings, and cross-project integration with eggreplay/eggprobe remain later roadmap items.
 
 ## Research baseline
 
@@ -68,3 +70,8 @@ Initial planning was researched on 2026-09-22 against:
 - contemporary Rust stream-adapter chaos designs such as Trixter/tokio-netem for comparison, not as dependencies.
 
 See the baseline and reference documents for exact conclusions.
+
+
+## Datagram research update
+
+On 2026-09-24 the UDP/datagram roadmap item was re-researched against current eggchaos `main`, current Eggress UDP/runtime surfaces (especially `eggress-udp` and its fixed-target compatibility behavior), Tokio UDP receive semantics, and Linux `tc netem` as a semantic reference rather than an implementation dependency. ADR 003 and M020–M023 encode the resulting boundary and execution order.
