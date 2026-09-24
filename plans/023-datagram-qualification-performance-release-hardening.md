@@ -1,6 +1,6 @@
 # M023 — Datagram Qualification, Performance, and Release Hardening
 
-Status: blocked
+Status: closed
 Depends on: M022
 Role: exact-candidate qualification gate for the first datagram tranche
 

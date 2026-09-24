@@ -233,8 +233,8 @@ if a gate was not run, record it as incomplete (see §8).
 | --- | --- | --- |
 | Harness + cases | `benchmarks/src/main.rs`, `benchmarks/src/bin/datagram.rs`, `benchmarks/Cargo.toml`, `scripts/benchmark.sh`, `scripts/benchmark_datagram.sh` | Stream cases plus direct UDP, fixed-target empty plan, individual/combined datagram faults, and multi-client workload |
 | Method README | `qualification/performance/README.md` | Bare relay is the baseline; fault delay excluded from overhead |
-| Snapshots | `qualification/performance/2026-09-22-macos-arm64.json`, `...-m008.json` | Host block (OS/model/CPU/Rust/profile) + method + results + budget |
-| Budget | `...-m008.json:budget`; M023 datagram snapshot | Stream `empty_plan ≥ 70% of same-session bare relay`; datagram threshold was frozen after the first direct-UDP baseline |
+| Snapshots | `qualification/performance/2026-09-22-macos-arm64.json`, `...-m008.json`, `2026-09-24-macos-arm64-m023.json` | Host block (OS/model/CPU/Rust/profile), candidate SHA, method, results, and budget |
+| Budget | `...-m008.json:budget`; `2026-09-24-macos-arm64-m023.json` | Stream `empty_plan ≥ 70% of same-session bare relay`; datagram `≥45%` of direct UDP throughput and `≤2.5×` direct p95 latency |
 | Release TOML | `qualification/release/eggchaos.toml` | Artifact-smoke fixture (seed 7, loopback admin, TCP `smoke` and UDP `udp-smoke` proxies) |
 | Oracle baseline | `qualification/toxiproxy-v2-12/oracle-baseline-v2.12.0.md` | Live-captured 2026-09-22: identity, routes, reset/populate, 7 toxic defaults, non-API 404s |
 | Client smokes | `qualification/toxiproxy-v2-12/client-smoke/{go/,py_smoke.py,*_results.json}` | Pinned Go client + stdlib Python; rerun fresh per qualification |

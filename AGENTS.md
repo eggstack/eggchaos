@@ -5,14 +5,14 @@ Rust workspace (edition 2021, pinned `1.89.0` in `rust-toolchain.toml` + CI). `u
 ## Layout — dependency direction is inward
 
 ```text
-eggchaos-cli -> eggchaos-server -> eggchaos-core (-> Tokio byte streams)
+eggchaos-cli -> eggchaos-server -> eggchaos-core (Tokio byte streams + datagrams)
 eggchaos-toxiproxy -> server/core (adapter, no separate state store)
 eggchaos-eggfetch -> core (implements `eggfetch_core::Dialer`)
 ```
 
-- `eggchaos-core` (`crates/eggchaos-core/src/`): protocol-neutral `FaultPlan` + `ChaosStream<T>` write-side state machine. Knows nothing about HTTP, listeners, CLI, Toxiproxy, Eggfetch. Empty plan delegates without allocating queue/timer.
-- `eggchaos-server`: fixed-target TCP listeners only (never a forward proxy). `eggress-relay` owns bidirectional copy + half-close — do not fork its semantics. Admin H1 runtime is `eggserve-server` + `eggserve-primitives`; `native.rs` owns the explicit `/v1` DTO/conversion boundary.
-- `eggchaos-server/src/runtime/`: `mod.rs` composition/re-exports; `control.rs` single `ControlState` authority; `connection.rs` evidence/finalization; `supervisor.rs` listener admission; `transport.rs` reset wrapper; `metrics.rs` bounded metrics; `model.rs` runtime views; `tests.rs` regression suite.
+- `eggchaos-core` (`crates/eggchaos-core/src/`): protocol-neutral stream `FaultPlan` + `ChaosStream<T>` write-side state machine and deterministic whole-datagram engine. Knows nothing about HTTP, listeners, CLI, Toxiproxy, or Eggfetch. Empty stream plan delegates without allocating queue/timer.
+- `eggchaos-server`: fixed-target TCP and UDP listeners (never a forward proxy). `eggress-relay` owns TCP bidirectional copy + half-close — do not fork its semantics. UDP associations own per-client connected upstream sockets. Admin H1 runtime is `eggserve-server` + `eggserve-primitives`; `native.rs` owns the explicit `/v1` DTO/conversion boundary.
+- `eggchaos-server/src/runtime/`: `mod.rs` composition/re-exports; `control.rs` single `ControlState` authority; `connection.rs` evidence/finalization; `supervisor.rs` listener admission; `transport.rs` reset wrapper; `metrics.rs` bounded metrics; `model.rs` runtime views; `datagram.rs` UDP proxy and association lifecycle; `tests.rs` regression suite.
 - `eggchaos-cli`: thin adapter; control HTTP via `eggfetch-core` (minimal features). Never a second networking/state path.
 - `eggchaos-toxiproxy`: v2.12 REST adapter over native `ControlState`. `eggchaos-eggfetch`: physical-stream `Dialer`; Eggfetch keeps HTTP/TLS/SNI/pooling. Per-request chaos is out of scope.
 - `benchmarks/` and `fuzz/` are separate crates/workspaces with their own manifests — don't run them via workspace commands.
@@ -42,6 +42,7 @@ cargo test -p eggchaos-core --all-features
 cargo test -p eggchaos-toxiproxy --all-features
 cargo test -p eggchaos-eggfetch --all-features          # add --features http2 for the H2 qualification profile
 cargo run --manifest-path benchmarks/Cargo.toml --release
+./scripts/benchmark_datagram.sh
 ```
 
 Qualification scripts (release workflow): `scripts/qualify_fuzz.sh`, `scripts/qualify_toxiproxy_v2_12.sh`, `scripts/qualify_eggfetch.sh`, `scripts/release-smoke.sh`, `scripts/release-artifact-smoke.sh`.
@@ -63,10 +64,10 @@ Qualification scripts (release workflow): `scripts/qualify_fuzz.sh`, `scripts/qu
 
 M000–M019 and M008 are closed milestones. The 2026-09-23 post-M015 corrective chain `M016 -> M017 -> M018 -> M019` closed, with M019's final candidate `ca527db`. M015 remains historical qualification for `cd88b22`, but M019 is the final tag authority. The owner may proceed with tag/publication/release actions; do not rewrite `plans/closure/` / `plans/archive/` history.
 
-Post-release UDP/datagram work is registered under ADR 003 as `M020 (closed at 56c8925) -> M021 (ready) -> M022 (blocked) -> M023 (blocked)`. Implement only M021 until its exact-candidate closure activates M022. The M020 closure does not rewrite M019 or make UDP part of the historical v0.1.0 qualification.
+Post-release UDP/datagram work registered under ADR 003 is complete: M020 closed at `56c8925`, M021 at `686838b`, M022 at `8c4e3fb`, and M023 qualified exact candidate `ae2ab733b2be199d7693e40cdc558df01ee9a9de`. Closure evidence is in `plans/closure/M020-deterministic-datagram-fault-engine-closure.md`, `plans/closure/M021-fixed-target-udp-runtime-and-association-lifecycle-closure.md`, `plans/closure/M022-datagram-native-control-scenarios-cli-observability-closure.md`, and `plans/closure/M023-datagram-qualification-performance-release-hardening-closure.md`. This tranche does not rewrite M019 or make UDP part of the historical v0.1.0 qualification. No successor is automatically active; additional datagram work requires separate planning and, where semantics change, an ADR.
 
 If the owner asks for new work: `plans/roadmap.md` is the architecture authority, `plans/reference/` holds parity/verification contracts (not status), ADRs live in `plans/adrs/`. Any new numbered plan needs objective, baseline/deps, scope + non-goals, affected crates, ordered work packages, invariants/failure semantics, test commands, acceptance criteria, stop conditions, closure evidence, and follow-on rules — and must update `plans/registry.md` in the same change. Never mark `closed` from source inspection; closure requires running the plan's tests on the exact candidate plus external/differential evidence where declared.
 
 ## Verification
 
-Prefer deterministic Tokio-time tests; wall-clock assertions need justified tolerances and must not be sole evidence. Cover: fault state machines, byte-conservation properties where faults preserve bytes, half-close/shutdown, bounded-buffer/backpressure, RNG golden vectors, exact JSON/TOML round trips, Toxiproxy differential (47/47 vs pinned v2.12.0), no-fault throughput/latency vs bare `eggress-relay`. Record un-runnable oracles/platforms as incomplete evidence. Authoritative semantics: `docs/architecture.md`, `docs/configuration.md`, `docs/control-plane.md`, `docs/toxiproxy.md`, `docs/eggfetch.md`.
+Prefer deterministic Tokio-time tests; wall-clock assertions need justified tolerances and must not be sole evidence. Cover: fault state machines, byte-conservation properties where faults preserve bytes, half-close/shutdown, bounded-buffer/backpressure, RNG golden vectors, exact JSON/TOML round trips, Toxiproxy differential (47/47 vs pinned v2.12.0), no-fault throughput/latency vs bare `eggress-relay`, exact datagram traces and the measured fixed-target UDP budget. Record un-runnable oracles/platforms as incomplete evidence. Authoritative semantics: `docs/architecture.md`, `docs/configuration.md`, `docs/control-plane.md`, `docs/toxiproxy.md`, `docs/eggfetch.md`.

@@ -1,6 +1,6 @@
 # Eggchaos Plan Registry
 
-Last reconciled: 2026-09-24 (M021 closed; M022 activated)
+Last reconciled: 2026-09-24 (M023 closed; ADR 003 tranche complete)
 
 This file is the compact source of truth for active milestone state. Detailed scope lives in the numbered plans. Historical closure evidence belongs in `plans/closure/`.
 
@@ -29,7 +29,7 @@ This file is the compact source of truth for active milestone state. Detailed sc
 | M020 | `020-deterministic-datagram-fault-engine.md` | closed | M019 + ADR 003 | Closed on exact candidate `56c8925`; evidence in `plans/closure/M020-deterministic-datagram-fault-engine-closure.md`. |
 | M021 | `021-fixed-target-udp-runtime-and-association-lifecycle.md` | closed | M020 | Closed on exact candidate `686838b`; evidence in `plans/closure/M021-fixed-target-udp-runtime-and-association-lifecycle-closure.md`. Local Tokio UDP ownership; no narrow published Eggress fixed-target seam. |
 | M022 | `022-datagram-native-control-scenarios-cli-observability.md` | closed | M021 | Closed on exact candidate `8c4e3fb`; evidence in `plans/closure/M022-datagram-native-control-scenarios-cli-observability-closure.md`. |
-| M023 | `023-datagram-qualification-performance-release-hardening.md` | ready | M022 | M022 control/config/scenario/CLI/observability surfaces closed on exact candidate `8c4e3fb`. |
+| M023 | `023-datagram-qualification-performance-release-hardening.md` | closed | M022 | Closed cleanly on exact candidate `ae2ab733b2be199d7693e40cdc558df01ee9a9de`; evidence in `plans/closure/M023-datagram-qualification-performance-release-hardening-closure.md`. |
 
 ## Execution state
 
@@ -45,19 +45,19 @@ The historical pre-tag sequence through M015 is complete. M016 has now closed cl
 
 M015 qualified `cd88b22` and remains valid historical evidence. M016–M019 changed/requalified release-relevant code, so `cd88b22` is not the final candidate. M019 closed at `ca527db`; the owner may proceed with tagging, crates.io publication, and GitHub release creation as separate actions.
 
-A post-release UDP/datagram tranche is now registered under ADR 003:
+A post-release UDP/datagram tranche is registered and complete under ADR 003:
 
-`M020 (closed) -> M021 (closed) -> M022 (closed) -> M023 (ready)`
+`M020 (closed) -> M021 (closed) -> M022 (closed) -> M023 (closed)`
 
-This work does not rewrite M019 closure evidence and does not make datagram support part of the historical v0.1.0 qualification candidate. M020 closed on `56c8925`; M021 closed on `686838b`; M022 closed on `8c4e3fb`; M023 is the only implementation handoff ready.
+This work does not rewrite M019 closure evidence and does not make datagram support part of the historical v0.1.0 qualification candidate. M020 closed on `56c8925`; M021 closed on `686838b`; M022 closed on `8c4e3fb`; M023 qualified `ae2ab733b2be199d7693e40cdc558df01ee9a9de`. No M024 or other successor is registered or automatically unblocked; follow-on datagram work requires new planning and an ADR when semantics change.
 
 ## Post-release roadmap state
 
-The UDP/datagram line is activated below; the remaining items are post-release or separately planned work and must not be pulled into another milestone implicitly.
+The completed UDP/datagram tranche is listed below; the remaining items are post-release or separately planned work and must not be pulled into another milestone implicitly.
 
 | Area | State | Gate |
 | --- | --- | --- |
-| UDP/datagram impairment engine | active tranche | ADR 003 accepted; M020–M022 closed; M023 ready as the exact-candidate qualification and release-hardening gate. |
+| UDP/datagram impairment engine | completed tranche | ADR 003 accepted; M020–M023 closed with exact-candidate qualification evidence. |
 | Optional `eggress-outbound` chained upstreams | future | M008 closed; prove demand without turning eggchaos into a second proxy framework. |
 | eggreplay timing/fault integration | future | eggreplay stable flow model + M008. |
 | eggprobe controlled impairment experiments | future | eggprobe stable diagnostics contract + M008. |
@@ -67,15 +67,15 @@ The UDP/datagram line is activated below; the remaining items are post-release o
 
 ## Dependency-ready view
 
-Completed work: M000–M021 and M008 are closed.
+Completed work: M000–M023 and M008 are closed.
 
-Active: M022.
+Active: none.
 
-Blocked: M023.
+Blocked: none.
 
 Historical pre-tag execution order: `M016 (closed) -> M017 (closed) -> M018 (closed) -> M019 (closed)`. The owner may proceed with the v0.1.0 tag, crates.io publication, and GitHub release as separate release actions.
 
-Current post-release execution order: `M020 (closed) -> M021 (closed) -> M022 (ready) -> M023 (blocked)`.
+Completed post-release execution order: `M020 (closed) -> M021 (closed) -> M022 (closed) -> M023 (closed)`.
 
 ## Closure requirements
 

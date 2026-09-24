@@ -213,7 +213,7 @@ closure; neither may claim unsupported behavior.
 
 | Item | State | Gate to activate |
 | --- | --- | --- |
-| UDP / datagram (`ChaosDatagram`) impairment | future | Separate datagram-semantics ADR after M008 (`plans/registry.md`). |
+| UDP / datagram (`ChaosDatagram`) impairment | implemented | ADR 003 and M020–M023 are closed; exact-candidate evidence is in `plans/registry.md` and `plans/closure/`. Follow-on datagram semantics require separate planning. |
 | Optional `eggress-outbound` chained upstreams | future | Proven demand; optional feature only; must not turn eggchaos into a second proxy framework. |
 | `eggreplay` timing/fault integration | future | Stable eggreplay flow model + M008. |
 | `eggprobe` controlled experiments | future | Stable eggprobe diagnostics contract + M008. |

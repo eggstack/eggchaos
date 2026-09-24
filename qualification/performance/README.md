@@ -22,7 +22,17 @@ set. `EGGCHAOS_DATAGRAM_BENCH_DATAGRAMS` and
 
 M023's first direct-UDP baseline selected a same-session empty-plan budget of
 at least 45% of direct datagrams/second median and empty-plan p95 latency no
-more than 2.5 times the direct median. The script checks both ratios. These
+more than 2.5 times direct p95 latency. The script checks both ratios. These
 relative thresholds tolerate host speed changes while keeping a visible
 regression limit; absolute results remain host-specific. Deliberate timer-based
 fault cases are reported but excluded from the empty-plan budget.
+
+Exact candidate `ae2ab733b2be199d7693e40cdc558df01ee9a9de` was measured on
+2026-09-24 with rustc 1.89.0 on an Apple M4 Pro (macOS arm64), 1200-byte
+payloads, 2000 logical datagrams per case, and three rounds. The direct UDP
+echo median was 43,786.71 datagrams/s (p95 42 µs); the fixed-target empty-plan
+median was 24,107.89 datagrams/s (p95 66 µs), a 0.5506 throughput ratio and
+1.5714 p95 ratio. The checked raw 30-sample report is
+`2026-09-24-macos-arm64-m023.json`. Fault cases and eight-client throughput
+are in that report; scheduler timer granularity dominates the 20 µs delay and
+reorder cases on this host.

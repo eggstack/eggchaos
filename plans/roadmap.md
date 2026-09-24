@@ -1,6 +1,6 @@
 # Eggchaos Long-Term Roadmap
 
-Status: M008 and M009–M021 are closed work. M019 passed final pre-tag qualification at `ca527db`; the owner may proceed with the v0.1.0 tag and separate publication/release actions. ADR 003 is accepted; M020 closed on `56c8925` and M021 on `686838b`, activating M022.
+Status: M008 and M009–M023 are closed work. M019 passed final pre-tag qualification at `ca527db`; the owner may proceed with the v0.1.0 tag and separate publication/release actions. ADR 003's post-release datagram tranche M020–M023 is complete; no follow-on datagram plan is activated.
 
 ## 1. Mission
 
@@ -84,7 +84,7 @@ Toxiproxy v2.12.0 compatibility maps its seven toxics—latency, bandwidth, slow
 
 Current Toxiproxy `main` includes `packet_loss`, which was not present in the v2.12.0 release tag. Eggchaos may add a compatibility spelling after M006, but the native model should call this stream-chunk loss or byte-stream corruption. Dropping user-space TCP stream chunks is not equivalent to IP/TCP packet loss because it bypasses retransmission semantics.
 
-Real packet loss/reordering belongs in a datagram or lower-layer impairment subsystem. The user-space UDP/datagram line is activated by ADR 003 and M020–M023; lower-layer IP/qdisc phenomena remain out of scope.
+Real packet loss/reordering belongs in a datagram or lower-layer impairment subsystem. The user-space UDP/datagram line is implemented under ADR 003 and M020–M023; lower-layer IP/qdisc phenomena remain out of scope.
 
 ## 5. Determinism
 
@@ -315,8 +315,8 @@ ADR 003 activates a separate datagram impairment subsystem rather than extending
 ```text
 M020 deterministic datagram fault engine (closed at 56c8925)
   -> M021 fixed-target UDP runtime + per-client associations (closed at 686838b)
-  -> M022 native control/config/CLI/scenarios/observability (ready)
-  -> M023 cross-platform qualification + measured performance budget (blocked)
+  -> M022 native control/config/CLI/scenarios/observability (closed at 8c4e3fb)
+  -> M023 cross-platform qualification + measured performance budget (closed at ae2ab73)
 ```
 
 M020 defines ordered whole-datagram delay/jitter, loss, duplication, reorder-by-hold, payload corruption, and bandwidth semantics with per-datagram probability, domain-separated deterministic RNG, bounded deadline scheduling, explicit drop-newest overflow, and admission-time generation snapshots.
@@ -325,7 +325,7 @@ M021 adds a fixed-target UDP listener whose client `SocketAddr` maps to a bounde
 
 M022 (closed at `8c4e3fb`) adds sibling native resources under `/v1/datagram-proxies` and `/v1/datagram-associations`, plus TOML, CLI, explicit datagram scenario actions, metrics, and bounded evidence. Toxiproxy v2.12 remains TCP/stream-only.
 
-M023 freezes exact deterministic traces, runs real multi-client UDP tests on supported host OSes, expands fuzz/bounds/security evidence, measures the first no-fault datagram performance baseline and only then freezes a regression budget, and reruns existing stream/Toxiproxy/Eggfetch release regressions.
+M023 (closed on `ae2ab733b2be199d7693e40cdc558df01ee9a9de`) froze exact deterministic traces, ran real multi-client UDP tests on supported host OSes, expanded fuzz/bounds/security evidence, measured and froze the first no-fault datagram performance regression budget, and reran existing stream/Toxiproxy/Eggfetch release regressions. Closure evidence is in `plans/closure/M023-datagram-qualification-performance-release-hardening-closure.md`.
 
 This tranche is post-release work. It does not rewrite M019 closure evidence and is not part of the historical v0.1.0 qualification gate.
 
@@ -361,7 +361,7 @@ After M008 closes, reassess rather than automatically expanding scope.
 
 Potential next lines:
 
-- datagram/UDP impairment is activated as ADR 003 + M020–M023; follow-on datagram models require separate planning;
+- datagram/UDP impairment is implemented under ADR 003 + M020–M023; follow-on datagram models require separate planning;
 - optional upstream chains via `eggress-outbound`;
 - eggreplay integration so recorded flows can replay with timing/failure profiles;
 - eggprobe integration for controlled diagnostic experiments;
