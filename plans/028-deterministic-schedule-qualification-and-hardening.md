@@ -1,6 +1,6 @@
 # M028 — Deterministic Schedule Qualification and Hardening
 
-Status: blocked
+Status: ready
 Depends on: M027
 Role: exact-candidate qualification gate for the first richer-scenario tranche
 

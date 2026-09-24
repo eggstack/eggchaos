@@ -1,6 +1,6 @@
 # M027 — Scenario Schedule Runtime, Control, and Lifecycle
 
-Status: blocked
+Status: closed
 Depends on: M026
 Role: runtime/control integration for deterministic scenario-v2 schedules
 
