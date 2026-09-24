@@ -1,6 +1,6 @@
 # Eggchaos Plan Registry
 
-Last reconciled: 2026-09-24 (M024 datagram performance/maintainability pass closed)
+Last reconciled: 2026-09-24 (M025 datagram association setup/closure hygiene registered)
 
 This file is the compact source of truth for active milestone state. Detailed scope lives in the numbered plans. Historical closure evidence belongs in `plans/closure/`.
 
@@ -31,6 +31,7 @@ This file is the compact source of truth for active milestone state. Detailed sc
 | M022 | `022-datagram-native-control-scenarios-cli-observability.md` | closed | M021 | Closed on exact candidate `8c4e3fb`; evidence in `plans/closure/M022-datagram-native-control-scenarios-cli-observability-closure.md`. |
 | M023 | `023-datagram-qualification-performance-release-hardening.md` | closed | M022 | Closed cleanly on exact candidate `ae2ab733b2be199d7693e40cdc558df01ee9a9de`; evidence in `plans/closure/M023-datagram-qualification-performance-release-hardening-closure.md`. |
 | M024 | `024-datagram-hot-path-performance-and-runtime-maintainability.md` | closed | M023 | Closed on exact candidate `ca46801`; evidence in `plans/closure/M024-datagram-hot-path-performance-and-runtime-maintainability-closure.md`. |
+| M025 | `025-datagram-association-setup-waiter-and-closure-hygiene.md` | ready | M024 | Replace bounded yield polling in `Starting` association setup with retained/event-driven waiting, prove race/capacity cleanup, and reconcile post-M024 planning status. |
 
 ## Execution state
 
@@ -62,13 +63,22 @@ measurement, scheduler/hot-path optimization where profiling justified it,
 association-setup locking cleanup, and internal datagram runtime
 modularization.
 
+A narrow post-M024 concurrency/planning hygiene successor is registered:
+
+`M025 (ready)`
+
+M025 does not change ADR 003 or M024 semantics. It removes bounded
+`yield_now()` polling from the `Starting` association path using a
+no-lost-wakeup event-driven transition, proves setup/drain/capacity races, and
+finishes the planning-state cleanup.
+
 ## Post-release roadmap state
 
 The completed UDP/datagram tranche is listed below; the remaining items are post-release or separately planned work and must not be pulled into another milestone implicitly.
 
 | Area | State | Gate |
 | --- | --- | --- |
-| UDP/datagram impairment engine | maintenance active | ADR 003 semantics and M020–M024 feature/performance tranche closed. |
+| UDP/datagram impairment engine | hygiene follow-up ready | ADR 003 semantics and M020–M024 feature/performance work closed; M025 ready for association setup/closure hygiene. |
 | Optional `eggress-outbound` chained upstreams | future | M008 closed; prove demand without turning eggchaos into a second proxy framework. |
 | eggreplay timing/fault integration | future | eggreplay stable flow model + M008. |
 | eggprobe controlled impairment experiments | future | eggprobe stable diagnostics contract + M008. |
@@ -80,7 +90,7 @@ The completed UDP/datagram tranche is listed below; the remaining items are post
 
 Completed work: M000–M024 and M008 are closed.
 
-Active: none.
+Active: M025.
 
 Blocked: none.
 
@@ -88,8 +98,9 @@ Historical pre-tag execution order: `M016 (closed) -> M017 (closed) -> M018 (clo
 
 Completed post-release feature execution order: `M020 (closed) -> M021 (closed) -> M022 (closed) -> M023 (closed)`.
 
-Completed post-release maintenance handoff: `M024 (closed)`. No successor is
-activated; richer datagram semantics require a separate plan/ADR.
+Completed post-release performance/maintenance handoff: `M024 (closed)`.
+
+Current hygiene handoff: `M025 (ready)`. It activates no semantic expansion; richer datagram semantics still require a separate plan/ADR.
 
 ## Closure requirements
 

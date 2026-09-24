@@ -1,6 +1,6 @@
 # Eggchaos Long-Term Roadmap
 
-Status: M008 and M009–M024 are closed work. M019 passed final pre-tag qualification at `ca527db`; the owner may proceed with the v0.1.0 tag and separate publication/release actions. ADR 003's post-release datagram feature tranche M020–M023 is complete. M024 closed as the semantics-preserving datagram performance/runtime-maintainability successor at `ca46801`.
+Status: M008 and M009–M024 are closed work. M019 passed final pre-tag qualification at `ca527db`; the owner may proceed with the v0.1.0 tag and separate publication/release actions. ADR 003's post-release datagram feature tranche M020–M023 is complete. M024 closed as the semantics-preserving datagram performance/runtime-maintainability successor at `ca46801`. M025 is ready as the narrow association-setup/closure-hygiene successor.
 
 ## 1. Mission
 
@@ -340,6 +340,24 @@ The implementation then targets only demonstrated avoidable cost. The known cand
 
 M024 also decomposed the large datagram runtime into cohesive private modules while retaining one `DatagramRuntime` authority and the existing `ControlState` integration. It reran the complete M023 regression surface and recorded before/after raw performance artifacts before closure.
 
+## 11E. Active datagram association setup/closure hygiene
+
+M025 is a narrow concurrency and planning-hygiene successor to M024. It adds
+no new datagram semantics.
+
+M024 removed the association-registry lock from UDP bind/connect by introducing
+an explicit `Starting` slot. A caller that encounters that state currently
+retries with bounded `yield_now()` polling. M025 replaces that retry loop with
+a retained/event-driven transition whose publication, setup failure, and
+administrative drain cannot be missed by waiters. The reservation identity must
+continue to prevent stale setup owners from publishing over a newer slot, and
+capacity accounting must remain exact.
+
+The pass also fixes stale planning language left after M024 closure. It must
+preserve the M024 topology-matched performance budgets, ADR 003 golden traces,
+per-client connected upstream sockets, native contracts, and the one
+`DatagramRuntime` authority. A clean M025 activates no successor.
+
 ## 12. Performance targets
 
 No-fault overhead is a first-class regression metric.
@@ -374,9 +392,7 @@ After M008 closes, reassess rather than automatically expanding scope.
 
 Potential next lines:
 
-- datagram/UDP impairment is implemented under ADR 003 + M020–M023 and
-  hardened by the M024 performance/runtime-maintainability pass (closed);
-  follow-on datagram models require separate planning;
+- datagram/UDP impairment is implemented under ADR 003 + M020–M023 and hardened by the closed M024 performance/runtime-maintainability pass; M025 is the active narrow association-setup/closure-hygiene handoff; follow-on datagram models require separate planning;
 - optional upstream chains via `eggress-outbound`;
 - eggreplay integration so recorded flows can replay with timing/failure profiles;
 - eggprobe integration for controlled diagnostic experiments;
