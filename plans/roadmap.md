@@ -1,6 +1,6 @@
 # Eggchaos Long-Term Roadmap
 
-Status: M008 and M009–M020 are closed work. M019 passed final pre-tag qualification at `ca527db`; the owner may proceed with the v0.1.0 tag and separate publication/release actions. ADR 003 is accepted; M020 closed on `56c8925`, activating M021.
+Status: M008 and M009–M021 are closed work. M019 passed final pre-tag qualification at `ca527db`; the owner may proceed with the v0.1.0 tag and separate publication/release actions. ADR 003 is accepted; M020 closed on `56c8925` and M021 on `686838b`, activating M022.
 
 ## 1. Mission
 
@@ -314,9 +314,9 @@ ADR 003 activates a separate datagram impairment subsystem rather than extending
 
 ```text
 M020 deterministic datagram fault engine (closed at 56c8925)
-  -> M021 fixed-target UDP runtime + per-client associations (ready)
-  -> M022 native control/config/CLI/scenarios/observability
-  -> M023 cross-platform qualification + measured performance budget
+  -> M021 fixed-target UDP runtime + per-client associations (closed at 686838b)
+  -> M022 native control/config/CLI/scenarios/observability (ready)
+  -> M023 cross-platform qualification + measured performance budget (blocked)
 ```
 
 M020 defines ordered whole-datagram delay/jitter, loss, duplication, reorder-by-hold, payload corruption, and bandwidth semantics with per-datagram probability, domain-separated deterministic RNG, bounded deadline scheduling, explicit drop-newest overflow, and admission-time generation snapshots.
