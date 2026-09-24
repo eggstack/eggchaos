@@ -28,8 +28,8 @@ This file is the compact source of truth for active milestone state. Detailed sc
 | M019 | `019-qualification-expansion-and-final-corrective-requalification.md` | closed | M016, M017, M018 | Closed at `ca527db`; evidence in `plans/closure/M019-qualification-expansion-and-final-corrective-requalification-closure.md`. Final pre-tag gate passed on exact candidate across local/remote CI, pinned oracle, fuzz, Eggfetch, artifacts, security, package, and performance evidence. |
 | M020 | `020-deterministic-datagram-fault-engine.md` | closed | M019 + ADR 003 | Closed on exact candidate `56c8925`; evidence in `plans/closure/M020-deterministic-datagram-fault-engine-closure.md`. |
 | M021 | `021-fixed-target-udp-runtime-and-association-lifecycle.md` | closed | M020 | Closed on exact candidate `686838b`; evidence in `plans/closure/M021-fixed-target-udp-runtime-and-association-lifecycle-closure.md`. Local Tokio UDP ownership; no narrow published Eggress fixed-target seam. |
-| M022 | `022-datagram-native-control-scenarios-cli-observability.md` | ready | M021 | M021 runtime and association lifecycle closed on exact candidate `686838b`. |
-| M023 | `023-datagram-qualification-performance-release-hardening.md` | blocked | M022 | Exact-candidate cross-platform datagram qualification and first measured performance budget. |
+| M022 | `022-datagram-native-control-scenarios-cli-observability.md` | closed | M021 | Closed on exact candidate `8c4e3fb`; evidence in `plans/closure/M022-datagram-native-control-scenarios-cli-observability-closure.md`. |
+| M023 | `023-datagram-qualification-performance-release-hardening.md` | ready | M022 | M022 control/config/scenario/CLI/observability surfaces closed on exact candidate `8c4e3fb`. |
 
 ## Execution state
 
@@ -47,9 +47,9 @@ M015 qualified `cd88b22` and remains valid historical evidence. M016–M019 chan
 
 A post-release UDP/datagram tranche is now registered under ADR 003:
 
-`M020 (closed) -> M021 (closed) -> M022 (ready) -> M023 (blocked)`
+`M020 (closed) -> M021 (closed) -> M022 (closed) -> M023 (ready)`
 
-This work does not rewrite M019 closure evidence and does not make datagram support part of the historical v0.1.0 qualification candidate. M020 closed on `56c8925`; M021 closed on `686838b`; M022 is now the only implementation handoff ready.
+This work does not rewrite M019 closure evidence and does not make datagram support part of the historical v0.1.0 qualification candidate. M020 closed on `56c8925`; M021 closed on `686838b`; M022 closed on `8c4e3fb`; M023 is the only implementation handoff ready.
 
 ## Post-release roadmap state
 
@@ -57,7 +57,7 @@ The UDP/datagram line is activated below; the remaining items are post-release o
 
 | Area | State | Gate |
 | --- | --- | --- |
-| UDP/datagram impairment engine | active tranche | ADR 003 accepted; M020–M021 closed; M022 ready; M023 blocked in dependency order. |
+| UDP/datagram impairment engine | active tranche | ADR 003 accepted; M020–M022 closed; M023 ready as the exact-candidate qualification and release-hardening gate. |
 | Optional `eggress-outbound` chained upstreams | future | M008 closed; prove demand without turning eggchaos into a second proxy framework. |
 | eggreplay timing/fault integration | future | eggreplay stable flow model + M008. |
 | eggprobe controlled impairment experiments | future | eggprobe stable diagnostics contract + M008. |

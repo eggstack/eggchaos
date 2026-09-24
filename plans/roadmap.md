@@ -323,7 +323,7 @@ M020 defines ordered whole-datagram delay/jitter, loss, duplication, reorder-by-
 
 M021 adds a fixed-target UDP listener whose client `SocketAddr` maps to a bounded association with its own connected upstream UDP socket. That model is required to prevent reply cross-delivery and to support multiple or unsolicited target responses. It must audit the exact published Eggress seam/version before choosing production reuse; routing/SOCKS-heavy UDP APIs are not imported merely for convenience.
 
-M022 adds sibling native resources under `/v1/datagram-proxies` and `/v1/datagram-associations`, plus TOML, CLI, explicit datagram scenario actions, metrics, and bounded evidence. Toxiproxy v2.12 remains TCP/stream-only.
+M022 (closed at `8c4e3fb`) adds sibling native resources under `/v1/datagram-proxies` and `/v1/datagram-associations`, plus TOML, CLI, explicit datagram scenario actions, metrics, and bounded evidence. Toxiproxy v2.12 remains TCP/stream-only.
 
 M023 freezes exact deterministic traces, runs real multi-client UDP tests on supported host OSes, expands fuzz/bounds/security evidence, measures the first no-fault datagram performance baseline and only then freezes a regression budget, and reruns existing stream/Toxiproxy/Eggfetch release regressions.
 

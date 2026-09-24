@@ -1,6 +1,6 @@
 # M022 — Datagram Native Control, Scenarios, CLI, and Observability
 
-Status: ready
+Status: closed
 Depends on: M021
 Role: native operator/control surface for datagram runtime
 
