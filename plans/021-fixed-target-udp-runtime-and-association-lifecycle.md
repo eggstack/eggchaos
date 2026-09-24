@@ -1,6 +1,6 @@
 # M021 — Fixed-Target UDP Runtime and Association Lifecycle
 
-Status: blocked
+Status: ready
 Depends on: M020
 Role: standalone UDP transport/runtime
 

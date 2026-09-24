@@ -26,7 +26,7 @@ M000–M015 and M008 remain closed historical work. A 2026-09-23 post-M015 repos
 
 M016–M019 are closed. M019 completed the pinned Toxiproxy oracle gate and is the final exact-candidate release qualification authority. The owner may proceed with the v0.1.0 tag, crates.io publication, and GitHub release as separate release actions.
 
-The first activated post-release feature tranche is UDP/datagram impairment under ADR 003: `M020 ready -> M021 blocked -> M022 blocked -> M023 blocked`. M020 defines core datagram semantics, M021 adds the fixed-target UDP association runtime, M022 adds native control/config/CLI/scenario/observability, and M023 performs exact-candidate cross-platform qualification. This does not alter M019's historical v0.1.0 authority.
+The first activated post-release feature tranche is UDP/datagram impairment under ADR 003: `M020 closed -> M021 ready -> M022 blocked -> M023 blocked`. M020's exact candidate is `56c8925`; closure evidence is recorded under `plans/closure/`. M021 is now the sole ready handoff and adds the fixed-target UDP association runtime. This does not alter M019's historical v0.1.0 authority.
 
 Historical closure records remain preserved at their real candidate commits. M015 remains valid qualification evidence for `cd88b22`; M019 is the final current release-candidate authority at `ca527db`.
 

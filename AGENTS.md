@@ -63,7 +63,7 @@ Qualification scripts (release workflow): `scripts/qualify_fuzz.sh`, `scripts/qu
 
 M000–M019 and M008 are closed milestones. The 2026-09-23 post-M015 corrective chain `M016 -> M017 -> M018 -> M019` closed, with M019's final candidate `ca527db`. M015 remains historical qualification for `cd88b22`, but M019 is the final tag authority. The owner may proceed with tag/publication/release actions; do not rewrite `plans/closure/` / `plans/archive/` history.
 
-Post-release UDP/datagram work is now registered under ADR 003 as `M020 (ready) -> M021 (blocked) -> M022 (blocked) -> M023 (blocked)`. Implement only M020 until its exact-candidate closure activates M021. This registration does not rewrite M019 or make UDP part of the historical v0.1.0 qualification.
+Post-release UDP/datagram work is registered under ADR 003 as `M020 (closed at 56c8925) -> M021 (ready) -> M022 (blocked) -> M023 (blocked)`. Implement only M021 until its exact-candidate closure activates M022. The M020 closure does not rewrite M019 or make UDP part of the historical v0.1.0 qualification.
 
 If the owner asks for new work: `plans/roadmap.md` is the architecture authority, `plans/reference/` holds parity/verification contracts (not status), ADRs live in `plans/adrs/`. Any new numbered plan needs objective, baseline/deps, scope + non-goals, affected crates, ordered work packages, invariants/failure semantics, test commands, acceptance criteria, stop conditions, closure evidence, and follow-on rules — and must update `plans/registry.md` in the same change. Never mark `closed` from source inspection; closure requires running the plan's tests on the exact candidate plus external/differential evidence where declared.
 

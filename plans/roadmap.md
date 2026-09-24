@@ -1,6 +1,6 @@
 # Eggchaos Long-Term Roadmap
 
-Status: M008 and M009–M019 are closed work. M019 passed final pre-tag qualification at `ca527db`; the owner may proceed with the v0.1.0 tag and separate publication/release actions. ADR 003 is accepted and post-release UDP/datagram work is registered as M020–M023; M020 is ready.
+Status: M008 and M009–M020 are closed work. M019 passed final pre-tag qualification at `ca527db`; the owner may proceed with the v0.1.0 tag and separate publication/release actions. ADR 003 is accepted; M020 closed on `56c8925`, activating M021.
 
 ## 1. Mission
 
@@ -313,8 +313,8 @@ M019 is the final pre-tag authority. It makes the pinned Toxiproxy oracle mandat
 ADR 003 activates a separate datagram impairment subsystem rather than extending stream `FaultKind`/`DirectionEngine` with UDP-specific branches.
 
 ```text
-M020 deterministic datagram fault engine
-  -> M021 fixed-target UDP runtime + per-client associations
+M020 deterministic datagram fault engine (closed at 56c8925)
+  -> M021 fixed-target UDP runtime + per-client associations (ready)
   -> M022 native control/config/CLI/scenarios/observability
   -> M023 cross-platform qualification + measured performance budget
 ```

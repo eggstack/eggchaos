@@ -91,8 +91,9 @@ Each file below is a focused review handoff for one discrete area. Read this
 overview first, then go component by component.
 
 1. [Core fault engine](core-fault-engine.md) — `eggchaos-core`: `plan.rs`,
-   `engine.rs`, `stream.rs`, `policy.rs`, `rng.rs`; 7 fault semantics,
-   write/flush contract, termination handle, generation swaps, golden vectors.
+   `engine.rs`, `stream.rs`, `policy.rs`, `rng.rs`, and `datagram.rs`; stream
+   write/flush contract plus the sibling bounded datagram scheduler and its
+   six fault semantics.
 2. [Fixed-target server runtime](server-runtime.md) — `eggchaos-server/runtime.rs`:
    listeners, `eggress-relay` embedding, connection registry, admission limits,
    reset semantics, metrics tables, `ControlState` authority.

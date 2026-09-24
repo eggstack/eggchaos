@@ -1,6 +1,6 @@
 # M020 — Deterministic Datagram Fault Engine
 
-Status: ready
+Status: closed
 Depends on: M019, ADR 003
 Role: post-release datagram semantics foundation
 
