@@ -8,11 +8,14 @@ eggchaos-toxiproxy -----------^        |
 eggchaos-eggfetch ------------^        +-> Tokio byte streams
 ```
 
-`eggchaos-core` is protocol-neutral. It owns typed fault plans, validation,
-deterministic identity-scoped randomness, and the `ChaosStream<T>` write-side
-state machine. It does not know about HTTP, listeners, CLIs, Toxiproxy, or
-Eggfetch. The empty plan delegates directly to the wrapped Tokio stream and
-does not allocate a queue or timer.
+`eggchaos-core` is protocol-neutral. It owns typed stream and datagram fault
+plans, validation, deterministic identity-scoped randomness, the
+`ChaosStream<T>` write-side state machine, and a sibling whole-datagram
+scheduler. The datagram engine handles application payloads only: corruption
+does not model invalid UDP checksums or lower-layer packet faults. Core does
+not know about HTTP, listeners, CLI, Toxiproxy, Eggfetch, or UDP sockets. The
+empty stream plan delegates directly to the wrapped Tokio stream and does not
+allocate a queue or timer.
 
 `eggchaos-server` owns fixed-target TCP listeners and uses `eggress-relay` for
 bidirectional copying and half-close policy. The native admin plane uses the

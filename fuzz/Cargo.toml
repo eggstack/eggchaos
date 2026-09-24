@@ -8,6 +8,7 @@ edition = "2021"
 cargo-fuzz = true
 
 [dependencies]
+bytes = "1"
 eggchaos-core = { path = "../crates/eggchaos-core" }
 eggchaos-server = { path = "../crates/eggchaos-server" }
 eggchaos-toxiproxy = { path = "../crates/eggchaos-toxiproxy" }
@@ -15,10 +16,25 @@ libfuzzer-sys = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.9"
+tokio = { version = "1", features = ["time"] }
 
 [[bin]]
 name = "plan_json"
 path = "fuzz_targets/plan_json.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "datagram_plan_json"
+path = "fuzz_targets/datagram_plan_json.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "datagram_transitions"
+path = "fuzz_targets/datagram_transitions.rs"
 test = false
 doc = false
 bench = false

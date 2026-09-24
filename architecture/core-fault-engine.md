@@ -14,6 +14,7 @@ Sources:
 - `crates/eggchaos-core/src/stream.rs`
 - `crates/eggchaos-core/src/policy.rs`
 - `crates/eggchaos-core/src/rng.rs`
+- `crates/eggchaos-core/src/datagram.rs`
 - `crates/eggchaos-core/Cargo.toml`
 - `docs/architecture.md`
 - `plans/adrs/001-stream-fault-engine-boundary.md`
@@ -62,6 +63,30 @@ Boundary from `plans/adrs/001-stream-fault-engine-boundary.md`:
   (`docs/architecture.md`, `engine.rs`, `stream.rs`).
 
 ## 2. Public API inventory
+
+### Datagram sibling engine (`datagram.rs`)
+
+The datagram engine is a separate whole-message API. `DatagramPlan` preserves
+ordered `DatagramFaultSpec` stages and validates unique IDs and bounded
+duplicate/delay parameters. Its six `DatagramFaultKind` stages are delay with
+symmetric jitter, loss, bounded duplication, hold-based reorder, payload
+corruption, and whole-datagram bandwidth. `DatagramQueueLimits` bounds both
+queued candidate count and bytes and classifies candidates larger than the
+configured datagram maximum.
+
+`DatagramDirectionEngine::admit` receives one complete `Bytes` payload and
+one `PublishedDatagramPolicy` snapshot. Candidate RNG uses the separate
+`derive_datagram_seed` domain plus ingress ordinal, copy index, fault ID,
+direction, proxy/association identity, and seed namespace. `take_ready` emits
+due candidates by `(deadline, ingress ordinal, copy index)`; old generations
+remain queued with their already-decided outcomes after policy publication.
+Queue overflow drops the newest candidate and is counted separately from
+configured loss. No payload is retained in evidence.
+
+Unlike `ChaosStream`, this API has no `AsyncWrite`, byte-stream buffering,
+flush/shutdown contract, transport socket, or connection-level probability.
+It is an engine primitive; a later server milestone owns UDP listener and
+association lifecycle.
 
 ### `lib.rs`
 

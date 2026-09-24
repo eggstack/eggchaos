@@ -62,12 +62,14 @@ dependencies = [
 name = "eggchaos-fuzz"
 version = "0.0.0"
 dependencies = [
+ "bytes",
  "eggchaos-core",
  "eggchaos-server",
  "eggchaos-toxiproxy",
  "libfuzzer-sys",
  "serde",
  "serde_json",
+ "tokio",
  "toml",
 ]
 
