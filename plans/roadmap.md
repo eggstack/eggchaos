@@ -1,6 +1,6 @@
 # Eggchaos Long-Term Roadmap
 
-Status: M008 and M009–M025 are closed work. M019 passed final pre-tag qualification at `ca527db`; the owner may proceed with the v0.1.0 tag and separate publication/release actions. ADR 003's post-release datagram feature tranche M020–M023 is complete. M024 closed as the semantics-preserving datagram performance/runtime-maintainability successor at `ca46801`. M025 closed as the narrow association-setup/closure-hygiene successor at `55911f6`; no successor is active.
+Status: M008 and M009–M025 are closed work. M019 passed final pre-tag qualification at `ca527db`; the owner may proceed with the v0.1.0 tag and separate publication/release actions. ADR 003's post-release datagram feature tranche M020–M023 is complete, with M024/M025 performance and setup-hygiene successors closed. ADR 004 now activates the richer deterministic-scenario/time-varying schedule tranche: M026 is ready; M027 and M028 are blocked on predecessor closure.
 
 ## 1. Mission
 
@@ -362,6 +362,22 @@ connected upstream sockets, native contracts, and the one `DatagramRuntime`
 authority. M025 activated no successor; richer datagram semantics still require
 separate planning and an ADR where applicable.
 
+## 11F. Activated richer deterministic-scenario and schedule sequence
+
+ADR 004 activates the next post-release semantic tranche above the already-proven stream/datagram publication machinery:
+
+    M026 deterministic scenario schedule model + compiler
+      -> M027 schedule runtime/control/lifecycle
+      -> M028 exact-candidate schedule qualification/hardening
+
+M026 is ready. It defines a bounded ScenarioScheduleV2 source language with named phases, finite repetition, strict/live isolation metadata, restore/leave cleanup metadata, deterministic expansion into an inspectable event tape, a canonical SHA-256 schedule fingerprint, and a v2 seed namespace independent of daemon run_id. The initial compiled-event ceiling remains 1024. ScenarioV1 stays supported.
+
+M027 is blocked on M026. It executes compiled schedules through the existing owned scenario supervisor and ControlState publication authority. V2 timing is anchored to one Tokio monotonic epoch with absolute sleep_until deadlines so event-application latency cannot accumulate into later deadlines. Strict mode detects external generation movement; restore-initial cleanup uses generation guards and never clobbers state the schedule no longer owns. Stream and datagram actions remain transport-explicit.
+
+M028 is blocked on M027. It freezes golden compiler/fingerprint/namespace fixtures, proves deadline behavior with paused Tokio time, exercises strict/live and cleanup races across stream/datagram resources, fuzzes bounded schedule expansion/control input, and reruns Eggfetch, strict pinned Toxiproxy, security/package, deterministic trace, and existing performance gates on one exact candidate.
+
+The v2 scheduler remains an intra-run deterministic control system. It does not add cron/calendar persistence, arbitrary branches/predicates, callbacks/shell execution, continuous per-packet clock interpolation, or a second data-plane scheduler. Later eggreplay/eggprobe integration should consume this compiled/evidence model rather than bypassing it.
+
 ## 12. Performance targets
 
 No-fault overhead is a first-class regression metric.
@@ -401,7 +417,7 @@ Potential next lines:
 - eggreplay integration so recorded flows can replay with timing/failure profiles;
 - eggprobe integration for controlled diagnostic experiments;
 - language bindings around the stable Rust engine;
-- richer time-varying scenarios and deterministic schedule files;
+- richer time-varying scenarios and deterministic schedule files are activated under ADR 004 + M026–M028;
 - post-v2.12 Toxiproxy extensions where useful;
 - target-class SBC qualification and service-management integration through Eggstack shared updater/service machinery if operational demand exists.
 

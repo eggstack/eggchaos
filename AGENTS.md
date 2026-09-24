@@ -56,7 +56,7 @@ Qualification scripts (release workflow): `scripts/qualify_fuzz.sh`, `scripts/qu
 - Native control is versioned under `/v1` except `GET /metrics` (Prometheus text, no prefix). Request bodies capped at 1 MiB. CLI: `eggchaos --admin <url> [--json] <command>`; every command emits one JSON doc with `--json` and exits nonzero on failure. Route/CLI inventory: `docs/control-plane.md`.
 - Admin binds loopback by default. Non-loopback requires explicit public-admin opt-in + bearer token; failures return bounded JSON without echoing the token.
 - All limits are bounded (queues, connections, bodies, histories, metrics cardinality). Default overflow is backpressure (`Pending`), never silent loss unless the fault documents discard. `poll_flush` is the delivery barrier; `poll_write` success only means the engine owns the bytes.
-- Determinism: SplitMix64-v1, versioned seeds derived from `(seed namespace, proxy identity, connection key, direction, fault id)`. No process-global or scheduler-order RNG. Scenario namespaces derive from `(scenario seed, run id, event index)`; replay is exact for policy/per-key decisions, not live timing (connection keys depend on accept order).
+- Determinism: SplitMix64-v1, versioned seeds derived from `(seed namespace, proxy identity, connection key, direction, fault id)`. No process-global or scheduler-order RNG. ScenarioV1 namespaces currently derive from `(scenario seed, run id, event index)`; replay is exact for policy/per-key decisions, not live timing (connection keys depend on accept order). ADR 004/M026 plan a separate v2 portable schedule identity; do not treat it as implemented until M026/M027 close.
 - Never call stream-chunk dropping "packet loss" in native APIs/docs. `reset_peer`/hard-reset is best-effort and platform-qualified (RST vs FIN not asserted); ordinary `poll_shutdown` is never advertised as TCP RST.
 - Dep discipline: `eggress-relay` not `eggress-embed`; `eggserve-server`+`eggserve-primitives` not `eggress-admin`/`eggserve-core`; `eggfetch-core` minimal features; `eggress-outbound` only behind an optional feature with proven demand. Don't copy sibling-repo code when a published Eggstack crate provides the primitive.
 
@@ -75,10 +75,16 @@ The final association setup rule is a per-reservation retained/versioned Tokio
 then use `wait_for`; publication, failure, and administrative drain publish
 terminal state under that same lock, so a transition cannot be lost. Explicit
 reservation identity and idempotent global/per-proxy capacity leases prevent
-stale owners from publishing over or releasing successors. M025 activated no
-successor; do not change ADR 003, datagram golden traces, native contracts,
-M024 performance budgets, or per-client upstream socket ownership without a
-new plan/ADR.
+stale owners from publishing over or releasing successors. Do not change ADR
+003, datagram golden traces, native contracts, M024 performance budgets, or
+per-client upstream socket ownership without a new datagram plan/ADR.
+
+ADR 004 is accepted and registers the next execution chain: `M026 (ready) ->
+M027 (blocked) -> M028 (blocked)`. M026 is the only implementation-ready item.
+It must freeze the bounded scenario-v2 compiler, canonical fingerprint, and
+run_id-independent namespace vectors before M027 may wire runtime/control.
+M028 is the exact-candidate qualification gate. ScenarioV1 remains supported;
+do not implement v2 by adding clock/schedule branches to eggchaos-core.
 
 If the owner asks for new work: `plans/roadmap.md` is the architecture authority, `plans/reference/` holds parity/verification contracts (not status), ADRs live in `plans/adrs/`. Any new numbered plan needs objective, baseline/deps, scope + non-goals, affected crates, ordered work packages, invariants/failure semantics, test commands, acceptance criteria, stop conditions, closure evidence, and follow-on rules — and must update `plans/registry.md` in the same change. Never mark `closed` from source inspection; closure requires running the plan's tests on the exact candidate plus external/differential evidence where declared.
 

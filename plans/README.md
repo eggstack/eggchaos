@@ -11,7 +11,7 @@ Eggchaos is intended to be a small Rust-native successor to the useful core of T
 | `roadmap.md` | Long-term architecture, sequencing, release stages, and future extensions. |
 | `registry.md` | Current milestone status and dependency source of truth. |
 | `000-architecture-and-scope-baseline.md` | Investigated baseline, reuse decisions, scope boundaries, and initial dependency graph. |
-| `001-*.md` ... `025-*.md` | Bounded implementation, corrective, cleanup, feature, qualification, maintenance, and hygiene handoffs in execution order. |
+| `001-*.md` ... `028-*.md` | Bounded implementation, corrective, cleanup, feature, qualification, maintenance, hygiene, and richer-scenario handoffs in execution order. |
 | `adrs/` | Durable architecture decisions that should not be silently changed by implementation. |
 | `reference/toxiproxy-parity.md` | Compatibility target and semantic mapping. |
 | `reference/verification-matrix.md` | Required evidence across faults, platforms, APIs, and performance. |
@@ -34,8 +34,14 @@ M025 is closed on exact candidate `55911f6`; evidence is in
 `plans/closure/M025-datagram-association-setup-waiter-and-closure-hygiene-closure.md`.
 It replaced the `Starting` association path's bounded `yield_now()` retry loop
 with retained/event-driven waiting, proved setup/drain/capacity races with
-controlled tests, and reconciled closure/status wording. No ADR change was
-required, and no successor is active.
+controlled tests, and reconciled closure/status wording.
+
+ADR 004 now activates the richer deterministic-scenario/time-varying schedule
+tranche: `M026 (ready) -> M027 (blocked) -> M028 (blocked)`. M026 freezes the
+bounded scenario-v2 source/compiler and portable replay identity; M027 wires it
+to the existing owned scenario/ControlState runtime; M028 is the exact-candidate
+qualification gate. ScenarioV1 remains a compatibility surface, and no schedule
+logic is moved into the stream/datagram fault engines.
 
 Historical closure records remain preserved at their real candidate commits. M015 remains valid qualification evidence for `cd88b22`; M019 is the final current release-candidate authority at `ca527db`.
 
@@ -65,7 +71,7 @@ The initial architecture is deliberately narrow:
 
 The native admin plane should use the leaf `eggserve-server` + `eggserve-primitives` H1 substrate. The CLI should use a minimal `eggfetch-core` HTTP profile to call it. `eggress-admin` is not used because its state model is specific to Eggress routing, UDP, metrics, and reverse-proxy administration.
 
-The first release is TCP byte-stream focused. UDP/datagram chaos is implemented as the post-release tranche under ADR 003 (M020–M023), with M024/M025 performance and setup-hygiene successors closed, and remains outside the first-release/M019 historical scope. Arbitrary outbound proxy chains, language bindings, and cross-project integration with eggreplay/eggprobe remain later roadmap items.
+The first release is TCP byte-stream focused. UDP/datagram chaos is implemented as the post-release tranche under ADR 003 (M020–M023), with M024/M025 performance and setup-hygiene successors closed, and remains outside the first-release/M019 historical scope. Richer deterministic scenarios are now activated under ADR 004 + M026–M028. Arbitrary outbound proxy chains, language bindings, and cross-project integration with eggreplay/eggprobe remain later roadmap items.
 
 ## Research baseline
 
