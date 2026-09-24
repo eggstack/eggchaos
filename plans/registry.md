@@ -32,8 +32,8 @@ This file is the compact source of truth for active milestone state. Detailed sc
 | M023 | `023-datagram-qualification-performance-release-hardening.md` | closed | M022 | Closed cleanly on exact candidate `ae2ab733b2be199d7693e40cdc558df01ee9a9de`; evidence in `plans/closure/M023-datagram-qualification-performance-release-hardening-closure.md`. |
 | M024 | `024-datagram-hot-path-performance-and-runtime-maintainability.md` | closed | M023 | Closed on exact candidate `ca46801`; evidence in `plans/closure/M024-datagram-hot-path-performance-and-runtime-maintainability-closure.md`. |
 | M025 | `025-datagram-association-setup-waiter-and-closure-hygiene.md` | closed | M024 | Closed on exact candidate `55911f6`; evidence in `plans/closure/M025-datagram-association-setup-waiter-and-closure-hygiene-closure.md`. |
-| M026 | `026-deterministic-scenario-schedule-model-and-compiler.md` | ready | M025 + ADR 004 | Activated as the pure bounded scenario-v2 source/compiler foundation. Must preserve ScenarioV1 and existing RNG vectors. |
-| M027 | `027-scenario-schedule-runtime-control-and-lifecycle.md` | blocked | M026 | Runtime/control integration; becomes ready only after M026 closes with frozen compile/fingerprint/namespace semantics. |
+| M026 | `026-deterministic-scenario-schedule-model-and-compiler.md` | closed | M025 + ADR 004 | Closed on exact candidate `e0507d1`; evidence in `plans/closure/M026-deterministic-scenario-schedule-model-and-compiler-closure.md`. ScenarioScheduleV2 source language, deterministic compiler, SHA-256 fingerprint, and run_id-independent v2 namespace helper are frozen; wire DTOs round-trip JSON+ TOML to identical compiled tapes. |
+| M027 | `027-scenario-schedule-runtime-control-and-lifecycle.md` | ready | M026 | Runtime/control integration; activated now that M026 froze compile/fingerprint/namespace semantics. |
 | M028 | `028-deterministic-schedule-qualification-and-hardening.md` | blocked | M027 | Exact-candidate qualification gate for the first richer deterministic-scenario/time-varying schedule tranche. |
 
 ## Execution state
@@ -77,11 +77,13 @@ and reconciled planning-state language.
 
 ADR 004 now activates the next bounded post-release tranche:
 
-`M026 (ready) -> M027 (blocked) -> M028 (blocked)`
+`M026 (closed) -> M027 (ready) -> M028 (blocked)`
 
 This work adds a scenario-v2 schedule/compiler layer above the existing stream
-and datagram policy publication machinery. M026 is the only implementation-ready
-milestone. M027/M028 must remain blocked until their named predecessor closes.
+and datagram policy publication machinery. M026 closed on `e0507d1` with
+frozen compiler, fingerprint, and namespace semantics; M027 is now ready to
+wire the compiled tape into `ControlState`; M028 remains blocked until M027
+closes.
 
 ## Post-release roadmap state
 
@@ -94,18 +96,18 @@ The completed UDP/datagram tranche is listed below; the remaining items are post
 | eggreplay timing/fault integration | future | eggreplay stable flow model + M008. |
 | eggprobe controlled impairment experiments | future | eggprobe stable diagnostics contract + M008. |
 | Python/FFI bindings | future | stable Rust API after first release; no parallel networking implementation. |
-| richer deterministic scenarios / time-varying schedule files | activated | ADR 004 accepted; M026 ready, then M027 -> M028. ScenarioV1 remains a compatibility surface. |
+| richer deterministic scenarios / time-varying schedule files | activated | ADR 004 accepted; M026 closed (compiler/fingerprint/namespace frozen at `e0507d1`); M027 ready to wire the runtime, then M028. ScenarioV1 remains a compatibility surface. |
 | current-Toxiproxy post-2.12 extensions such as stream-chunk `packet_loss` | future | M012 v2.12 parity requalified and M008 closed. |
 
 ## Dependency-ready view
 
-Completed work: M000–M025 and M008 are closed.
+Completed work: M000–M026 and M008 are closed.
 
-Ready: M026.
+Ready: M027.
 
 Active: none.
 
-Blocked: M027 on M026; M028 on M027.
+Blocked: M028 on M027.
 
 Historical pre-tag execution order: `M016 (closed) -> M017 (closed) -> M018 (closed) -> M019 (closed)`. The owner may proceed with the v0.1.0 tag, crates.io publication, and GitHub release as separate release actions.
 
@@ -115,7 +117,9 @@ Completed post-release performance/maintenance handoff: `M024 (closed)`.
 
 Completed post-release concurrency/planning hygiene handoff: `M025 (closed)`. Richer datagram semantics still require a separate plan/ADR.
 
-Activated richer-scenario execution order: `ADR 004 -> M026 (ready) -> M027 (blocked) -> M028 (blocked)`.
+Closed scenario-v2 compiler foundation: `M026 (closed at e0507d1)`.
+
+Activated richer-scenario runtime execution order: `ADR 004 -> M026 (closed) -> M027 (ready) -> M028 (blocked)`.
 
 ## Closure requirements
 

@@ -4,3 +4,12 @@ dist/
 fuzz/target/
 benchmarks/target/
 crates/eggchaos-server/proptest-regressions/
+fuzz/corpus/scenario_v2/
+fuzz/corpus/datagram_plan_json/
+fuzz/corpus/datagram_transitions/
+fuzz/corpus/native_config/
+fuzz/corpus/native_control_json/
+fuzz/corpus/fault_evidence_json/
+fuzz/corpus/policy_transitions/
+fuzz/corpus/toxiproxy_attributes/
+fuzz/corpus/plan_json/
