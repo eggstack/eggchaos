@@ -120,11 +120,18 @@ end-to-end improvement confirms.
   sources`: pass.
 - Hosted CI (push on `ca46801`): run 36036551214 — ubuntu failed
   solely on `cargo fmt --check` (a whitespace-only import collapse in the
-  moved `datagram/tests.rs`, applied cosmetically in the closure commit;
-  no semantic change); macOS/Windows were cancelled as a consequence.
-  Re-run on the closure commit is green (run TBD).
-- Release qualification workflow (dispatched on `ca46801`): run 36036561705
-  — qualify green; 5/5 artifacts green.
+  moved `datagram/tests.rs`, applied cosmetically in the closure commit
+  `b2fb031`; no semantic change); macOS/Windows were cancelled as a
+  consequence. Re-run on the closure commit (run 36037905729) is green on
+  ubuntu/macos/windows.
+- Release qualification workflow: first dispatched on `ca46801` (run
+  36036561705) — 5/5 artifacts green, qualify failed at the same
+  formatting gate before functional steps. Re-dispatched on the closure
+  commit (run 36037910167) — qualify green (release-smoke, datagram
+  benchmark incl. both budgets, fuzz 10k, pinned-oracle Toxiproxy,
+  Eggfetch, artifact smoke) plus 5/5 artifacts green. The closure tree
+  differs from `ca46801` only by formatting, benchmark artifact refresh,
+  and planning docs.
 
 Focused tests (all green): unchanged 14-case golden corpus; heap equal/mixed
 deadline ordering; count/byte overflow after scheduler replacement;
