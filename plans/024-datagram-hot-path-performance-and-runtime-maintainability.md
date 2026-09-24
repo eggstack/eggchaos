@@ -1,6 +1,6 @@
 # M024 — Datagram Hot-Path Performance and Runtime Maintainability
 
-Status: ready
+Status: closed (candidate `ca46801`; evidence in `plans/closure/M024-datagram-hot-path-performance-and-runtime-maintainability-closure.md`)
 Depends on: M023
 Role: post-release performance/maintenance hardening
 

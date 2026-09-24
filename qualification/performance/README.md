@@ -64,16 +64,16 @@ removed: `next_deadline` peek 1 ns at depth 1 rising to 1374 ns at depth
 `2026-09-24-macos-arm64-m024-after.json` (1200-byte payloads, 2000 datagrams
 per case, 3 rounds, window 32).
 
-The M024 candidate was measured in the same host class (Apple M4 Pro, macOS
-arm64, rustc 1.89.0). Before → after medians: direct sequential 36,831 →
-38,803 datagrams/s (p95 50 → 46 µs); bare relay 21,108 → 20,438 (p95 80 →
-80 µs); empty-plan 20,007 → 19,803 (p95 82 → 86 µs); direct windowed
-135,357 → 138,751; bare windowed 89,091 → 84,108; empty windowed 76,257 →
-76,019. Topology-matched ratios moved 0.9479 → 0.9689 (sequential
-throughput), 1.025 → 1.075 (sequential p95), and 0.8559 → 0.9038 (windowed
-throughput): a repeatable +5.6% windowed improvement with no material
-sequential change, and the retained M023 floor passes (0.5104 ≥ 0.45, 1.8696
-≤ 2.5). Scheduler probes after the change are flat with depth:
+The M024 candidate `ca46801bb5f12a9ecf9232f33d8840bd0c09afad` was measured
+in the same host class (Apple M4 Pro, macOS arm64, rustc 1.89.0) with the
+same workload. Before → after medians: direct sequential 36,831 → 39,149
+datagrams/s (p95 50 → 43 µs); bare relay 21,108 → 21,494 (p95 80 → 71 µs);
+empty-plan 20,007 → 20,566 (p95 82 → 79 µs); direct windowed 135,357 →
+140,911; bare windowed 89,091 → 82,137; empty windowed 76,257 → 82,731.
+Topology-matched ratios moved 0.9479 → 0.9568 (sequential throughput), 1.025
+→ 1.1127 (sequential p95), and 0.8559 → 1.0072 (windowed throughput): a
+repeatable windowed improvement with no material sequential change, and the
+retained M023 floor passes (0.5253 ≥ 0.45, 1.8372 ≤ 2.5). Scheduler probes after the change are flat with depth:
 `next_deadline` peek ~0.5 ns and not-ready `take_ready` ~2.7 ns at all
 depths (was 1374 ns / 711 ns at depth 1024); per-item drain cost rose from
 ~5 ns to ~40 ns (heap pops instead of one memmove drain) and is negligible

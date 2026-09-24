@@ -10,10 +10,7 @@ use std::{
 };
 
 use eggchaos_core::{DatagramPlan, DatagramQueueLimits};
-use tokio::{
-    net::UdpSocket,
-    time::timeout,
-};
+use tokio::{net::UdpSocket, time::timeout};
 use tokio_util::sync::CancellationToken;
 
 use super::{DatagramProxySpec, DatagramRuntime, DatagramRuntimeError, DatagramRuntimeLimits};

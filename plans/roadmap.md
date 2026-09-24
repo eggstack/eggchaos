@@ -1,6 +1,6 @@
 # Eggchaos Long-Term Roadmap
 
-Status: M008 and M009–M023 are closed work. M019 passed final pre-tag qualification at `ca527db`; the owner may proceed with the v0.1.0 tag and separate publication/release actions. ADR 003's post-release datagram feature tranche M020–M023 is complete. M024 is ready as a semantics-preserving datagram performance/runtime-maintainability successor.
+Status: M008 and M009–M024 are closed work. M019 passed final pre-tag qualification at `ca527db`; the owner may proceed with the v0.1.0 tag and separate publication/release actions. ADR 003's post-release datagram feature tranche M020–M023 is complete. M024 closed as the semantics-preserving datagram performance/runtime-maintainability successor at `ca46801`.
 
 ## 1. Mission
 
@@ -329,15 +329,16 @@ M023 (closed on `ae2ab733b2be199d7693e40cdc558df01ee9a9de`) froze exact determin
 
 This tranche is post-release work. It does not rewrite M019 closure evidence and is not part of the historical v0.1.0 qualification gate.
 
-## 11D. Active datagram performance/runtime-maintainability pass
+## 11D. Completed datagram performance/runtime-maintainability pass
 
-M024 is a maintenance successor to the completed ADR 003 feature tranche. It does not add new datagram semantics.
+M024 (closed at `ca46801`) was a maintenance successor to the completed ADR
+003 feature tranche. It added no new datagram semantics.
 
 Its first job is measurement correction: the M023 direct-UDP comparison is retained as an end-to-end regression gate, but a fixed-target proxy necessarily adds another socket hop. M024 therefore adds a benchmark-local bare fixed-target relay with the same socket topology, separates sequential RTT from windowed throughput, profiles before changing production code, and freezes any new topology-matched budget only from measured evidence.
 
 The implementation then targets only demonstrated avoidable cost. The known candidates are the current full-queue scan/sort scheduler, immediate empty-plan scheduling, candidate allocation/synchronization, and association creation that currently holds the association registry lock while awaiting UDP socket setup. Exact ADR 003 traces, queue bounds, evidence classes, generation behavior, per-client connected upstream sockets, and native contracts must remain unchanged.
 
-M024 also decomposes the large datagram runtime into cohesive private modules while retaining one `DatagramRuntime` authority and the existing `ControlState` integration. It must rerun the complete M023 regression surface and record before/after raw performance artifacts before closure.
+M024 also decomposed the large datagram runtime into cohesive private modules while retaining one `DatagramRuntime` authority and the existing `ControlState` integration. It reran the complete M023 regression surface and recorded before/after raw performance artifacts before closure.
 
 ## 12. Performance targets
 
@@ -373,7 +374,9 @@ After M008 closes, reassess rather than automatically expanding scope.
 
 Potential next lines:
 
-- datagram/UDP impairment is implemented under ADR 003 + M020–M023; M024 is the active semantics-preserving performance/runtime-maintainability pass, while follow-on datagram models require separate planning;
+- datagram/UDP impairment is implemented under ADR 003 + M020–M023 and
+  hardened by the M024 performance/runtime-maintainability pass (closed);
+  follow-on datagram models require separate planning;
 - optional upstream chains via `eggress-outbound`;
 - eggreplay integration so recorded flows can replay with timing/failure profiles;
 - eggprobe integration for controlled diagnostic experiments;
