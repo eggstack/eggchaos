@@ -10,6 +10,8 @@ jobs:
     # Bounded for the same reason as CI: fuzz/toxiproxy/eggfetch
     # qualification must fail loudly, never park a runner for hours.
     timeout-minutes: 60
+    env:
+      RUST_TEST_THREADS: 4
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,6 +30,7 @@ jobs:
       - run: rustup toolchain install stable --profile minimal
       - run: RUSTUP_TOOLCHAIN=stable cargo install cargo-fuzz --locked --version 0.13.2
       - run: ./scripts/release-smoke.sh
+      - run: ./scripts/benchmark_datagram.sh
       - run: EGGCHAOS_FUZZ_RUNS=10000 ./scripts/qualify_fuzz.sh
       - name: Acquire checksum-pinned Toxiproxy v2.12.0 oracle
         shell: bash

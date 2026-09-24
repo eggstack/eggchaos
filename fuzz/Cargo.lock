@@ -77,6 +77,7 @@ dependencies = [
 name = "eggchaos-server"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "eggchaos-core",
  "eggress-relay",
  "eggserve-primitives",

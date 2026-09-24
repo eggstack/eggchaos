@@ -1654,15 +1654,21 @@ mod tests {
     async fn ipv6_loopback_works_when_host_capability_is_available() {
         let target_socket = match UdpSocket::bind("[::1]:0").await {
             Ok(socket) => socket,
-            Err(error) => {
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::AddrNotAvailable | io::ErrorKind::Unsupported
+                ) =>
+            {
                 println!("SKIP IPv6 UDP loopback unavailable: {error}");
                 return;
             }
+            Err(error) => panic!("IPv6 loopback bind failed unexpectedly: {error}"),
         };
         let target = target_socket.local_addr().unwrap();
         let target_cancel = CancellationToken::new();
         let target_done = target_cancel.clone();
-        tokio::spawn(async move {
+        let target_task = tokio::spawn(async move {
             let mut buf = [0u8; 65_536];
             loop {
                 tokio::select! {
@@ -1676,21 +1682,34 @@ mod tests {
             DatagramProxySpec::new("v6", "[::1]:0".parse().unwrap(), target, limits()).unwrap();
         let proxy = match runtime.create_proxy(spec).await {
             Ok(proxy) => proxy,
-            Err(DatagramRuntimeError::Bind(error)) => {
+            Err(DatagramRuntimeError::Bind(error))
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::AddrNotAvailable | io::ErrorKind::Unsupported
+                ) =>
+            {
                 println!("SKIP IPv6 UDP listener unavailable: {error}");
                 target_cancel.cancel();
+                target_task.await.unwrap();
                 return;
             }
             Err(error) => panic!("unexpected IPv6 proxy error: {error}"),
         };
         let client = match UdpSocket::bind("[::1]:0").await {
             Ok(client) => client,
-            Err(error) => {
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::AddrNotAvailable | io::ErrorKind::Unsupported
+                ) =>
+            {
                 println!("SKIP IPv6 UDP client unavailable: {error}");
                 runtime.shutdown().await;
                 target_cancel.cancel();
+                target_task.await.unwrap();
                 return;
             }
+            Err(error) => panic!("IPv6 client bind failed unexpectedly: {error}"),
         };
         client
             .send_to(b"v6", proxy.bound_addr.unwrap())
@@ -1704,5 +1723,7 @@ mod tests {
         assert_eq!(&buf[..size], b"v6");
         runtime.shutdown().await;
         target_cancel.cancel();
+        target_task.await.unwrap();
+        println!("PASS IPv6 UDP loopback relay");
     }
 }

@@ -10,6 +10,10 @@ jobs:
     # push (cargo runs test binaries serially). No job may burn a runner
     # longer than this; the suite completes in minutes when healthy.
     timeout-minutes: 25
+    env:
+      # Keep async socket-heavy tests below the per-process descriptor limits
+      # on developer and hosted runners while still exercising concurrency.
+      RUST_TEST_THREADS: 4
     strategy:
       fail-fast: true
       matrix:
@@ -27,6 +31,8 @@ jobs:
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       - run: cargo test --workspace --all-features
+      - name: Run IPv6 datagram loopback qualification with visible capability result
+        run: cargo test -p eggchaos-server --all-features runtime::datagram::tests::ipv6_loopback_works_when_host_capability_is_available -- --exact --nocapture
       - run: cargo doc --workspace --all-features --no-deps
       - run: cargo audit --deny warnings
       - run: cargo deny check advisories licenses bans sources

@@ -1,8 +1,10 @@
 #![no_main]
 
 use eggchaos_server::{
-    FaultKindV1, FaultPatchV1, FaultUpsertV1, NativeProxyPatchV1, NativeProxyRequestV1,
-    RuntimeConfigV1, ScenarioV1,
+    DatagramFaultKindV1, DatagramFaultPatchV1, DatagramFaultSpecV1, DatagramFaultUpsertV1,
+    DatagramRuntimeConfigV1, FaultKindV1, FaultPatchV1, FaultUpsertV1,
+    NativeDatagramAssociationViewV1, NativeDatagramProxyPatchV1, NativeDatagramProxyRequestV1,
+    NativeProxyPatchV1, NativeProxyRequestV1, RuntimeConfigV1, ScenarioV1,
 };
 use libfuzzer_sys::fuzz_target;
 
@@ -25,6 +27,14 @@ fuzz_target!(|input: &[u8]| {
     stable_round_trip::<NativeProxyPatchV1>(input);
     stable_round_trip::<RuntimeConfigV1>(input);
     stable_round_trip::<ScenarioV1>(input);
+    stable_round_trip::<DatagramFaultKindV1>(input);
+    stable_round_trip::<DatagramFaultSpecV1>(input);
+    stable_round_trip::<DatagramFaultUpsertV1>(input);
+    stable_round_trip::<DatagramFaultPatchV1>(input);
+    stable_round_trip::<NativeDatagramProxyRequestV1>(input);
+    stable_round_trip::<NativeDatagramProxyPatchV1>(input);
+    stable_round_trip::<NativeDatagramAssociationViewV1>(input);
+    stable_round_trip::<DatagramRuntimeConfigV1>(input);
 
     if let Ok(value) = serde_json::from_slice::<FaultKindV1>(input) {
         let _ = value.validate();

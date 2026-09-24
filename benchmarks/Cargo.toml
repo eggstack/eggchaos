@@ -11,5 +11,8 @@ publish = false
 eggress-relay = { package = "eggress-relay", version = "1.0.7" }
 eggchaos-core = { path = "../crates/eggchaos-core", version = "0.1.0" }
 eggchaos-eggfetch = { path = "../crates/eggchaos-eggfetch", version = "0.1.0" }
+eggchaos-server = { path = "../crates/eggchaos-server", version = "0.1.0" }
+bytes = "1"
+serde_json = "1"
 eggfetch-core = { version = "0.2.0", default-features = false, features = ["native-http1", "high-level-url", "json", "tls-rustls", "tls-native-roots"] }
-tokio = { version = "1", features = ["io-util", "macros", "rt-multi-thread", "time"] }
+tokio = { version = "1", features = ["io-util", "macros", "net", "rt-multi-thread", "time"] }

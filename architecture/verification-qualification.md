@@ -222,16 +222,20 @@ if a gate was not run, record it as incomplete (see §8).
   `cargo-fuzz 0.13.2` under current stable (1.89.0 cannot compile its
   transitive `cargo-platform@0.3.3`) but drives the target under pinned
   1.89.0 — see `.github/workflows/release.yml`.
+- Datagram fuzz targets cover plan JSON, transition/accounting bounds, datagram
+  DTOs, schema-v1 TOML compilation, and association evidence round-trips.
+  `datagram_transitions` reconciles emitted, queued, configured loss, explicit
+  overflow, oversize, and duplicated candidates.
 
 ## 4. Benchmarks + qualification snapshots
 
 | What | Where | Notes |
 | --- | --- | --- |
-| Harness + cases | `benchmarks/src/main.rs`, `benchmarks/Cargo.toml`, `scripts/benchmark.sh` | 7 cases (§1); JSON `mean_seconds` / `throughput_mib_s` / `samples_seconds` |
+| Harness + cases | `benchmarks/src/main.rs`, `benchmarks/src/bin/datagram.rs`, `benchmarks/Cargo.toml`, `scripts/benchmark.sh`, `scripts/benchmark_datagram.sh` | Stream cases plus direct UDP, fixed-target empty plan, individual/combined datagram faults, and multi-client workload |
 | Method README | `qualification/performance/README.md` | Bare relay is the baseline; fault delay excluded from overhead |
 | Snapshots | `qualification/performance/2026-09-22-macos-arm64.json`, `...-m008.json` | Host block (OS/model/CPU/Rust/profile) + method + results + budget |
-| Budget | `...-m008.json:budget` | `empty_plan ≥ 70% of same-session bare relay`, 64 MiB/5 rounds, quiet host |
-| Release TOML | `qualification/release/eggchaos.toml` | Artifact-smoke fixture (seed 7, loopback admin, `smoke` proxy) |
+| Budget | `...-m008.json:budget`; M023 datagram snapshot | Stream `empty_plan ≥ 70% of same-session bare relay`; datagram threshold was frozen after the first direct-UDP baseline |
+| Release TOML | `qualification/release/eggchaos.toml` | Artifact-smoke fixture (seed 7, loopback admin, TCP `smoke` and UDP `udp-smoke` proxies) |
 | Oracle baseline | `qualification/toxiproxy-v2-12/oracle-baseline-v2.12.0.md` | Live-captured 2026-09-22: identity, routes, reset/populate, 7 toxic defaults, non-API 404s |
 | Client smokes | `qualification/toxiproxy-v2-12/client-smoke/{go/,py_smoke.py,*_results.json}` | Pinned Go client + stdlib Python; rerun fresh per qualification |
 

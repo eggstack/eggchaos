@@ -1,0 +1,190 @@
+{
+  "version": 1,
+  "rng_version": "v1",
+  "cases": [
+    {
+      "name": "loss-zero",
+      "seed_namespace": 7,
+      "plan": {"faults": [{"id": "loss", "probability": 0.0, "kind": {"type": "loss"}}]},
+      "inputs_hex": ["61", "62", "63"],
+      "max_queued_datagrams": 8,
+      "max_queued_bytes": 64,
+      "ready_after_ns": 0,
+      "expected_emissions": [[0, 0, 1, "61"], [1, 0, 1, "62"], [2, 0, 1, "63"]],
+      "expected_configured_loss": 0,
+      "expected_queue_overflow": 0
+    },
+    {
+      "name": "loss-one",
+      "seed_namespace": 7,
+      "plan": {"faults": [{"id": "loss", "probability": 1.0, "kind": {"type": "loss"}}]},
+      "inputs_hex": ["61", "62", "63"],
+      "max_queued_datagrams": 8,
+      "max_queued_bytes": 64,
+      "ready_after_ns": 0,
+      "expected_emissions": [],
+      "expected_configured_loss": 3,
+      "expected_queue_overflow": 0
+    },
+    {
+      "name": "loss-intermediate-seeded-trace",
+      "seed_namespace": 7,
+      "plan": {"faults": [{"id": "loss", "probability": 0.5, "kind": {"type": "loss"}}]},
+      "inputs_hex": ["00", "01", "02", "03", "04", "05", "06", "07"],
+      "max_queued_datagrams": 8,
+      "max_queued_bytes": 64,
+      "ready_after_ns": 0,
+      "expected_emissions": [[0, 0, 1, "00"], [1, 0, 1, "01"], [6, 0, 1, "06"], [7, 0, 1, "07"]],
+      "expected_configured_loss": 4,
+      "expected_queue_overflow": 0
+    },
+    {
+      "name": "duplicate-copy-identity",
+      "seed_namespace": 7,
+      "plan": {"faults": [{"id": "duplicate", "probability": 1.0, "kind": {"type": "duplicate", "additional_copies": 2}}]},
+      "inputs_hex": ["6869"],
+      "max_queued_datagrams": 8,
+      "max_queued_bytes": 64,
+      "ready_after_ns": 0,
+      "expected_emissions": [[0, 0, 1, "6869"], [0, 1, 1, "6869"], [0, 2, 1, "6869"]],
+      "expected_configured_loss": 0,
+      "expected_duplicated_copies": 2,
+      "expected_queue_overflow": 0
+    },
+    {
+      "name": "duplicate-then-loss",
+      "seed_namespace": 7,
+      "plan": {"faults": [{"id": "duplicate", "probability": 1.0, "kind": {"type": "duplicate", "additional_copies": 2}}, {"id": "loss", "probability": 1.0, "kind": {"type": "loss"}}]},
+      "inputs_hex": ["78"],
+      "max_queued_datagrams": 8,
+      "max_queued_bytes": 64,
+      "ready_after_ns": 0,
+      "expected_emissions": [],
+      "expected_configured_loss": 3,
+      "expected_duplicated_copies": 2,
+      "expected_queue_overflow": 0
+    },
+    {
+      "name": "loss-then-duplicate",
+      "seed_namespace": 7,
+      "plan": {"faults": [{"id": "loss", "probability": 1.0, "kind": {"type": "loss"}}, {"id": "duplicate", "probability": 1.0, "kind": {"type": "duplicate", "additional_copies": 2}}]},
+      "inputs_hex": ["78"],
+      "max_queued_datagrams": 8,
+      "max_queued_bytes": 64,
+      "ready_after_ns": 0,
+      "expected_emissions": [],
+      "expected_configured_loss": 1,
+      "expected_duplicated_copies": 0,
+      "expected_queue_overflow": 0
+    },
+    {
+      "name": "corruption-byte-vector",
+      "seed_namespace": 7,
+      "plan": {"faults": [{"id": "corrupt", "probability": 1.0, "kind": {"type": "payload-corrupt", "bytes": 2}}]},
+      "inputs_hex": ["7061796c6f6164"],
+      "max_queued_datagrams": 8,
+      "max_queued_bytes": 64,
+      "ready_after_ns": 0,
+      "expected_emissions": [[0, 0, 1, "4472796c6f6161"]],
+      "expected_configured_loss": 0,
+      "expected_corrupted_candidates": 1,
+      "expected_queue_overflow": 0
+    },
+    {
+      "name": "delay-jitter-natural-overtake",
+      "seed_namespace": 7,
+      "plan": {"faults": [{"id": "jitter", "probability": 1.0, "kind": {"type": "delay", "delay": {"secs": 0, "nanos": 100000000}, "jitter": {"secs": 0, "nanos": 100000000}}}]},
+      "inputs_hex": ["6669727374", "7365636f6e64"],
+      "max_queued_datagrams": 8,
+      "max_queued_bytes": 64,
+      "ready_after_ns": 1000000000,
+      "expected_emissions": [[1, 0, 1, "7365636f6e64"], [0, 0, 1, "6669727374"]],
+      "expected_configured_loss": 0,
+      "expected_queue_overflow": 0
+    },
+    {
+      "name": "explicit-reorder-overtake",
+      "seed_namespace": 7,
+      "plan": {"faults": []},
+      "policy_sequence": [
+        {"generation": 1, "seed_namespace": 7, "plan": {"faults": [{"id": "hold", "probability": 1.0, "kind": {"type": "reorder", "hold": {"secs": 1, "nanos": 0}}}]}},
+        {"generation": 2, "seed_namespace": 9, "plan": {"faults": []}}
+      ],
+      "inputs_hex": ["6f6c64", "6e6577"],
+      "max_queued_datagrams": 8,
+      "max_queued_bytes": 64,
+      "ready_after_ns": 1000000000,
+      "expected_emissions": [[1, 0, 2, "6e6577"], [0, 0, 1, "6f6c64"]],
+      "expected_configured_loss": 0,
+      "expected_reorder_activations": 1,
+      "expected_queue_overflow": 0
+    },
+    {
+      "name": "old-new-generation-coexistence",
+      "seed_namespace": 7,
+      "plan": {"faults": []},
+      "policy_sequence": [
+        {"generation": 1, "seed_namespace": 7, "plan": {"faults": [{"id": "delay", "probability": 1.0, "kind": {"type": "delay", "delay": {"secs": 1, "nanos": 0}, "jitter": {"secs": 0, "nanos": 0}}}]}},
+        {"generation": 2, "seed_namespace": 9, "plan": {"faults": []}}
+      ],
+      "inputs_hex": ["6f6c64", "6e6577"],
+      "max_queued_datagrams": 8,
+      "max_queued_bytes": 64,
+      "ready_after_ns": 1000000000,
+      "expected_emissions": [[1, 0, 2, "6e6577"], [0, 0, 1, "6f6c64"]],
+      "expected_configured_loss": 0,
+      "expected_queue_overflow": 0
+    },
+    {
+      "name": "bandwidth-burst-refill",
+      "seed_namespace": 7,
+      "plan": {"faults": [{"id": "bandwidth", "probability": 1.0, "kind": {"type": "bandwidth", "bytes_per_second": 4, "burst_bytes": 4}}]},
+      "inputs_hex": ["61626364", "6566"],
+      "max_queued_datagrams": 8,
+      "max_queued_bytes": 64,
+      "ready_after_ns": 0,
+      "followup_after_ns": 500000000,
+      "expected_emissions": [[0, 0, 1, "61626364"], [1, 0, 1, "6566"]],
+      "expected_first_emissions": [[0, 0, 1, "61626364"]],
+      "expected_bandwidth_delay_nanos": 500000000,
+      "expected_configured_loss": 0,
+      "expected_queue_overflow": 0
+    },
+    {
+      "name": "equal-deadline-stable-order",
+      "seed_namespace": 7,
+      "plan": {"faults": []},
+      "inputs_hex": ["61", "62", "63"],
+      "max_queued_datagrams": 8,
+      "max_queued_bytes": 64,
+      "ready_after_ns": 0,
+      "expected_emissions": [[0, 0, 1, "61"], [1, 0, 1, "62"], [2, 0, 1, "63"]],
+      "expected_configured_loss": 0,
+      "expected_queue_overflow": 0
+    },
+    {
+      "name": "queue-count-drop-newest",
+      "seed_namespace": 7,
+      "plan": {"faults": [{"id": "delay", "probability": 1.0, "kind": {"type": "delay", "delay": {"secs": 1, "nanos": 0}, "jitter": {"secs": 0, "nanos": 0}}}]},
+      "inputs_hex": ["61", "62"],
+      "max_queued_datagrams": 1,
+      "max_queued_bytes": 64,
+      "ready_after_ns": 1000000000,
+      "expected_emissions": [[0, 0, 1, "61"]],
+      "expected_configured_loss": 0,
+      "expected_queue_overflow": 1
+    },
+    {
+      "name": "queue-byte-drop-newest",
+      "seed_namespace": 7,
+      "plan": {"faults": [{"id": "delay", "probability": 1.0, "kind": {"type": "delay", "delay": {"secs": 1, "nanos": 0}, "jitter": {"secs": 0, "nanos": 0}}}]},
+      "inputs_hex": ["61626364", "6566"],
+      "max_queued_datagrams": 8,
+      "max_queued_bytes": 4,
+      "ready_after_ns": 1000000000,
+      "expected_emissions": [[0, 0, 1, "61626364"]],
+      "expected_configured_loss": 0,
+      "expected_queue_overflow": 1
+    }
+  ]
+}

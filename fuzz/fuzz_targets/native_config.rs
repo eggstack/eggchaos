@@ -9,5 +9,6 @@ fuzz_target!(|input: &[u8]| {
     };
     if let Ok(config) = NativeConfig::parse(text) {
         let _ = config.compile_proxies();
+        let _ = config.compile_datagram_proxies();
     }
 });

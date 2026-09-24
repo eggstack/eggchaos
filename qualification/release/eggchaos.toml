@@ -9,3 +9,9 @@ name = "smoke"
 listen = "127.0.0.1:0"
 upstream = "127.0.0.1:1"
 enabled = true
+
+[[datagram_proxies]]
+name = "udp-smoke"
+listen = "127.0.0.1:0"
+upstream = "127.0.0.1:53"
+max_associations = 8

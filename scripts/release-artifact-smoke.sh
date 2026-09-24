@@ -31,6 +31,7 @@ done
 test -n "$admin_url"
 curl -fsS "$admin_url/v1/health" | grep -q '"running":true'
 "$binary" --admin "$admin_url" --json proxy list | grep -q '"name":"smoke"'
+"$binary" --admin "$admin_url" --json datagram proxy list | grep -q '"name":"udp-smoke"'
 "$binary" --admin "$admin_url" --json reset | grep -q '"reset":true'
 "$binary" --json version | grep -q '"version":"0.1.0"'
 printf '%s\n' '{"artifact_smoke":"pass"}'

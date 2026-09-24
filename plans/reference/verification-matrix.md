@@ -215,6 +215,9 @@ Commit golden fixtures for:
 - slice sizes;
 - scenario event ordering;
 - evidence serialization.
+- numbered datagram traces covering loss 0/1, duplication/copy identity,
+  equal-deadline ordering, and count/byte overflow; the runtime suite also
+  covers admission-generation coexistence and administrative discard.
 
 Run the same fixture multiple times with unrelated task scheduling noise and verify the relevant fault decisions remain identical.
 
@@ -232,6 +235,8 @@ Benchmarks:
 - combined representative plan;
 - connection setup/teardown;
 - admin read-heavy operations separated from data plane.
+- direct UDP echo versus fixed-target UDP, representative individual and
+  combined datagram faults, and multi-client association scaling.
 
 Record:
 
@@ -274,6 +279,8 @@ core property/unit tests rather than fuzz targets, since those require a
 constructed asynchronous stream surface.
 
 Property tests should emphasize byte conservation for preserving fault combinations.
+Datagram transition fuzzing must also reconcile emitted, queued, configured
+loss, explicit overflow, oversize, and duplicate-copy accounting.
 
 ## 10. Cross-platform matrix
 
@@ -286,6 +293,11 @@ Initial binary support target:
 - Windows x86_64.
 
 Rust library correctness should not assume Unix-only socket behavior. Any hard-reset feature with platform differences gets a capability result and explicit per-platform evidence.
+
+Fixed-target UDP runtime tests must execute (not compile only) in Ubuntu,
+macOS, and Windows CI. IPv6 loopback runs with captured output disabled so
+each host visibly reports a successful relay or a capability-unavailable
+reason; unexpected socket failures fail the test.
 
 SBC target-class benchmarking is a post-first-release follow-up unless readily available during M008.
 
