@@ -34,7 +34,7 @@ This file is the compact source of truth for active milestone state. Detailed sc
 | M025 | `025-datagram-association-setup-waiter-and-closure-hygiene.md` | closed | M024 | Closed on exact candidate `55911f6`; evidence in `plans/closure/M025-datagram-association-setup-waiter-and-closure-hygiene-closure.md`. |
 | M026 | `026-deterministic-scenario-schedule-model-and-compiler.md` | closed | M025 + ADR 004 | Closed on exact candidate `e0507d1`; evidence in `plans/closure/M026-deterministic-scenario-schedule-model-and-compiler-closure.md`. ScenarioScheduleV2 source language, deterministic compiler, SHA-256 fingerprint, and run_id-independent v2 namespace helper are frozen; wire DTOs round-trip JSON+ TOML to identical compiled tapes. |
 | M027 | `027-scenario-schedule-runtime-control-and-lifecycle.md` | closed | M026 | Closed on exact candidate `5d85d15`; evidence in `plans/closure/M027-scenario-schedule-runtime-control-and-lifecycle-closure.md`. V2 schedules execute through the owned supervisor with epoch-anchored deadlines, strict/live ownership, CAS-safe cleanup, version-aware native routes, and CLI JSON/TOML support. |
-| M028 | `028-deterministic-schedule-qualification-and-hardening.md` | ready | M027 | Exact-candidate qualification gate for the first richer deterministic-scenario/time-varying schedule tranche; activated now that M027 closed with the runtime/control/lifecycle surface implemented. |
+| M028 | `028-deterministic-schedule-qualification-and-hardening.md` | closed | M027 | Closed cleanly on exact candidate `ceb3bae`; evidence in `plans/closure/M028-deterministic-schedule-qualification-and-hardening-closure.md`. Golden corpus frozen, paused-time/race/fuzz/security/API/CLI/regression/performance gates green; no new language feature. |
 
 ## Execution state
 
@@ -75,16 +75,16 @@ M025 preserved ADR 003 and M024 semantics while replacing bounded
 no-lost-wakeup event-driven transition. It proved setup/drain/capacity races
 and reconciled planning-state language.
 
-ADR 004 now activates the next bounded post-release tranche:
+ADR 004's bounded post-release tranche is complete:
 
-`M026 (closed) -> M027 (closed) -> M028 (ready)`
+`M026 (closed) -> M027 (closed) -> M028 (closed)`
 
-This work adds a scenario-v2 schedule/compiler layer above the existing stream
+This work added a scenario-v2 schedule/compiler layer above the existing stream
 and datagram policy publication machinery. M026 closed on `e0507d1` with
 frozen compiler, fingerprint, and namespace semantics; M027 closed on
 `5d85d15` with the runtime, control, lifecycle, evidence, and operator
-surface implemented; M028 is now ready to qualify the combined surface
-on an exact candidate.
+surface implemented; M028 closed on `ceb3bae` with exact-candidate
+qualification. ScenarioV1 remains a compatibility surface throughout.
 
 ## Post-release roadmap state
 
@@ -97,14 +97,14 @@ The completed UDP/datagram tranche is listed below; the remaining items are post
 | eggreplay timing/fault integration | future | eggreplay stable flow model + M008. |
 | eggprobe controlled impairment experiments | future | eggprobe stable diagnostics contract + M008. |
 | Python/FFI bindings | future | stable Rust API after first release; no parallel networking implementation. |
-| richer deterministic scenarios / time-varying schedule files | activated | ADR 004 accepted; M026 closed (compiler/fingerprint/namespace frozen at `e0507d1`); M027 closed (runtime/control/lifecycle at `5d85d15`); M028 ready to qualify. ScenarioV1 remains a compatibility surface. |
+| richer deterministic scenarios / time-varying schedule files | completed | ADR 004 tranche M026–M028 closed and qualified at `ceb3bae`; ScenarioV1 remains a compatibility surface. Follow-on schedule work requires separate planning. |
 | current-Toxiproxy post-2.12 extensions such as stream-chunk `packet_loss` | future | M012 v2.12 parity requalified and M008 closed. |
 
 ## Dependency-ready view
 
-Completed work: M000–M027 and M008 are closed.
+Completed work: M000–M028 and M008 are closed.
 
-Ready: M028.
+Ready: none.
 
 Active: none.
 
@@ -122,7 +122,9 @@ Closed scenario-v2 compiler foundation: `M026 (closed at e0507d1)`.
 
 Closed scenario-v2 runtime/control handoff: `M027 (closed at 5d85d15)`.
 
-Activated richer-scenario qualification execution order: `ADR 004 -> M026 (closed) -> M027 (closed) -> M028 (ready)`.
+Closed scenario-v2 qualification gate: `M028 (closed at ceb3bae)`.
+
+Completed richer-scenario execution order: `ADR 004 -> M026 (closed) -> M027 (closed) -> M028 (closed)`. No successor is activated; later schedule work requires a separately registered numbered plan (and an ADR for semantic expansion).
 
 ## Closure requirements
 
