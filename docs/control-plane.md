@@ -125,6 +125,15 @@ Manual mutations between scenario events change the base a later event
 applies to; a conflicting concurrent publication fails the run instead of
 rolling state back.
 
+Scenario v1 (`POST /v1/scenarios/apply` with `version: 1`) keeps this
+contract and remains the compatibility surface. Scenario v2 adds a
+bounded source-language, compiler, and replay identity implemented
+purely above the existing fault engines; the runtime/control wiring
+ships in a follow-on milestone. M026 froze the v2 compiler, canonical
+SHA-256 schedule fingerprint, and run_id-independent v2 namespace
+derivation; nothing in M026 introduces new HTTP routes or applies a
+v2 schedule — those land in M027/M028.
+
 ## Metrics
 
 `GET /metrics` exposes low-cardinality Prometheus text reconciled against

@@ -5,8 +5,10 @@
 mod admin;
 mod config;
 mod native;
+mod native_v2;
 mod runtime;
 pub mod scenario;
+pub mod scenario_v2;
 
 pub use admin::{AdminConfig, AdminError, AdminHandle, NativeAdmin};
 pub use config::{
@@ -25,6 +27,10 @@ pub use native::{
     NATIVE_DEFAULT_BUFFER_BYTES, NATIVE_DEFAULT_LIMIT_BYTES, NATIVE_DEFAULT_PROXY_TIMEOUT_MS,
     NATIVE_DEFAULT_SLICE_AVERAGE_SIZE,
 };
+pub use native_v2::{
+    to_canonical_json, ScenarioActionDto, ScenarioPhaseV2Dto, ScenarioRepeatV2Dto,
+    ScenarioScheduleV2Dto, ScenarioScheduleV2Toml,
+};
 pub use runtime::{
     AdmissionLimits, ClosedConnection, ConnectionEvidence, ConnectionOutcome, ConnectionSnapshot,
     ConnectionState, ControlError, ControlState, DatagramAssociationSnapshot, DatagramProxySpec,
@@ -37,4 +43,10 @@ pub use runtime::{
 pub use scenario::{
     drive_scenario_run, validate_scenario, Scenario, ScenarioAction, ScenarioEvent,
     ScenarioEventResult, ScenarioRunRecord, ScenarioRunStatus,
+};
+pub use scenario_v2::{
+    compile_schedule, compiled_fingerprint, expanded_event_count, fingerprint_hex, CleanupPolicyV2,
+    CompiledEventV2, CompiledPhaseIdentity, CompiledScenarioV2, IsolationPolicyV2,
+    ScenarioScheduleV2, ScheduleError, SchedulePhaseV2, ScheduleRepeatV2,
+    COMPILER_SEMANTICS_VERSION, MAX_COMPILED_EVENTS, MAX_REPEAT_COUNT, SCHEDULE_SCHEMA_VERSION,
 };

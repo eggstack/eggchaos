@@ -271,7 +271,7 @@ impl FaultKindV1 {
         })
     }
 
-    fn from_runtime(kind: FaultKind) -> Self {
+    pub fn from_runtime(kind: FaultKind) -> Self {
         let ns = |duration: Duration| duration.as_nanos().min(u64::MAX as u128) as u64;
         match kind {
             FaultKind::Latency(v) => Self::Latency {

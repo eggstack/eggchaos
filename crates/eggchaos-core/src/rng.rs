@@ -61,6 +61,55 @@ pub fn derive_policy_seed(scenario_seed: u64, run_id: u64, event_index: u64) -> 
     h *= Wrapping(0x94d0_49bb_1331_11eb);
     splitmix(h.0 ^ 0x51ed_ee15_5eed_5eed)
 }
+
+/// Derive a portable schedule policy namespace for scenario v2.
+///
+/// The v2 namespace feeds fault-local RNG compilation deterministically
+/// without ever using the daemon `run_id`. Inputs are limited to fields
+/// a portable schedule document owns:
+///
+/// - the explicit scenario `seed`,
+/// - the explicit `execution_key`,
+/// - a 64-bit schedule fingerprint identity (`schedule_fingerprint`),
+/// - the zero-based `compiled_event_index`,
+/// - the v2 derivation domain/version constant.
+///
+/// Daemon `run_id`, task scheduling, wall-clock time, and hash-map
+/// iteration order do NOT participate. This means the same portable
+/// schedule document publishes identical seed namespaces for the same
+/// compiled-event index regardless of when the run is started.
+///
+/// The byte-folding contract is frozen via the golden-vector test
+/// `schedule_policy_seed_derivation_is_stable_and_sensitive`. Renaming
+/// or rewiring this function is a breaking change and requires a new
+/// derivation version plus a registered ADRs/plan migration; the
+/// v1 `derive_policy_seed` vectors must keep passing unchanged.
+pub fn derive_schedule_policy_seed(
+    scenario_seed: u64,
+    execution_key: u64,
+    schedule_fingerprint: [u8; 32],
+    compiled_event_index: u64,
+) -> u64 {
+    let mut h = Wrapping(scenario_seed) + Wrapping(0x9e37_79b9_7f4a_7c15);
+    h += Wrapping(execution_key.rotate_left(7) + 0x100);
+    h ^= h >> 29;
+    h *= Wrapping(0xbf58_476d_1ce4_e5b9);
+    // Mix the 32-byte schedule fingerprint into the fold in 8-byte lanes
+    // so the final digest contributes regardless of hash bit rotation.
+    for chunk in schedule_fingerprint.chunks(8) {
+        let mut lane = [0u8; 8];
+        for (slot, byte) in lane.iter_mut().zip(chunk.iter()) {
+            *slot = *byte;
+        }
+        h += Wrapping(u64::from_le_bytes(lane).rotate_left(11) + 0x300);
+        h ^= h >> 23;
+        h *= Wrapping(0x94d0_49bb_1331_11eb);
+    }
+    h += Wrapping(compiled_event_index.rotate_left(23) + 0x400);
+    h ^= h >> 27;
+    h *= Wrapping(0x94d0_49bb_1331_11eb);
+    splitmix(h.0 ^ 0x547c_0dec_0dec_0dec)
+}
 #[derive(Debug, Clone)]
 pub struct DeterministicRng {
     state: u64,
@@ -121,5 +170,54 @@ mod tests {
         assert_eq!(derive_policy_seed(7, 1, 0), 4_026_889_766_568_732_747);
         assert_eq!(derive_policy_seed(7, 1, 1), 11_250_473_848_183_634_583);
         assert_eq!(derive_policy_seed(8, 1, 0), 3_937_417_822_122_820_953);
+    }
+
+    #[test]
+    fn schedule_policy_seed_derivation_is_stable_and_sensitive() {
+        // Stable fingerprint identity used for the golden vectors.
+        let fingerprint_a: [u8; 32] = [
+            0x9c, 0x4f, 0x83, 0x42, 0xfe, 0x16, 0xa1, 0x07, 0xd2, 0x10, 0x70, 0x7f, 0x82, 0x2b,
+            0x42, 0x71, 0x01, 0xee, 0x55, 0x9c, 0x18, 0xab, 0x2d, 0xe3, 0x7c, 0x6f, 0x4d, 0x14,
+            0x29, 0xc7, 0x73, 0x90,
+        ];
+        let fingerprint_b: [u8; 32] = {
+            let mut next = fingerprint_a;
+            next[0] ^= 0x01;
+            next[31] ^= 0x80;
+            next
+        };
+        // Golden vectors pin the v2 derivation byte-fold; if the helper
+        // ever changes, the new fingerprints must be documented in M028.
+        assert_eq!(
+            derive_schedule_policy_seed(7, 1, fingerprint_a, 0),
+            11_956_359_045_004_790_358
+        );
+        assert_eq!(
+            derive_schedule_policy_seed(7, 1, fingerprint_a, 1),
+            10_516_128_691_288_792_563
+        );
+        assert_eq!(
+            derive_schedule_policy_seed(8, 1, fingerprint_a, 0),
+            3_838_218_024_120_561_196
+        );
+        // Each input axis must participate.
+        assert_ne!(
+            derive_schedule_policy_seed(7, 2, fingerprint_a, 0),
+            derive_schedule_policy_seed(7, 1, fingerprint_a, 0),
+            "execution_key must be a derivation input"
+        );
+        assert_ne!(
+            derive_schedule_policy_seed(7, 1, fingerprint_b, 0),
+            derive_schedule_policy_seed(7, 1, fingerprint_a, 0),
+            "schedule_fingerprint must be a derivation input"
+        );
+        assert_ne!(
+            derive_schedule_policy_seed(7, 1, fingerprint_a, 1),
+            derive_schedule_policy_seed(7, 1, fingerprint_a, 0),
+            "compiled_event_index must be a derivation input"
+        );
+        // Existing v1 vectors remain byte-identical under the v1 helper.
+        assert_eq!(derive_policy_seed(7, 1, 0), 4_026_889_766_568_732_747);
+        assert_eq!(derive_policy_seed(7, 1, 1), 11_250_473_848_183_634_583);
     }
 }

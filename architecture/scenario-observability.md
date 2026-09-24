@@ -10,7 +10,9 @@ evidence/snapshot/metrics types it publishes through.
 
 ## 1. Scenario model
 
-Owner: `crates/eggchaos-server/src/scenario.rs`.
+Owner: `crates/eggchaos-server/src/scenario.rs`
+(v1) and `crates/eggchaos-server/src/scenario_v2/` (v2 source
+language and compiler).
 
 ### 1.1 Document types
 
@@ -107,9 +109,10 @@ Each event is a barrier generation in the `LivePolicy` sense:
 
 ### 1.5 Derived seed namespaces (`derive_policy_seed`)
 
-Owner: `crates/eggchaos-core/src/rng.rs:54-63`.
+Owner: `crates/eggchaos-core/src/rng.rs:54-63` (v1) and `rng.rs` v2
+namespace helper `derive_schedule_policy_seed` (v2).
 
-Each event derives its namespace purely as
+Each v1 event derives its namespace purely as
 `derive_policy_seed(scenario.seed, run_id, index)` (`scenario.rs:261`).
 Manual control updates retain the current namespace; only scenario events
 (and explicit publish callers) set a new one. The published namespace feeds
@@ -121,6 +124,18 @@ Covered by `scenario_seed_drives_published_namespaces` and
 (`runtime.rs:4285-4408`): different seeds publish different namespaces for
 the same event identity; same seed + identity under different `at_ms`
 timing publishes the same namespaces.
+
+Scenario v2 namespaces are derived as
+`derive_schedule_policy_seed(scenario.seed, execution_key,
+schedule_fingerprint, compiled_event_index)`. Daemon `run_id` is **not**
+an input. The v2 helper lives in
+`crates/eggchaos-core/src/rng.rs` next to the v1 helper so any audit
+can compare the contracts side-by-side. The schedule fingerprint itself
+is the SHA-256 digest produced by `compiled_fingerprint` in
+`crates/eggchaos-server/src/scenario_v2/fingerprint.rs`; see
+§1.8 below for the canonical encoding.
+
+### 1.6 Run lifecycle, fail-fast, cancellation
 
 ### 1.6 Run lifecycle, fail-fast, cancellation
 
@@ -182,6 +197,117 @@ Vec<ScenarioEventResult>`. The trail is bounded by the 1024-event document
 cap; runs are bounded by the 32-record retention cap. Serialization never
 contains payload bytes (`connection_evidence_contains_no_payload_bytes`,
 `runtime.rs:4714-4734`, asserts the same for connection/history JSON).
+
+### 1.8 Scenario v2 source language and compiler (M026)
+
+Owner: `crates/eggchaos-server/src/scenario_v2/`.
+
+`ScenarioScheduleV2` is the bounded piecewise-constant source language
+ADR 004 introduced. A schedule is a `version: 2` document with explicit
+`seed`, `execution_key`, `isolation` (`strict` or `live`), `cleanup`
+(`restore-initial` or `leave`), an ordered `phases` list, and an
+optional one-level `repeat` block. Each phase carries an optional
+bounded name (presentation-only, not in the fingerprint), an integer
+nanosecond `duration_ns`, and a non-empty list of actions. The four
+v1 scenario actions remain the only actions in scope; v2 adds the
+source-level naming, durations, repetition, isolation, and cleanup
+without introducing new fault kinds.
+
+The compiler
+(`compile_schedule`, `scenario_v2/compiler.rs`) is a pure function of
+`source × COMPILER_SEMANTICS_VERSION`. It rejects:
+
+- unsupported `version` values;
+- empty schedules, empty phases, oversize phase names;
+- more than `MAX_PHASES = 256` phases, more than `MAX_REPEAT_COUNT = 64`
+  iterations, more than `MAX_PHASE_ACTIONS = 64` actions per phase;
+- duration arithmetic that would overflow `u64`;
+- `FaultPlan` / `DatagramPlan` validation failures inside actions.
+
+The compiled output is `CompiledScenarioV2`: an immutable
+`events: Vec<CompiledEventV2>` where every entry carries its stable
+`compiled_index`, a `CompiledPhaseIdentity`
+(`Top { index }` or `Repeat { iteration, index }`), an absolute
+`offset_ns` from the run epoch, and the action. Equal-offset events
+preserve source order, so the compiled tape is unique for a given
+semantic source. The compile ceiling (`MAX_COMPILED_EVENTS = 1024`)
+matches the v1 cap; expansion is bounded before a run task is
+created, and there is no partial compile followed by truncation.
+
+#### 1.8.1 Canonical SHA-256 fingerprint
+
+`compiled_fingerprint` (`scenario_v2/fingerprint.rs`) produces a
+32-byte SHA-256 digest. The SHA-256 input is the domain/version
+prefix `eggchaos/scenario-v2/fingerprint/v1/compiler-semantics=`
+followed by the 4-byte big-endian `COMPILER_SEMANTICS_VERSION` and
+then the explicit semantic encoding
+`encode_compiled_for_fingerprint`. The encoding writes one line per
+axis (`isolation=`, `cleanup=`, `seed=`, `execution_key=`,
+`event_count=`) followed by one `\nevent[i] phase=... offset_ns=...
+action=...` line per compiled event. The action block lists
+`(proxy, direction, fault id, probability, kind)` pairs in source
+order. Optional phase names do not participate; nor do daemon
+`run_id`, source file path, or timestamps. The encoding is hand
+written instead of using `serde_json::Value` so that hash-map
+iteration order, serde formatter whitespace drift, and Serde
+defaults cannot leak into the digest.
+
+Two inputs produce the same fingerprint iff they compile to identical
+event tapes. The fingerprint is diagnostic/replay identity, not
+authentication; it lives only in run evidence and the v2 namespace
+derivation.
+
+#### 1.8.2 V2 namespace derivation
+
+`derive_schedule_policy_seed` (`crates/eggchaos-core/src/rng.rs`)
+derives a portable v2 policy namespace as
+
+```text
+derive_schedule_policy_seed(
+    scenario_seed,
+    execution_key,
+    schedule_fingerprint, // 32 bytes
+    compiled_event_index,
+)
+```
+
+The helper lives in `eggchaos-core` next to `derive_policy_seed` so the
+two contracts are auditable side-by-side, and it never depends on
+`run_id`, task scheduling, wall-clock time, or hash-map order. The
+golden vector in
+`rng.rs::tests::schedule_policy_seed_derivation_is_stable_and_sensitive`
+pins the byte-fold. A new version requires a registered version bump
+in the v2 domain prefix and a regenerated golden vector set; the v1
+`derive_policy_seed` vectors must remain byte-identical.
+
+#### 1.8.3 Source parsing and round trips
+
+The wire DTOs in `crates/eggchaos-server/src/native_v2.rs` preserve a
+clean conversion into the internal `ScenarioScheduleV2`. JSON is
+parsed via `ScenarioScheduleV2Dto::from_json_str`; TOML is parsed via
+`ScenarioScheduleV2Toml::from_toml_str`. Both paths reject unknown
+fields. The wire action vocabulary (`set-plan`, `remove-fault`,
+`set-datagram-plan`, `remove-datagram-fault`) is identical to the v1
+kebab-case tags so the runtime can keep its existing authority. TOML
+durations are integer nanoseconds; human duration strings are a
+separate plan/ADR and deliberately not part of M026 because silent
+rounding at the parser edge is a stop condition.
+
+#### 1.8.4 What M026 does not introduce
+
+M026 implements only the compiler, fingerprint, and namespace helpers.
+It deliberately ships:
+
+- no new HTTP route and no native `apply` for v2 schedules;
+- no CLI subcommand for v2 schedules;
+- no run supervisor task for v2 schedules;
+- no change to stream or datagram engine semantics.
+
+M027 wires the compiled tape into the owned scenario supervisor via
+`ControlState` and the existing publication paths. M028 qualifies the
+combined surface on an exact candidate. Until those plans land, v2
+sources can be parsed, compiled, fingerprinted, and queried for the
+namespace — but cannot start a run.
 
 ## 2. Observability
 

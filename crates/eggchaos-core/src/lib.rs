@@ -22,7 +22,9 @@ pub use plan::{
     ValidationError, FAULT_TYPE_NAMES,
 };
 pub use policy::{LivePolicy, PolicyConflict, PublishError, PublishedPolicy};
-pub use rng::{derive_policy_seed, derive_seed, DeterministicRng, RngEvidence};
+pub use rng::{
+    derive_policy_seed, derive_schedule_policy_seed, derive_seed, DeterministicRng, RngEvidence,
+};
 pub use stream::{
     ActiveFault, BidirectionalChaosStream, ChaosStream, DirectionSummary, EngineError,
     StreamEvidence, MAX_EVIDENCE_FAULTS,

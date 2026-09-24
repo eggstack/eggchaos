@@ -30,7 +30,7 @@ pub struct ScenarioEvent {
 }
 
 /// Supported scenario v1 actions.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ScenarioAction {
     /// Replace one directional plan as a barrier generation.
     SetPlan {
