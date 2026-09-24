@@ -30,7 +30,12 @@ The first activated post-release feature tranche was UDP/datagram impairment und
 
 M024 is closed after a semantics-preserving datagram hot-path performance and runtime-maintainability pass. It added the topology-matched bare relay benchmark, heap scheduler, immediate empty-plan emission, association setup outside the registry lock, and internal datagram runtime decomposition.
 
-M025 is now the only ready handoff. It is a narrow post-M024 hygiene pass: replace the `Starting` association path's bounded `yield_now()` retry loop with retained/event-driven waiting that cannot lose a wakeup, prove setup/drain/capacity races with controlled tests, and reconcile closure/status wording. No ADR change is required unless implementation discovers a semantic change is necessary.
+M025 is closed on exact candidate `55911f6`; evidence is in
+`plans/closure/M025-datagram-association-setup-waiter-and-closure-hygiene-closure.md`.
+It replaced the `Starting` association path's bounded `yield_now()` retry loop
+with retained/event-driven waiting, proved setup/drain/capacity races with
+controlled tests, and reconciled closure/status wording. No ADR change was
+required, and no successor is active.
 
 Historical closure records remain preserved at their real candidate commits. M015 remains valid qualification evidence for `cd88b22`; M019 is the final current release-candidate authority at `ca527db`.
 
@@ -60,7 +65,7 @@ The initial architecture is deliberately narrow:
 
 The native admin plane should use the leaf `eggserve-server` + `eggserve-primitives` H1 substrate. The CLI should use a minimal `eggfetch-core` HTTP profile to call it. `eggress-admin` is not used because its state model is specific to Eggress routing, UDP, metrics, and reverse-proxy administration.
 
-The first release is TCP byte-stream focused. UDP/datagram chaos is implemented as the post-release tranche under ADR 003 (M020–M023) and remains outside the first-release/M019 historical scope. Arbitrary outbound proxy chains, language bindings, and cross-project integration with eggreplay/eggprobe remain later roadmap items.
+The first release is TCP byte-stream focused. UDP/datagram chaos is implemented as the post-release tranche under ADR 003 (M020–M023), with M024/M025 performance and setup-hygiene successors closed, and remains outside the first-release/M019 historical scope. Arbitrary outbound proxy chains, language bindings, and cross-project integration with eggreplay/eggprobe remain later roadmap items.
 
 ## Research baseline
 

@@ -1,6 +1,6 @@
 # M025 — Datagram Association Setup Waiter and Closure Hygiene
 
-Status: ready
+Status: closed (candidate `55911f6b72d99367348ee7c5438a2f270cbaf895`; evidence in `plans/closure/M025-datagram-association-setup-waiter-and-closure-hygiene-closure.md`)
 Depends on: M024
 Role: post-M024 concurrency/planning hygiene
 

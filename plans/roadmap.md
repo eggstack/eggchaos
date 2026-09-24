@@ -1,6 +1,6 @@
 # Eggchaos Long-Term Roadmap
 
-Status: M008 and M009–M024 are closed work. M019 passed final pre-tag qualification at `ca527db`; the owner may proceed with the v0.1.0 tag and separate publication/release actions. ADR 003's post-release datagram feature tranche M020–M023 is complete. M024 closed as the semantics-preserving datagram performance/runtime-maintainability successor at `ca46801`. M025 is ready as the narrow association-setup/closure-hygiene successor.
+Status: M008 and M009–M025 are closed work. M019 passed final pre-tag qualification at `ca527db`; the owner may proceed with the v0.1.0 tag and separate publication/release actions. ADR 003's post-release datagram feature tranche M020–M023 is complete. M024 closed as the semantics-preserving datagram performance/runtime-maintainability successor at `ca46801`. M025 closed as the narrow association-setup/closure-hygiene successor at `55911f6`; no successor is active.
 
 ## 1. Mission
 
@@ -340,23 +340,27 @@ The implementation then targets only demonstrated avoidable cost. The known cand
 
 M024 also decomposed the large datagram runtime into cohesive private modules while retaining one `DatagramRuntime` authority and the existing `ControlState` integration. It reran the complete M023 regression surface and recorded before/after raw performance artifacts before closure.
 
-## 11E. Active datagram association setup/closure hygiene
+## 11E. Completed datagram association setup/closure hygiene
 
-M025 is a narrow concurrency and planning-hygiene successor to M024. It adds
-no new datagram semantics.
+M025 (closed at `55911f6`) was a narrow concurrency and planning-hygiene
+successor to M024. It added no new datagram semantics.
 
 M024 removed the association-registry lock from UDP bind/connect by introducing
-an explicit `Starting` slot. A caller that encounters that state currently
-retries with bounded `yield_now()` polling. M025 replaces that retry loop with
-a retained/event-driven transition whose publication, setup failure, and
-administrative drain cannot be missed by waiters. The reservation identity must
-continue to prevent stale setup owners from publishing over a newer slot, and
-capacity accounting must remain exact.
+an explicit `Starting` slot. M025 replaced bounded `yield_now()` polling with a
+retained, versioned Tokio `watch` transition. Waiters subscribe while holding
+the registry lock; publication, setup failure, and administrative drain publish
+their terminal state under that same lock, and `wait_for` observes retained
+state if a transition wins before suspension. Explicit reservation identity
+and idempotent global/per-proxy capacity leases prevent stale setup owners from
+publishing over or releasing a successor. Worker cleanup and administrative
+drain remain cancellation-safe, and the registry lock is never held across UDP
+setup or worker joins.
 
-The pass also fixes stale planning language left after M024 closure. It must
-preserve the M024 topology-matched performance budgets, ADR 003 golden traces,
-per-client connected upstream sockets, native contracts, and the one
-`DatagramRuntime` authority. A clean M025 activates no successor.
+The pass reconciled stale planning language after M024 closure. It preserved
+M024 topology-matched performance budgets, ADR 003 golden traces, per-client
+connected upstream sockets, native contracts, and the one `DatagramRuntime`
+authority. M025 activated no successor; richer datagram semantics still require
+separate planning and an ADR where applicable.
 
 ## 12. Performance targets
 
@@ -371,7 +375,7 @@ Qualification should compare:
 
 For datagrams, retain M023's direct-UDP end-to-end ratio for historical regression comparison, but use M024's topology-matched bare fixed-target relay to isolate avoidable chaos/runtime overhead. Keep sequential RTT and windowed throughput as separate measurements.
 
-Set numeric budgets only after a target-class baseline is measured. Do not invent a percentage before measurement. M008/M023 froze their historical budgets; M024 may add a new topology-matched datagram budget only after its WP1/WP2 baseline is recorded.
+Set numeric budgets only after a target-class baseline is measured. Do not invent a percentage before measurement. M008/M023 froze their historical budgets; M024 froze the topology-matched datagram budget, and M025 retained it without weakening.
 
 ## 13. Security and operational posture
 
@@ -392,7 +396,7 @@ After M008 closes, reassess rather than automatically expanding scope.
 
 Potential next lines:
 
-- datagram/UDP impairment is implemented under ADR 003 + M020–M023 and hardened by the closed M024 performance/runtime-maintainability pass; M025 is the active narrow association-setup/closure-hygiene handoff; follow-on datagram models require separate planning;
+- datagram/UDP impairment is implemented under ADR 003 + M020–M023, hardened by the closed M024 performance/runtime-maintainability pass, and closed through M025 association-setup/closure hygiene; follow-on datagram models require separate planning;
 - optional upstream chains via `eggress-outbound`;
 - eggreplay integration so recorded flows can replay with timing/failure profiles;
 - eggprobe integration for controlled diagnostic experiments;

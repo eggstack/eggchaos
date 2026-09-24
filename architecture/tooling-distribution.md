@@ -6,10 +6,12 @@ workflows (`.github/workflows/`), dependency/supply-chain policy
 (`Cargo.toml`, `deny.toml`, `rust-toolchain.toml`), shipped artifacts
 (`dist/`), and the `plans/` governance authority that gates any release.
 
-Pre-release `0.1.0`. Milestones M000–M019 plus M008 are closed. M019
-passed its final corrective qualification on `ca527db`. Tagging, crates.io
-publication, and GitHub release creation remain explicit owner actions
-(`plans/registry.md`, `plans/README.md`, `plans/019-qualification-expansion-and-final-corrective-requalification.md`).
+Pre-release `0.1.0`. Milestones M000–M025 plus M008 are closed. M019
+passed its final corrective qualification on `ca527db`; M025 closed the
+post-M024 datagram association setup/closure hygiene pass on `55911f6`.
+Tagging, crates.io publication, and GitHub release creation remain explicit
+owner actions (`plans/registry.md`, `plans/README.md`,
+`plans/019-qualification-expansion-and-final-corrective-requalification.md`).
 
 ## 1. Scripts catalog (`scripts/`)
 
@@ -171,7 +173,7 @@ Canonical surface is `plans/` (`AGENTS.md`, `plans/README.md`):
 | `plans/roadmap.md` | Long-term architecture, sequencing, invariants, non-goals, release gates. |
 | `plans/registry.md` | Compact source of truth for milestone status, dependencies, activation, closure. Update it in the same change that activates/blocks/closes/supersedes a milestone. |
 | `plans/000-architecture-and-scope-baseline.md` | Investigated baseline and boundaries. |
-| `plans/001-*.md` … `plans/015-*.md` | Executable handoffs; filename prefix is the milestone sequence number and must not be reused. |
+| `plans/001-*.md` … `plans/025-*.md` | Executable handoffs; filename prefix is the milestone sequence number and must not be reused. |
 | `plans/adrs/` | Durable decisions (`001-stream-fault-engine-boundary.md`, `002-determinism-and-live-mutation.md`); implementation must not silently change them. |
 | `plans/reference/` | Parity/verification contracts (`toxiproxy-parity.md`, `verification-matrix.md`), not status. |
 | `plans/closure/` | Independent closure evidence after implementation (candidate SHA, commands, oracle, artifacts, limitations, verdict). |
@@ -213,7 +215,7 @@ closure; neither may claim unsupported behavior.
 
 | Item | State | Gate to activate |
 | --- | --- | --- |
-| UDP / datagram (`ChaosDatagram`) impairment | implemented | ADR 003 and M020–M023 are closed; exact-candidate evidence is in `plans/registry.md` and `plans/closure/`. Follow-on datagram semantics require separate planning. |
+| UDP / datagram (`ChaosDatagram`) impairment | completed / maintenance complete | ADR 003 and M020–M025 are closed; exact-candidate evidence is in `plans/registry.md` and `plans/closure/`. Follow-on datagram semantics require separate planning. |
 | Optional `eggress-outbound` chained upstreams | future | Proven demand; optional feature only; must not turn eggchaos into a second proxy framework. |
 | `eggreplay` timing/fault integration | future | Stable eggreplay flow model + M008. |
 | `eggprobe` controlled experiments | future | Stable eggprobe diagnostics contract + M008. |

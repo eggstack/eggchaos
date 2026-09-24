@@ -62,13 +62,23 @@ Qualification scripts (release workflow): `scripts/qualify_fuzz.sh`, `scripts/qu
 
 ## Planning state
 
-M000–M019 and M008 are closed milestones. The 2026-09-23 post-M015 corrective chain `M016 -> M017 -> M018 -> M019` closed, with M019's final candidate `ca527db`. M015 remains historical qualification for `cd88b22`, but M019 is the final tag authority. The owner may proceed with tag/publication/release actions; do not rewrite `plans/closure/` / `plans/archive/` history.
+M000–M025 and M008 are closed milestones. The 2026-09-23 post-M015 corrective chain `M016 -> M017 -> M018 -> M019` closed, with M019's final candidate `ca527db`. M015 remains historical qualification for `cd88b22`, but M019 is the final tag authority. The owner may proceed with tag/publication/release actions; do not rewrite `plans/closure/` / `plans/archive/` history.
 
 Post-release UDP/datagram feature work registered under ADR 003 is complete: M020 closed at `56c8925`, M021 at `686838b`, M022 at `8c4e3fb`, and M023 qualified exact candidate `ae2ab733b2be199d7693e40cdc558df01ee9a9de`. Closure evidence is in `plans/closure/M020-deterministic-datagram-fault-engine-closure.md`, `plans/closure/M021-fixed-target-udp-runtime-and-association-lifecycle-closure.md`, `plans/closure/M022-datagram-native-control-scenarios-cli-observability-closure.md`, and `plans/closure/M023-datagram-qualification-performance-release-hardening-closure.md`. This tranche does not rewrite M019 or make UDP part of the historical v0.1.0 qualification.
 
 M024 is closed at `ca46801` and is fully implemented, measured, and qualified. It is semantics-preserving: topology-matched bare UDP relay benchmark with separate sequential RTT and windowed throughput, heap scheduler replacing full-queue scan/sort, empty-plan immediate emission, batched egress accounting, association-registry lock removed from UDP setup awaits, and the datagram runtime split internally.
 
-M025 is now ready and is the only active handoff. It must replace the `Starting` association path's bounded `yield_now()` polling with retained/event-driven waiting that has a documented no-lost-wakeup argument, preserve exact reservation/capacity ownership across publish/failure/drain races, add controlled concurrency tests, and finish stale planning-state cleanup. A naïve `Notify::notified().await` after releasing the registry lock is not sufficient if a `notify_waiters()` transition can occur before registration. Do not change ADR 003, datagram golden traces, native contracts, M024 performance budgets, or per-client upstream socket ownership.
+M025 is closed at `55911f6` with evidence in
+`plans/closure/M025-datagram-association-setup-waiter-and-closure-hygiene-closure.md`.
+The final association setup rule is a per-reservation retained/versioned Tokio
+`watch` transition: waiters subscribe while holding the association-map lock,
+then use `wait_for`; publication, failure, and administrative drain publish
+terminal state under that same lock, so a transition cannot be lost. Explicit
+reservation identity and idempotent global/per-proxy capacity leases prevent
+stale owners from publishing over or releasing successors. M025 activated no
+successor; do not change ADR 003, datagram golden traces, native contracts,
+M024 performance budgets, or per-client upstream socket ownership without a
+new plan/ADR.
 
 If the owner asks for new work: `plans/roadmap.md` is the architecture authority, `plans/reference/` holds parity/verification contracts (not status), ADRs live in `plans/adrs/`. Any new numbered plan needs objective, baseline/deps, scope + non-goals, affected crates, ordered work packages, invariants/failure semantics, test commands, acceptance criteria, stop conditions, closure evidence, and follow-on rules — and must update `plans/registry.md` in the same change. Never mark `closed` from source inspection; closure requires running the plan's tests on the exact candidate plus external/differential evidence where declared.
 

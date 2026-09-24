@@ -123,7 +123,7 @@ overview first, then go component by component.
 - `docs/configuration.md`, `docs/control-plane.md`, `docs/eggfetch.md`,
   `docs/toxiproxy.md` — per-surface contracts.
 - `plans/roadmap.md`, `plans/registry.md` — sequencing, invariants, milestone
-  closure (M000–M015 + M008 closed; tag/publish remain owner decisions).
+  closure (M000–M025 + M008 closed; tag/publish remain owner decisions).
 - `plans/adrs/001-stream-fault-engine-boundary.md`,
   `plans/adrs/002-determinism-and-live-mutation.md` — durable boundaries.
 - `plans/reference/toxiproxy-parity.md`,
