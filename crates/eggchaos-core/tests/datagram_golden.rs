@@ -81,6 +81,10 @@ async fn frozen_datagram_golden_trace_corpus_matches_exactly() {
             RngVersion::V1,
         )
         .unwrap();
+        // Immediate admissions are emitted at admit time in ingress order
+        // while the scheduler is empty; they precede anything later drained
+        // through `take_ready`, exactly as the runtime forwards them.
+        let mut actual = Vec::new();
         for (index, input) in case.inputs_hex.iter().enumerate() {
             let selected = case.policy_sequence.get(index).map(|selected| {
                 Arc::new(PublishedDatagramPolicy {
@@ -89,11 +93,13 @@ async fn frozen_datagram_golden_trace_corpus_matches_exactly() {
                     seed_namespace: selected.seed_namespace,
                 })
             });
-            engine.admit(
+            if let eggchaos_core::DatagramAdmission::Immediate(items) = engine.admit(
                 start,
                 Bytes::from(decode_hex(input)),
                 selected.as_deref().unwrap_or(policy.as_ref()),
-            );
+            ) {
+                actual.extend(items.into_iter().map(as_trace));
+            }
         }
         if case.ready_after_ns > 0 {
             advance(Duration::from_nanos(case.ready_after_ns)).await;
@@ -104,9 +110,18 @@ async fn frozen_datagram_golden_trace_corpus_matches_exactly() {
             .map(as_trace)
             .collect();
         if let Some(expected) = case.expected_first_emissions {
-            assert_eq!(first, expected, "first emissions for {}", case.name);
+            // Immediate emissions precede the first ready drain.
+            let immediate_len = actual.len();
+            assert_eq!(
+                first,
+                expected[immediate_len..].to_vec(),
+                "first emissions for {}",
+                case.name
+            );
+            actual.extend(first);
+        } else {
+            actual.extend(first);
         }
-        let mut actual = first;
         if case.followup_after_ns > 0 {
             advance(Duration::from_nanos(case.followup_after_ns)).await;
             actual.extend(engine.take_ready(Instant::now()).into_iter().map(as_trace));

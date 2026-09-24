@@ -231,10 +231,10 @@ if a gate was not run, record it as incomplete (see §8).
 
 | What | Where | Notes |
 | --- | --- | --- |
-| Harness + cases | `benchmarks/src/main.rs`, `benchmarks/src/bin/datagram.rs`, `benchmarks/Cargo.toml`, `scripts/benchmark.sh`, `scripts/benchmark_datagram.sh` | Stream cases plus direct UDP, fixed-target empty plan, individual/combined datagram faults, and multi-client workload |
-| Method README | `qualification/performance/README.md` | Bare relay is the baseline; fault delay excluded from overhead |
-| Snapshots | `qualification/performance/2026-09-22-macos-arm64.json`, `...-m008.json`, `2026-09-24-macos-arm64-m023.json` | Host block (OS/model/CPU/Rust/profile), candidate SHA, method, results, and budget |
-| Budget | `...-m008.json:budget`; `2026-09-24-macos-arm64-m023.json` | Stream `empty_plan ≥ 70% of same-session bare relay`; datagram `≥45%` of direct UDP throughput and `≤2.5×` direct p95 latency |
+| Harness + cases | `benchmarks/src/main.rs`, `benchmarks/src/bin/datagram.rs`, `benchmarks/Cargo.toml`, `scripts/benchmark.sh`, `scripts/benchmark_datagram.sh` | Stream cases plus direct UDP, benchmark-local bare fixed-target relay, fixed-target empty plan, sequential-RTT and windowed-throughput modes, core-only scheduler depth probes, individual/combined datagram faults, and multi-client workload |
+| Method README | `qualification/performance/README.md` | Topology-matched bare relay isolates proxy-hop cost from engine overhead; sequential RTT and windowed throughput are separate measurements; fault delay excluded from overhead |
+| Snapshots | `qualification/performance/2026-09-22-macos-arm64.json`, `...-m008.json`, `2026-09-24-macos-arm64-m023.json`, `2026-09-24-macos-arm64-m024-before.json`, `2026-09-24-macos-arm64-m024-after.json` | Host block (OS/model/CPU/Rust/profile), candidate SHA, method, results, and budget |
+| Budget | `...-m008.json:budget`; `2026-09-24-macos-arm64-m023.json`; M024 matched budget in `scripts/benchmark_datagram.sh` | Stream `empty_plan ≥ 70% of same-session bare relay`; datagram `≥45%` of direct UDP throughput and `≤2.5×` direct p95 latency (retained M023 floor); M024 topology-matched empty/bare `≥0.7×` sequential throughput, `≤1.6×` sequential p95, `≥0.7×` windowed throughput |
 | Release TOML | `qualification/release/eggchaos.toml` | Artifact-smoke fixture (seed 7, loopback admin, TCP `smoke` and UDP `udp-smoke` proxies) |
 | Oracle baseline | `qualification/toxiproxy-v2-12/oracle-baseline-v2.12.0.md` | Live-captured 2026-09-22: identity, routes, reset/populate, 7 toxic defaults, non-API 404s |
 | Client smokes | `qualification/toxiproxy-v2-12/client-smoke/{go/,py_smoke.py,*_results.json}` | Pinned Go client + stdlib Python; rerun fresh per qualification |

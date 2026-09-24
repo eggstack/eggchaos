@@ -441,10 +441,14 @@ replaced by inspection.
 - `plans/reference/verification-matrix.md`,
   `plans/reference/toxiproxy-parity.md` — verification + parity contracts.
 
-## Fixed-target UDP runtime (M021)
+## Fixed-target UDP runtime (M021, M024 maintenance)
 
-`runtime/datagram.rs` is an independent Tokio UDP owner alongside the TCP
-`ControlState`; it does not branch the stream registry or relay. A
+`runtime/datagram/` (`mod.rs` composition/re-exports; `model.rs` validated
+configuration, views, and evidence; `registry.rs` the single
+`DatagramRuntime` control authority; `association.rs` setup, worker loop,
+and teardown; `supervisor.rs` listener loop and admission; `tests.rs` the
+runtime regression suite) is an independent Tokio UDP owner alongside the
+TCP `ControlState`; it does not branch the stream registry or relay. A
 `DatagramRuntime` binds before publishing a proxy and maps each client socket
 address to one bounded association with its own connected upstream socket,
 upstream/downstream `DatagramDirectionEngine`s, cancellation token, and
@@ -462,3 +466,19 @@ history are bounded. IPv4 and IPv6 upstream sockets bind to the matching
 unspecified family. M021 reuses no Eggress production dependency: the audited
 published `eggress-udp` surface is routing/SOCKS-oriented and does not expose
 the required generic fixed-target association owner.
+
+M024 setup no longer holds the association registry lock across UDP
+bind/connect. Each client address maps to an `AssociationSlot` that is either
+`Starting` (capacity reserved, setup running lock-free, waiters yield until
+publication or abandonment) or `Active`. Exactly one racing creator owns
+setup; waiters observe the published association or take over creation after
+abandonment. Publication is atomic under the registry lock, so an
+administrative drain that removes a `Starting` slot tears down the unpublished
+worker before any task, socket, or capacity count can leak, and idle reaping
+removes a slot only if it still holds the same expired association.
+
+The association worker forwards `Immediate` admissions without entering the
+deadline heap, batches egress accounting into one record update per direction
+per drain, and refreshes direction evidence snapshots only when admission,
+emission, or error state changed. Egress/send-error/administrative-discard
+categories are unchanged.

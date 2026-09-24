@@ -9,9 +9,9 @@ mod rng;
 mod stream;
 
 pub use datagram::{
-    derive_datagram_seed, DatagramDirectionEngine, DatagramEvidence, DatagramFaultKind,
-    DatagramFaultSpec, DatagramLivePolicy, DatagramPlan, DatagramQueueLimits, DatagramScheduled,
-    PublishedDatagramPolicy, DATAGRAM_FAULT_TYPE_NAMES,
+    derive_datagram_seed, DatagramAdmission, DatagramDirectionEngine, DatagramEvidence,
+    DatagramFaultKind, DatagramFaultSpec, DatagramLivePolicy, DatagramPlan, DatagramQueueLimits,
+    DatagramScheduled, PublishedDatagramPolicy, DATAGRAM_FAULT_TYPE_NAMES,
 };
 pub use engine::{
     DirectionEngine, EngineEvidence, TerminationHandle, TerminationInfo, TerminationRequest,

@@ -1,6 +1,7 @@
 //! Bounded, deterministic, protocol-neutral datagram impairment.
 use std::{
-    collections::{HashMap, HashSet},
+    cmp::Reverse,
+    collections::{BinaryHeap, HashMap, HashSet},
     num::NonZeroU64,
     sync::Arc,
     time::Duration,
@@ -239,14 +240,52 @@ struct Candidate {
     payload: Bytes,
     generation: u64,
 }
+
+impl PartialEq for Candidate {
+    fn eq(&self, other: &Self) -> bool {
+        self.at == other.at && self.ordinal == other.ordinal && self.copy == other.copy
+    }
+}
+impl Eq for Candidate {}
+impl PartialOrd for Candidate {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+/// Total deterministic scheduling order: `(release_at, ingress_ordinal,
+/// copy_index)`. Payload and generation never participate, so equal keys are
+/// impossible (`(ordinal, copy)` is unique per candidate) and heap pop order
+/// is byte-for-byte identical to the previous full-queue sort.
+impl Ord for Candidate {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        (self.at, self.ordinal, self.copy).cmp(&(other.at, other.ordinal, other.copy))
+    }
+}
 #[derive(Debug, Clone, Copy)]
 struct Bucket {
     tokens: u64,
     updated: Instant,
 }
 
+/// Admission disposition for one datagram. `Immediate` items are fully
+/// accounted (admitted, queued/high-water, then emitted) and must be sent
+/// without entering the deadline heap; `Queued` items are owned by the
+/// scheduler and surface through [`DatagramDirectionEngine::take_ready`].
+#[derive(Debug)]
+pub enum DatagramAdmission {
+    /// Oversize, fully configured-loss, or fully overflowed: nothing to send.
+    Consumed,
+    /// No release delay and the scheduler was empty: send now.
+    Immediate(Vec<DatagramScheduled>),
+    /// The scheduler owns one or more candidates.
+    Queued,
+}
+
 /// Single-owner deterministic direction engine. Call `admit` in ingress order and
-/// `take_ready` from the embedding runtime's timer/select loop.
+/// `take_ready` from the embedding runtime's timer/select loop. The pending
+/// queue is a min-heap keyed by `(release_at, ingress_ordinal, copy_index)`,
+/// so deadline inspection is O(1), insertion is O(log n), and draining k
+/// ready candidates is O(k log n) with exact stable ordering.
 #[derive(Debug)]
 pub struct DatagramDirectionEngine {
     limits: DatagramQueueLimits,
@@ -255,7 +294,7 @@ pub struct DatagramDirectionEngine {
     direction: Direction,
     rng_version: RngVersion,
     ordinal: u64,
-    queue: Vec<Candidate>,
+    queue: BinaryHeap<Reverse<Candidate>>,
     evidence: DatagramEvidence,
     buckets: HashMap<String, Bucket>,
 }
@@ -280,7 +319,7 @@ impl DatagramDirectionEngine {
             direction,
             rng_version,
             ordinal: 0,
-            queue: Vec::new(),
+            queue: BinaryHeap::new(),
             evidence,
             buckets: HashMap::new(),
         })
@@ -289,7 +328,7 @@ impl DatagramDirectionEngine {
         &self.evidence
     }
     pub fn next_deadline(&self) -> Option<Instant> {
-        self.queue.iter().map(|x| x.at).min()
+        self.queue.peek().map(|item| item.0.at)
     }
     pub fn is_empty(&self) -> bool {
         self.queue.is_empty()
@@ -303,7 +342,22 @@ impl DatagramDirectionEngine {
     }
 
     /// Admit one whole payload under one atomic policy snapshot.
-    pub fn admit(&mut self, now: Instant, payload: Bytes, policy: &PublishedDatagramPolicy) {
+    ///
+    /// An empty plan never allocates a candidate vector and never enters the
+    /// deadline heap when the scheduler is empty: the datagram is accounted
+    /// exactly as if it had been queued and immediately drained, and is
+    /// returned as [`DatagramAdmission::Immediate`]. The same immediate path
+    /// applies to any fault combination whose candidates all carry zero
+    /// release delay while the scheduler is empty. Requiring an empty
+    /// scheduler keeps immediate emission observably identical to
+    /// queue-then-drain ordering; evidence, ingress ordinals, generation, and
+    /// seed tracking are identical on every path.
+    pub fn admit(
+        &mut self,
+        now: Instant,
+        payload: Bytes,
+        policy: &PublishedDatagramPolicy,
+    ) -> DatagramAdmission {
         let ordinal = self.ordinal;
         self.ordinal = self.ordinal.saturating_add(1);
         self.evidence.admitted_datagrams = self.evidence.admitted_datagrams.saturating_add(1);
@@ -313,12 +367,26 @@ impl DatagramDirectionEngine {
             .saturating_add(payload.len() as u64);
         if payload.len() as u64 > self.limits.max_datagram_bytes.get() {
             self.evidence.oversize_datagrams = self.evidence.oversize_datagrams.saturating_add(1);
-            return;
+            return DatagramAdmission::Consumed;
+        }
+        self.evidence.last_generation = policy.generation;
+        self.evidence.last_seed_namespace = policy.seed_namespace;
+        if policy.plan.faults().is_empty() {
+            if self.queue.is_empty() && self.fits(payload.len() as u64) {
+                let scheduled = self.emit_immediate_single(ordinal, payload, policy.generation);
+                return DatagramAdmission::Immediate(vec![scheduled]);
+            }
+            if self.fits(payload.len() as u64) {
+                self.enqueue(now, ordinal, 0, payload, policy.generation);
+                return DatagramAdmission::Queued;
+            }
+            self.evidence.queue_overflow = self.evidence.queue_overflow.saturating_add(1);
+            return DatagramAdmission::Consumed;
         }
         let mut candidates = vec![(0u16, payload, Duration::ZERO)];
         let mut next_copy_index = 1u16;
         for (stage, fault) in policy.plan.faults().iter().enumerate() {
-            let mut next = Vec::new();
+            let mut next = Vec::with_capacity(candidates.len().max(1));
             for (copy, mut bytes, delay) in candidates {
                 let seed = derive_datagram_seed(
                     policy.seed_namespace ^ u64::from(copy),
@@ -404,8 +472,30 @@ impl DatagramDirectionEngine {
             }
             candidates = next;
         }
-        self.evidence.last_generation = policy.generation;
-        self.evidence.last_seed_namespace = policy.seed_namespace;
+        if candidates.iter().all(|(_, _, delay)| delay.is_zero())
+            && self.queue.is_empty()
+            && candidates
+                .iter()
+                .try_fold(0u64, |total, (_, bytes, _)| {
+                    total.checked_add(bytes.len() as u64)
+                })
+                .is_some_and(|bytes| self.fits_all(candidates.len() as u64, bytes))
+        {
+            let mut out = Vec::with_capacity(candidates.len());
+            for (copy, bytes, _) in candidates {
+                out.push(self.emit_immediate(ordinal, bytes, policy.generation, copy));
+            }
+            // Candidates complete the fault loop in pipeline order, which is
+            // not copy order after cascading duplication. The scheduler path
+            // always drains in `(release_at, ordinal, copy)` order, so sort
+            // the immediate items the same way to keep both paths identical.
+            out.sort_by_key(|item| (item.ingress_ordinal, item.copy_index));
+            return DatagramAdmission::Immediate(out);
+        }
+        if candidates.is_empty() {
+            return DatagramAdmission::Consumed;
+        }
+        let mut queued_any = false;
         for (copy, bytes, delay) in candidates {
             if self.queue.len() as u64 >= self.limits.max_queued_datagrams.get()
                 || self
@@ -417,24 +507,89 @@ impl DatagramDirectionEngine {
                 self.evidence.queue_overflow = self.evidence.queue_overflow.saturating_add(1);
                 continue;
             }
-            self.evidence.queued_datagrams += 1;
-            self.evidence.queued_bytes += bytes.len() as u64;
-            self.evidence.high_water_datagrams = self
-                .evidence
-                .high_water_datagrams
-                .max(self.evidence.queued_datagrams);
-            self.evidence.high_water_bytes = self
-                .evidence
-                .high_water_bytes
-                .max(self.evidence.queued_bytes);
-            self.queue.push(Candidate {
-                at: now + delay,
-                ordinal,
-                copy,
-                payload: bytes,
-                generation: policy.generation,
-            });
+            self.enqueue(now + delay, ordinal, copy, bytes, policy.generation);
+            queued_any = true;
         }
+        if queued_any {
+            DatagramAdmission::Queued
+        } else {
+            DatagramAdmission::Consumed
+        }
+    }
+
+    fn fits(&self, bytes: u64) -> bool {
+        (self.queue.len() as u64) < self.limits.max_queued_datagrams.get()
+            && self.evidence.queued_bytes.saturating_add(bytes)
+                <= self.limits.max_queued_bytes.get()
+    }
+
+    fn fits_all(&self, datagrams: u64, bytes: u64) -> bool {
+        (self.queue.len() as u64).saturating_add(datagrams)
+            <= self.limits.max_queued_datagrams.get()
+            && self.evidence.queued_bytes.saturating_add(bytes)
+                <= self.limits.max_queued_bytes.get()
+    }
+
+    fn enqueue(&mut self, at: Instant, ordinal: u64, copy: u16, payload: Bytes, generation: u64) {
+        self.evidence.queued_datagrams += 1;
+        self.evidence.queued_bytes += payload.len() as u64;
+        self.evidence.high_water_datagrams = self
+            .evidence
+            .high_water_datagrams
+            .max(self.evidence.queued_datagrams);
+        self.evidence.high_water_bytes = self
+            .evidence
+            .high_water_bytes
+            .max(self.evidence.queued_bytes);
+        self.queue.push(Reverse(Candidate {
+            at,
+            ordinal,
+            copy,
+            payload,
+            generation,
+        }));
+    }
+
+    /// Account one candidate exactly as queue-then-drain would: queued and
+    /// high-water counters advance, then the candidate is emitted immediately.
+    fn emit_immediate(
+        &mut self,
+        ordinal: u64,
+        payload: Bytes,
+        generation: u64,
+        copy: u16,
+    ) -> DatagramScheduled {
+        self.evidence.queued_datagrams += 1;
+        self.evidence.queued_bytes += payload.len() as u64;
+        self.evidence.high_water_datagrams = self
+            .evidence
+            .high_water_datagrams
+            .max(self.evidence.queued_datagrams);
+        self.evidence.high_water_bytes = self
+            .evidence
+            .high_water_bytes
+            .max(self.evidence.queued_bytes);
+        let size = payload.len() as u64;
+        self.evidence.queued_datagrams -= 1;
+        self.evidence.queued_bytes -= size;
+        self.evidence.emitted_datagrams += 1;
+        self.evidence.emitted_bytes += size;
+        DatagramScheduled {
+            payload,
+            ingress_ordinal: ordinal,
+            copy_index: copy,
+            generation,
+        }
+    }
+
+    /// Account one empty-plan candidate with copy index zero.
+    fn emit_immediate_single(
+        &mut self,
+        ordinal: u64,
+        payload: Bytes,
+        generation: u64,
+    ) -> DatagramScheduled {
+        self.emit_immediate(ordinal, payload, generation, 0)
     }
 
     fn bandwidth_delay(
@@ -445,10 +600,18 @@ impl DatagramDirectionEngine {
         rate: u64,
         burst: u64,
     ) -> Duration {
-        let bucket = self.buckets.entry(id.to_owned()).or_insert(Bucket {
-            tokens: burst,
-            updated: now,
-        });
+        // Avoid cloning the fault id on the steady-state path where the token
+        // bucket already exists; only the first admission per fault allocates.
+        if !self.buckets.contains_key(id) {
+            self.buckets.insert(
+                id.to_owned(),
+                Bucket {
+                    tokens: burst,
+                    updated: now,
+                },
+            );
+        }
+        let bucket = self.buckets.get_mut(id).expect("inserted bucket");
         let virtual_now = now.max(bucket.updated);
         let elapsed = virtual_now
             .saturating_duration_since(bucket.updated)
@@ -477,22 +640,21 @@ impl DatagramDirectionEngine {
         }
     }
 
-    /// Remove all currently due candidates in deterministic deadline/identity order.
+    /// Remove all currently due candidates in deterministic deadline/identity
+    /// order by popping the min-heap while its head is ready.
     pub fn take_ready(&mut self, now: Instant) -> Vec<DatagramScheduled> {
-        self.queue.sort_by_key(|x| (x.at, x.ordinal, x.copy));
-        let split = self.queue.partition_point(|x| x.at <= now);
-        let ready: Vec<_> = self.queue.drain(..split).collect();
-        let mut out = Vec::with_capacity(ready.len());
-        for x in ready {
+        let mut out = Vec::new();
+        while self.queue.peek().is_some_and(|head| head.0.at <= now) {
+            let candidate = self.queue.pop().expect("peeked candidate").0;
             self.evidence.queued_datagrams -= 1;
-            self.evidence.queued_bytes -= x.payload.len() as u64;
+            self.evidence.queued_bytes -= candidate.payload.len() as u64;
             self.evidence.emitted_datagrams += 1;
-            self.evidence.emitted_bytes += x.payload.len() as u64;
+            self.evidence.emitted_bytes += candidate.payload.len() as u64;
             out.push(DatagramScheduled {
-                payload: x.payload,
-                ingress_ordinal: x.ordinal,
-                copy_index: x.copy,
-                generation: x.generation,
+                payload: candidate.payload,
+                ingress_ordinal: candidate.ordinal,
+                copy_index: candidate.copy,
+                generation: candidate.generation,
             });
         }
         out
@@ -680,9 +842,13 @@ mod tests {
             .unwrap(),
             1,
         );
-        e.admit(now, Bytes::from_static(b"x"), &p);
-        let copies: Vec<_> = e.take_ready(now).iter().map(|v| v.copy_index).collect();
+        let DatagramAdmission::Immediate(immediate) = e.admit(now, Bytes::from_static(b"x"), &p)
+        else {
+            panic!("zero-delay duplicates with an empty scheduler emit immediately");
+        };
+        let copies: Vec<_> = immediate.iter().map(|v| v.copy_index).collect();
         assert_eq!(copies, vec![0, 1, 2, 3, 4, 5]);
+        assert!(e.take_ready(now).is_empty());
     }
 
     #[tokio::test(start_paused = true)]
@@ -783,5 +949,286 @@ mod tests {
         assert_ne!(delayed[0].payload, Bytes::from_static(b"slow"));
         assert_eq!(e.evidence().corrupted_candidates, 1);
         assert_eq!(e.evidence().injected_delay_nanos, 2_000_000_000);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn heap_preserves_equal_and_mixed_deadline_ordering() {
+        let now = Instant::now();
+        let mut e =
+            DatagramDirectionEngine::new(limits(), "p", 1, Direction::Upstream, RngVersion::V1)
+                .unwrap();
+        let hold = |secs| {
+            policy(
+                DatagramPlan::new(vec![spec(
+                    "hold",
+                    DatagramFaultKind::Delay {
+                        delay: Duration::from_secs(secs),
+                        jitter: Duration::ZERO,
+                    },
+                )])
+                .unwrap(),
+                1,
+            )
+        };
+        // Same deadline: heap must drain in ingress-ordinal order.
+        for ordinal in 0..8u64 {
+            let mut payload = vec![0u8; 4];
+            payload.copy_from_slice(&(ordinal as u32).to_be_bytes());
+            assert!(matches!(
+                e.admit(now, Bytes::from(payload), &hold(5)),
+                DatagramAdmission::Queued
+            ));
+        }
+        assert_eq!(e.next_deadline(), Some(now + Duration::from_secs(5)));
+        assert!(e.take_ready(now).is_empty());
+        tokio::time::advance(Duration::from_secs(5)).await;
+        let drained = e.take_ready(Instant::now());
+        assert_eq!(drained.len(), 8);
+        for (index, item) in drained.iter().enumerate() {
+            assert_eq!(item.ingress_ordinal, index as u64);
+            assert_eq!(item.copy_index, 0);
+        }
+        // Mixed deadlines: earlier release drains first regardless of ingress.
+        assert!(matches!(
+            e.admit(Instant::now(), Bytes::from_static(b"slow"), &hold(2)),
+            DatagramAdmission::Queued
+        ));
+        assert!(matches!(
+            e.admit(Instant::now(), Bytes::from_static(b"fast"), &hold(1)),
+            DatagramAdmission::Queued
+        ));
+        tokio::time::advance(Duration::from_secs(1)).await;
+        let first = e.take_ready(Instant::now());
+        assert_eq!(first.len(), 1);
+        assert_eq!(first[0].payload, Bytes::from_static(b"fast"));
+        tokio::time::advance(Duration::from_secs(1)).await;
+        let second = e.take_ready(Instant::now());
+        assert_eq!(second.len(), 1);
+        assert_eq!(second[0].payload, Bytes::from_static(b"slow"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn heap_enforces_count_and_byte_overflow_identically() {
+        let now = Instant::now();
+        let mut e = DatagramDirectionEngine::new(
+            DatagramQueueLimits {
+                max_queued_datagrams: NonZeroU64::new(2).unwrap(),
+                max_queued_bytes: NonZeroU64::new(3).unwrap(),
+                max_datagram_bytes: NonZeroU64::new(8).unwrap(),
+            },
+            "p",
+            1,
+            Direction::Upstream,
+            RngVersion::V1,
+        )
+        .unwrap();
+        let delayed = policy(
+            DatagramPlan::new(vec![spec(
+                "d",
+                DatagramFaultKind::Delay {
+                    delay: Duration::from_secs(60),
+                    jitter: Duration::ZERO,
+                },
+            )])
+            .unwrap(),
+            1,
+        );
+        assert!(matches!(
+            e.admit(now, Bytes::from_static(b"ab"), &delayed),
+            DatagramAdmission::Queued
+        ));
+        // Two queued bytes plus two more exceed the three-byte bound.
+        assert!(matches!(
+            e.admit(now, Bytes::from_static(b"cd"), &delayed),
+            DatagramAdmission::Consumed
+        ));
+        assert_eq!(e.evidence().queue_overflow, 1);
+        assert_eq!(e.evidence().queued_datagrams, 1);
+        assert_eq!(e.evidence().queued_bytes, 2);
+        tokio::time::advance(Duration::from_secs(61)).await;
+        let drained = e.take_ready(Instant::now());
+        assert_eq!(drained.len(), 1);
+        assert_eq!(e.evidence().queued_datagrams, 0);
+        assert_eq!(e.evidence().queued_bytes, 0);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn empty_plan_immediate_path_matches_queued_reference_evidence() {
+        let now = Instant::now();
+        let immediate_policy = policy(DatagramPlan::empty(), 9);
+        let mut immediate =
+            DatagramDirectionEngine::new(limits(), "p", 1, Direction::Upstream, RngVersion::V1)
+                .unwrap();
+        let DatagramAdmission::Immediate(first) =
+            immediate.admit(now, Bytes::from_static(b"abcd"), &immediate_policy)
+        else {
+            panic!("empty plan with an empty scheduler emits immediately");
+        };
+        assert_eq!(first.len(), 1);
+        assert_eq!(first[0].ingress_ordinal, 0);
+        assert_eq!(first[0].copy_index, 0);
+        assert_eq!(first[0].generation, 9);
+        let evidence = immediate.evidence().clone();
+        assert_eq!(evidence.admitted_datagrams, 1);
+        assert_eq!(evidence.admitted_bytes, 4);
+        assert_eq!(evidence.emitted_datagrams, 1);
+        assert_eq!(evidence.emitted_bytes, 4);
+        assert_eq!(evidence.queued_datagrams, 0);
+        assert_eq!(evidence.queued_bytes, 0);
+        assert_eq!(evidence.high_water_datagrams, 1);
+        assert_eq!(evidence.high_water_bytes, 4);
+        assert_eq!(evidence.last_generation, 9);
+        assert_eq!(evidence.last_seed_namespace, 7);
+        assert_eq!(evidence.configured_loss, 0);
+        assert_eq!(evidence.queue_overflow, 0);
+        // Queue-then-drain reference: hold one delayed candidate so the empty
+        // plan takes the scheduler path, then drain everything.
+        let mut queued =
+            DatagramDirectionEngine::new(limits(), "p", 1, Direction::Upstream, RngVersion::V1)
+                .unwrap();
+        let delayed = policy(
+            DatagramPlan::new(vec![spec(
+                "d",
+                DatagramFaultKind::Delay {
+                    delay: Duration::from_secs(30),
+                    jitter: Duration::ZERO,
+                },
+            )])
+            .unwrap(),
+            9,
+        );
+        assert!(matches!(
+            queued.admit(now, Bytes::from_static(b"held"), &delayed),
+            DatagramAdmission::Queued
+        ));
+        assert!(matches!(
+            queued.admit(now, Bytes::from_static(b"abcd"), &immediate_policy),
+            DatagramAdmission::Queued
+        ));
+        let drained = queued.take_ready(now);
+        assert_eq!(drained.len(), 1);
+        assert_eq!(drained[0].payload, Bytes::from_static(b"abcd"));
+        let reference = queued.evidence();
+        assert_eq!(reference.admitted_datagrams, 2);
+        assert_eq!(reference.emitted_datagrams, 1);
+        assert_eq!(reference.queued_datagrams, 1);
+        // The immediately emitted datagram carries identical identity and
+        // generation to its queued-then-drained counterpart.
+        assert_eq!(drained[0].ingress_ordinal, 1);
+        assert_eq!(drained[0].generation, 9);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn empty_plan_overflow_and_oversize_are_consumed_not_queued() {
+        let now = Instant::now();
+        let mut e = DatagramDirectionEngine::new(
+            DatagramQueueLimits {
+                max_queued_datagrams: NonZeroU64::new(8).unwrap(),
+                max_queued_bytes: NonZeroU64::new(2).unwrap(),
+                max_datagram_bytes: NonZeroU64::new(8).unwrap(),
+            },
+            "p",
+            1,
+            Direction::Upstream,
+            RngVersion::V1,
+        )
+        .unwrap();
+        let empty = policy(DatagramPlan::empty(), 1);
+        // Three bytes exceed the two-byte queue bound while fitting the
+        // per-datagram bound: consumed as overflow, never queued.
+        assert!(matches!(
+            e.admit(now, Bytes::from_static(b"abc"), &empty),
+            DatagramAdmission::Consumed
+        ));
+        assert_eq!(e.evidence().queue_overflow, 1);
+        assert_eq!(e.evidence().queued_datagrams, 0);
+        assert!(e.next_deadline().is_none());
+        assert!(matches!(
+            e.admit(now, Bytes::from_static(b"way-too-long-payload"), &empty),
+            DatagramAdmission::Consumed
+        ));
+        assert_eq!(e.evidence().oversize_datagrams, 1);
+        // A non-empty full scheduler still enforces bounds on the empty-plan
+        // queued path: the newcomer overflows instead of exceeding the cap.
+        let mut full = DatagramDirectionEngine::new(
+            DatagramQueueLimits {
+                max_queued_datagrams: NonZeroU64::new(1).unwrap(),
+                max_queued_bytes: NonZeroU64::new(1024).unwrap(),
+                max_datagram_bytes: NonZeroU64::new(64).unwrap(),
+            },
+            "p",
+            1,
+            Direction::Upstream,
+            RngVersion::V1,
+        )
+        .unwrap();
+        let delayed = policy(
+            DatagramPlan::new(vec![spec(
+                "d",
+                DatagramFaultKind::Delay {
+                    delay: Duration::from_secs(60),
+                    jitter: Duration::ZERO,
+                },
+            )])
+            .unwrap(),
+            1,
+        );
+        assert!(matches!(
+            full.admit(now, Bytes::from_static(b"held"), &delayed),
+            DatagramAdmission::Queued
+        ));
+        assert!(matches!(
+            full.admit(now, Bytes::from_static(b"extra"), &empty),
+            DatagramAdmission::Consumed
+        ));
+        assert_eq!(full.evidence().queue_overflow, 1);
+        assert_eq!(full.evidence().queued_datagrams, 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn high_queue_depth_drain_stays_ordered_and_bounded() {
+        let now = Instant::now();
+        let mut e = DatagramDirectionEngine::new(
+            DatagramQueueLimits {
+                max_queued_datagrams: NonZeroU64::new(4096).unwrap(),
+                max_queued_bytes: NonZeroU64::new(4 * 1024 * 1024).unwrap(),
+                max_datagram_bytes: NonZeroU64::new(64).unwrap(),
+            },
+            "p",
+            1,
+            Direction::Upstream,
+            RngVersion::V1,
+        )
+        .unwrap();
+        let delayed = policy(
+            DatagramPlan::new(vec![spec(
+                "d",
+                DatagramFaultKind::Delay {
+                    delay: Duration::from_secs(60),
+                    jitter: Duration::ZERO,
+                },
+            )])
+            .unwrap(),
+            1,
+        );
+        for _ in 0..1024 {
+            assert!(matches!(
+                e.admit(now, Bytes::from_static(b"depth"), &delayed),
+                DatagramAdmission::Queued
+            ));
+        }
+        assert_eq!(e.evidence().queued_datagrams, 1024);
+        assert_eq!(e.evidence().high_water_datagrams, 1024);
+        // A not-ready drain must not disturb the heap or disturb evidence.
+        assert!(e.take_ready(now).is_empty());
+        assert_eq!(e.evidence().queued_datagrams, 1024);
+        tokio::time::advance(Duration::from_secs(61)).await;
+        let drained = e.take_ready(Instant::now());
+        assert_eq!(drained.len(), 1024);
+        for (index, item) in drained.iter().enumerate() {
+            assert_eq!(item.ingress_ordinal, index as u64);
+        }
+        assert_eq!(e.evidence().queued_datagrams, 0);
+        assert_eq!(e.evidence().emitted_datagrams, 1024);
     }
 }

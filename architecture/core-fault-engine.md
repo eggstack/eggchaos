@@ -75,10 +75,20 @@ queued candidate count and bytes and classifies candidates larger than the
 configured datagram maximum.
 
 `DatagramDirectionEngine::admit` receives one complete `Bytes` payload and
-one `PublishedDatagramPolicy` snapshot. Candidate RNG uses the separate
+one `PublishedDatagramPolicy` snapshot and returns a `DatagramAdmission`:
+`Consumed` (oversize, fully configured-loss, or fully overflowed),
+`Immediate(vec)` (no release delay while the scheduler is empty — accounted
+exactly as queue-then-drain, including queued/high-water counters, and sent
+without entering the heap), or `Queued` (the scheduler owns candidates).
+Immediate items are sorted by `(ingress ordinal, copy index)` so both paths
+emit identical order; an empty plan never allocates a candidate vector.
+Candidate RNG uses the separate
 `derive_datagram_seed` domain plus ingress ordinal, copy index, fault ID,
-direction, proxy/association identity, and seed namespace. `take_ready` emits
-due candidates by `(deadline, ingress ordinal, copy index)`; old generations
+direction, proxy/association identity, and seed namespace. `take_ready` pops
+due candidates from a min-heap keyed by `(deadline, ingress ordinal, copy
+index)` — O(1) deadline peek, O(log n) insert, O(k log n) drain of k ready
+candidates — with the same total order the previous full-queue sort produced;
+the 14-case golden corpus is byte-for-byte unchanged. Old generations
 remain queued with their already-decided outcomes after policy publication.
 Queue overflow drops the newest candidate and is counted separately from
 configured loss. No payload is retained in evidence.
