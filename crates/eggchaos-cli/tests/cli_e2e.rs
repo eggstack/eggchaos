@@ -193,6 +193,11 @@ async fn cli_json_create_fault_kill_reset_end_to_end() {
         assert!(ok, "{out}");
         let record: serde_json::Value = serde_json::from_str(&out).unwrap();
         assert_eq!(record["run_id"], run_id.parse::<u64>().unwrap());
+        // V1 wire shape is unchanged by the v2 tranche: no schedule
+        // identity fields leak into v1 run records.
+        assert!(record.get("schedule_fingerprint").is_none());
+        assert!(record.get("execution_key").is_none());
+        assert!(record.get("cleanup").is_none());
     }
 
     // Reset through the CLI empties fault plans.

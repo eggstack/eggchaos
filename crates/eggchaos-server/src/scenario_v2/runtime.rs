@@ -134,12 +134,23 @@ pub(crate) async fn drive_schedule_v2_run(
 ///
 /// Already-due deadlines (`now >= deadline`) skip the sleep so drift
 /// never accumulates; this is the documented ADR 004 contract.
+///
+/// The epoch/deadline sum uses `checked_add`: a `u64` offset near the
+/// representation limit cannot overflow the monotonic clock into a
+/// panic. An unrepresentable deadline waits (pending) until
+/// cancellation, which is the only prompt exit from such a wait.
 async fn wait_for_deadline(
     token: &tokio_util::sync::CancellationToken,
     epoch: Instant,
     offset_ns: u64,
 ) -> Result<(), ()> {
-    let deadline = epoch + Duration::from_nanos(offset_ns);
+    let Some(deadline) = epoch.checked_add(Duration::from_nanos(offset_ns)) else {
+        tokio::select! {
+            biased;
+            () = token.cancelled() => return Err(()),
+            () = std::future::pending::<()>() => return Ok(()),
+        }
+    };
     if Instant::now() >= deadline {
         return Ok(());
     }

@@ -1032,6 +1032,371 @@ async fn v2_metrics_count_runs_events_and_late_events() {
     control.shutdown_and_join().await;
 }
 
+#[tokio::test(start_paused = true)]
+async fn sparse_events_with_long_gaps_stay_epoch_anchored() {
+    let control = test_control();
+    stream_proxy(&control, "cache").await;
+    // Offsets are [0, 1h, 2h].
+    let source = schedule(
+        60,
+        60,
+        IsolationPolicyV2::Strict,
+        CleanupPolicyV2::Leave,
+        vec![
+            (
+                3_600_000_000_000,
+                vec![set_plan("cache", Direction::Downstream, vec![latency("a")])],
+            ),
+            (
+                3_600_000_000_000,
+                vec![set_plan("cache", Direction::Downstream, vec![latency("b")])],
+            ),
+            (
+                0,
+                vec![set_plan("cache", Direction::Downstream, vec![latency("c")])],
+            ),
+        ],
+    );
+    let record = control.start_schedule_v2(source).await.unwrap();
+    wait_paused_applied(&control, record.run_id, 1).await;
+    tokio::time::advance(Duration::from_secs(3600)).await;
+    wait_paused_applied(&control, record.run_id, 2).await;
+    tokio::time::advance(Duration::from_secs(3600)).await;
+    let final_record = wait_paused_schedule_v2(&control, record.run_id).await;
+    assert_eq!(final_record.status, ScheduleRunStatus::Completed);
+    let offsets: Vec<u64> = final_record
+        .events
+        .iter()
+        .map(|event| event.scheduled_offset_ns)
+        .collect();
+    assert_eq!(offsets, vec![0, 3_600_000_000_000, 7_200_000_000_000]);
+    for event in &final_record.events {
+        assert_eq!(event.late_by_ns, 0);
+        assert_eq!(event.applied_elapsed_ns, event.scheduled_offset_ns);
+    }
+    control.shutdown_and_join().await;
+}
+
+#[tokio::test]
+async fn unrepresentable_deadline_near_u64_limit_cancels_without_panic() {
+    let control = test_control();
+    stream_proxy(&control, "cache").await;
+    // Second event sits a few ticks below u64::MAX nanoseconds: the
+    // epoch/deadline sum overflows, so the driver must wait pending
+    // (not panic) until cancellation arrives.
+    let source = schedule(
+        61,
+        61,
+        IsolationPolicyV2::Strict,
+        CleanupPolicyV2::Leave,
+        vec![
+            (
+                u64::MAX - 1000,
+                vec![set_plan("cache", Direction::Downstream, vec![latency("a")])],
+            ),
+            (
+                0,
+                vec![set_plan("cache", Direction::Downstream, vec![latency("b")])],
+            ),
+        ],
+    );
+    let record = control.start_schedule_v2(source).await.unwrap();
+    wait_applied(&control, record.run_id, 1).await;
+    control.cancel_schedule_v2(record.run_id).await;
+    let final_record = wait_schedule_v2(&control, record.run_id).await;
+    assert_eq!(final_record.status, ScheduleRunStatus::Cancelled);
+    assert_eq!(final_record.applied, 1);
+    control.shutdown_and_join().await;
+}
+
+#[tokio::test]
+async fn cancel_just_before_a_deadline_applies_nothing_further() {
+    let control = test_control();
+    stream_proxy(&control, "cache").await;
+    // Offsets are [0, 10s].
+    let source = schedule(
+        62,
+        62,
+        IsolationPolicyV2::Strict,
+        CleanupPolicyV2::RestoreInitial,
+        vec![
+            (
+                10_000_000_000,
+                vec![set_plan("cache", Direction::Downstream, vec![latency("a")])],
+            ),
+            (
+                0,
+                vec![set_plan("cache", Direction::Downstream, vec![latency("b")])],
+            ),
+        ],
+    );
+    let record = control.start_schedule_v2(source).await.unwrap();
+    wait_applied(&control, record.run_id, 1).await;
+    control.cancel_schedule_v2(record.run_id).await;
+    let final_record = wait_schedule_v2(&control, record.run_id).await;
+    assert_eq!(final_record.status, ScheduleRunStatus::Cancelled);
+    assert_eq!(final_record.applied, 1);
+    // Only the first event's plan was ever live; restore returns the
+    // pre-run empty plan.
+    let view = control
+        .list()
+        .await
+        .into_iter()
+        .find(|view| view.name == "cache")
+        .unwrap();
+    assert!(view.downstream_faults.is_empty());
+    control.shutdown_and_join().await;
+}
+
+#[tokio::test]
+async fn concurrent_strict_schedules_conflict_without_overwrite() {
+    let control = test_control();
+    stream_proxy(&control, "cache").await;
+    stream_proxy(&control, "other").await;
+    // Run B discovers both resources upfront, applies its unrelated
+    // event, then sleeps. Run A publishes on cache while B sleeps, so
+    // B's later cache event conflicts instead of overwriting A.
+    // B offsets are [0, 50ms].
+    let run_b = schedule(
+        63,
+        63,
+        IsolationPolicyV2::Strict,
+        CleanupPolicyV2::RestoreInitial,
+        vec![
+            (
+                50_000_000,
+                vec![set_plan("other", Direction::Downstream, vec![latency("b")])],
+            ),
+            (
+                0,
+                vec![set_plan(
+                    "cache",
+                    Direction::Downstream,
+                    vec![latency("loser")],
+                )],
+            ),
+        ],
+    );
+    let run_a = schedule(
+        64,
+        64,
+        IsolationPolicyV2::Strict,
+        CleanupPolicyV2::Leave,
+        vec![(
+            0,
+            vec![set_plan(
+                "cache",
+                Direction::Downstream,
+                vec![latency("winner")],
+            )],
+        )],
+    );
+    let second = control.start_schedule_v2(run_b).await.unwrap();
+    // B has discovered cache@g1 and applied its first event.
+    wait_applied(&control, second.run_id, 1).await;
+    let first = control.start_schedule_v2(run_a).await.unwrap();
+    let first_record = wait_schedule_v2(&control, first.run_id).await;
+    assert_eq!(first_record.status, ScheduleRunStatus::Completed);
+    let second_record = wait_schedule_v2(&control, second.run_id).await;
+    assert_eq!(
+        second_record.status,
+        ScheduleRunStatus::Failed,
+        "B must conflict on A's generation, got {:?}",
+        second_record.failure
+    );
+    // A's plan survives: B never overwrote it, and B's cleanup
+    // conflicts on cache while restoring its untouched resource.
+    let views = control.list().await;
+    let view = views.iter().find(|view| view.name == "cache").unwrap();
+    let faults = view.downstream_faults.faults().to_vec();
+    assert_eq!(faults.len(), 1);
+    assert_eq!(faults[0].id.as_str(), "winner");
+    let cleanup = second_record.cleanup.as_ref().unwrap();
+    let cache_outcome = cleanup
+        .resources
+        .iter()
+        .find(|resource| resource.resource.proxy == "cache")
+        .unwrap()
+        .outcome;
+    let other_outcome = cleanup
+        .resources
+        .iter()
+        .find(|resource| resource.resource.proxy == "other")
+        .unwrap()
+        .outcome;
+    assert_eq!(cache_outcome, crate::CleanupResourceOutcome::Conflict);
+    assert_eq!(other_outcome, crate::CleanupResourceOutcome::Restored);
+    control.shutdown_and_join().await;
+}
+
+#[tokio::test]
+async fn target_deletion_mid_run_fails_without_panic() {
+    let control = test_control();
+    stream_proxy(&control, "cache").await;
+    // Offsets are [0, 50ms].
+    let source = schedule(
+        64,
+        64,
+        IsolationPolicyV2::Strict,
+        CleanupPolicyV2::Leave,
+        vec![
+            (
+                50_000_000,
+                vec![set_plan("cache", Direction::Downstream, vec![latency("a")])],
+            ),
+            (
+                0,
+                vec![set_plan("cache", Direction::Downstream, vec![latency("b")])],
+            ),
+        ],
+    );
+    let record = control.start_schedule_v2(source).await.unwrap();
+    wait_applied(&control, record.run_id, 1).await;
+    control.delete_proxy("cache").await.unwrap();
+    let final_record = wait_schedule_v2(&control, record.run_id).await;
+    assert_eq!(final_record.status, ScheduleRunStatus::Failed);
+    assert_eq!(final_record.applied, 1);
+    assert!(
+        final_record
+            .failure
+            .as_deref()
+            .unwrap_or_default()
+            .contains("cache"),
+        "failure names the missing target: {:?}",
+        final_record.failure
+    );
+    control.shutdown_and_join().await;
+}
+
+#[tokio::test]
+async fn scheduled_publication_lands_while_stream_traffic_flows() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let origin = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let origin_addr = origin.local_addr().unwrap();
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut stream, _)) = origin.accept().await else {
+                break;
+            };
+            tokio::spawn(async move {
+                let mut buffer = [0; 4096];
+                loop {
+                    match stream.read(&mut buffer).await {
+                        Ok(0) => break,
+                        Ok(n) => {
+                            if stream.write_all(&buffer[..n]).await.is_err() {
+                                break;
+                            }
+                        }
+                        Err(_) => break,
+                    }
+                }
+            });
+        }
+    });
+    let service = crate::runtime::ServiceBuilder::new(7)
+        .proxy(ProxySpec::new(
+            "echo",
+            "127.0.0.1:0".parse().unwrap(),
+            origin_addr,
+        ))
+        .build()
+        .unwrap();
+    let handle = service.start().await.unwrap();
+    let control = handle.control_state();
+    let addr = handle.bound_addresses().await["echo"];
+    let mut client = tokio::net::TcpStream::connect(addr).await.unwrap();
+    client.write_all(b"ping").await.unwrap();
+    // A scheduled plan publication lands while the connection is
+    // active; the run completes and the relay keeps working.
+    let source = schedule(
+        65,
+        65,
+        IsolationPolicyV2::Strict,
+        CleanupPolicyV2::Leave,
+        vec![(
+            0,
+            vec![set_plan("echo", Direction::Downstream, vec![latency("a")])],
+        )],
+    );
+    let record = control.start_schedule_v2(source).await.unwrap();
+    let final_record = wait_schedule_v2(&control, record.run_id).await;
+    assert_eq!(final_record.status, ScheduleRunStatus::Completed);
+    let mut response = [0; 4];
+    tokio::time::timeout(Duration::from_secs(5), client.read_exact(&mut response))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(&response, b"ping");
+    handle.shutdown();
+    handle.wait().await;
+}
+
+#[tokio::test]
+async fn scheduled_datagram_publication_lands_while_association_lives() {
+    let target = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    let target_addr = target.local_addr().unwrap();
+    tokio::spawn(async move {
+        let mut buffer = [0; 2048];
+        loop {
+            let Ok((n, peer)) = target.recv_from(&mut buffer).await else {
+                break;
+            };
+            let _ = target.send_to(&buffer[..n], peer).await;
+        }
+    });
+    let control = test_control();
+    let spec = DatagramProxySpec::new(
+        "dns",
+        "127.0.0.1:0".parse().unwrap(),
+        target_addr,
+        DatagramQueueLimits {
+            max_queued_datagrams: NonZeroU64::new(8).unwrap(),
+            max_queued_bytes: NonZeroU64::new(4096).unwrap(),
+            max_datagram_bytes: NonZeroU64::new(2048).unwrap(),
+        },
+    )
+    .unwrap();
+    let (view, _) = control.create_datagram_proxy(spec).await.unwrap();
+    let listen = view.bound_addr.expect("datagram listener bound");
+    let client = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    client.connect(listen).await.unwrap();
+    client.send(b"hello").await.unwrap();
+    // Wait for the association to form.
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if !control.datagram_associations().await.is_empty() {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    let source = schedule(
+        66,
+        66,
+        IsolationPolicyV2::Strict,
+        CleanupPolicyV2::Leave,
+        vec![(
+            0,
+            vec![ScenarioAction::SetDatagramPlan {
+                proxy: "dns".into(),
+                direction: Direction::Upstream,
+                faults: vec![loss("q")],
+            }],
+        )],
+    );
+    let record = control.start_schedule_v2(source).await.unwrap();
+    let final_record = wait_schedule_v2(&control, record.run_id).await;
+    assert_eq!(final_record.status, ScheduleRunStatus::Completed);
+    assert!(
+        !control.datagram_associations().await.is_empty(),
+        "association survives scheduled publication"
+    );
+    control.shutdown_and_join().await;
+}
+
 fn metric_value(text: &str, name: &str) -> u64 {
     text.lines()
         .find(|line| line.starts_with(name))

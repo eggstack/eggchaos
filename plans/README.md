@@ -36,12 +36,15 @@ It replaced the `Starting` association path's bounded `yield_now()` retry loop
 with retained/event-driven waiting, proved setup/drain/capacity races with
 controlled tests, and reconciled closure/status wording.
 
-ADR 004 now activates the richer deterministic-scenario/time-varying schedule
-tranche: `M026 (ready) -> M027 (blocked) -> M028 (blocked)`. M026 freezes the
-bounded scenario-v2 source/compiler and portable replay identity; M027 wires it
-to the existing owned scenario/ControlState runtime; M028 is the exact-candidate
-qualification gate. ScenarioV1 remains a compatibility surface, and no schedule
-logic is moved into the stream/datagram fault engines.
+ADR 004's richer deterministic-scenario/time-varying schedule tranche is
+complete: `M026 (closed) -> M027 (closed) -> M028 (closed)`. M026 froze the
+bounded scenario-v2 source/compiler and portable replay identity; M027 wired it
+to the existing owned scenario/ControlState runtime; M028 qualified the
+combined surface on an exact candidate. ScenarioV1 remains a compatibility
+surface, and no schedule logic was moved into the stream/datagram fault
+engines. Later schedule work (ramps, predicates, lifecycle actions, cron)
+requires separate planning and must compile to or compose with this bounded
+model rather than bypass it.
 
 Historical closure records remain preserved at their real candidate commits. M015 remains valid qualification evidence for `cd88b22`; M019 is the final current release-candidate authority at `ca527db`.
 

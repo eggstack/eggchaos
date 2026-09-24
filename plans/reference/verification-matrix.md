@@ -148,6 +148,9 @@ Native API:
 - auth behavior;
 - loopback default;
 - explicit non-loopback opt-in.
+- scenario-v2 validate/compile create no run; version-aware apply
+  routes v1/v2; GET/DELETE serve both run versions over one ID
+  namespace; v1 wire shape unchanged.
 
 CLI:
 
@@ -214,12 +217,20 @@ Commit golden fixtures for:
 - latency jitter values;
 - slice sizes;
 - scenario event ordering;
+- scenario-v2 schedule fingerprints, compiled offsets/indices, and
+  run_id-independent namespace vectors (frozen corpus; changes require
+  a compiler-semantics version bump);
 - evidence serialization.
 - numbered datagram traces covering loss 0/1, duplication/copy identity,
   equal-deadline ordering, and count/byte overflow; the runtime suite also
   covers admission-generation coexistence and administrative discard.
 
 Run the same fixture multiple times with unrelated task scheduling noise and verify the relevant fault decisions remain identical.
+
+Scenario-v2 replay identity: the same schedule under different daemon
+run IDs publishes identical seed namespaces; scheduler lateness is
+diagnostic evidence only and never an RNG input; live
+connection/datagram arrival timing is explicitly not replayed.
 
 ## 8. Performance matrix
 

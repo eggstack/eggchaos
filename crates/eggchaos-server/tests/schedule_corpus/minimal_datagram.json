@@ -1,0 +1,1 @@
+{"cleanup":"leave","execution_key":9,"isolation":"live","phases":[{"actions":[{"direction":"upstream","faults":[{"id":"loss","kind":{"type":"loss"},"probability":1.0}],"proxy":"dns","type":"set-datagram-plan"}],"duration_ns":250}],"seed":4,"version":2}

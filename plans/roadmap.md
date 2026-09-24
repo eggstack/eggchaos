@@ -1,6 +1,6 @@
 # Eggchaos Long-Term Roadmap
 
-Status: M008 and M009–M025 are closed work. M019 passed final pre-tag qualification at `ca527db`; the owner may proceed with the v0.1.0 tag and separate publication/release actions. ADR 003's post-release datagram feature tranche M020–M023 is complete, with M024/M025 performance and setup-hygiene successors closed. ADR 004 now activates the richer deterministic-scenario/time-varying schedule tranche: M026 is ready; M027 and M028 are blocked on predecessor closure.
+Status: M008 and M009–M025 are closed work. M019 passed final pre-tag qualification at `ca527db`; the owner may proceed with the v0.1.0 tag and separate publication/release actions. ADR 003's post-release datagram feature tranche M020–M023 is complete, with M024/M025 performance and setup-hygiene successors closed. ADR 004's richer deterministic-scenario/time-varying schedule tranche M026–M028 is complete and qualified; see the M028 closure record for the exact candidate and follow-on rules.
 
 ## 1. Mission
 
@@ -370,11 +370,11 @@ ADR 004 activates the next post-release semantic tranche above the already-prove
       -> M027 schedule runtime/control/lifecycle
       -> M028 exact-candidate schedule qualification/hardening
 
-M026 is ready. It defines a bounded ScenarioScheduleV2 source language with named phases, finite repetition, strict/live isolation metadata, restore/leave cleanup metadata, deterministic expansion into an inspectable event tape, a canonical SHA-256 schedule fingerprint, and a v2 seed namespace independent of daemon run_id. The initial compiled-event ceiling remains 1024. ScenarioV1 stays supported.
+M026 is closed. It defines a bounded ScenarioScheduleV2 source language with named phases, finite repetition, strict/live isolation metadata, restore/leave cleanup metadata, deterministic expansion into an inspectable event tape, a canonical SHA-256 schedule fingerprint, and a v2 seed namespace independent of daemon run_id. The initial compiled-event ceiling remains 1024. ScenarioV1 stays supported.
 
-M027 is blocked on M026. It executes compiled schedules through the existing owned scenario supervisor and ControlState publication authority. V2 timing is anchored to one Tokio monotonic epoch with absolute sleep_until deadlines so event-application latency cannot accumulate into later deadlines. Strict mode detects external generation movement; restore-initial cleanup uses generation guards and never clobbers state the schedule no longer owns. Stream and datagram actions remain transport-explicit.
+M027 is closed. It executes compiled schedules through the existing owned scenario supervisor and ControlState publication authority. V2 timing is anchored to one Tokio monotonic epoch with absolute sleep_until deadlines so event-application latency cannot accumulate into later deadlines. Strict mode detects external generation movement; restore-initial cleanup uses generation guards and never clobbers state the schedule no longer owns. Stream and datagram actions remain transport-explicit.
 
-M028 is blocked on M027. It freezes golden compiler/fingerprint/namespace fixtures, proves deadline behavior with paused Tokio time, exercises strict/live and cleanup races across stream/datagram resources, fuzzes bounded schedule expansion/control input, and reruns Eggfetch, strict pinned Toxiproxy, security/package, deterministic trace, and existing performance gates on one exact candidate.
+M028 is closed. It froze golden compiler/fingerprint/namespace fixtures, proved deadline behavior with paused Tokio time, exercised strict/live and cleanup races across stream/datagram resources, fuzzed bounded schedule expansion/control input, and reran Eggfetch, strict pinned Toxiproxy, security/package, deterministic trace, and existing performance gates on one exact candidate. See its closure record for the candidate SHA, measured compiler/dispatcher performance, and follow-on activation.
 
 The v2 scheduler remains an intra-run deterministic control system. It does not add cron/calendar persistence, arbitrary branches/predicates, callbacks/shell execution, continuous per-packet clock interpolation, or a second data-plane scheduler. Later eggreplay/eggprobe integration should consume this compiled/evidence model rather than bypassing it.
 
