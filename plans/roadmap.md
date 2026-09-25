@@ -1,6 +1,6 @@
 # Eggchaos Long-Term Roadmap
 
-Status: M008 and M009–M035 are historical closed work. M019 passed final pre-tag qualification at `ca527db`; the owner may proceed with the v0.1.0 tag and separate publication/release actions. ADR 003's post-release datagram feature tranche M020–M023 is complete, with M024/M025 successors closed. ADR 004's richer deterministic-scenario tranche M026–M028 is complete. ADR 005's integration-boundary tranche M029–M031 is complete. ADR 006's cross-language feature tranche M032–M034 is complete, and the M035 corrective successor closed on `a710cd6` with green exact-head hosted SDK/native-Python qualification, a single datagram mutation authority, and reconciled planning. No ready or blocked handoff remains.
+Status: M008 and M009–M035 are historical closed work. M019 passed final pre-tag qualification at `ca527db`; the owner may proceed with the v0.1.0 tag and separate publication/release actions. ADR 003's post-release datagram feature tranche M020–M023 is complete, with M024/M025 successors closed. ADR 004's richer deterministic-scenario tranche M026–M028 is complete. ADR 005's integration-boundary tranche M029–M031 is complete. ADR 006's cross-language feature tranche M032–M034 is complete, and the M035 corrective successor closed on `a710cd6`. ADR 007 now activates `M036 (ready) -> M037 (blocked) -> M038 (blocked) -> M039 (blocked)` for deterministic userspace stream loss and an opt-in pinned post-v2.12 Toxiproxy `packet_loss` profile. Strict v2.12 remains frozen/default.
 
 ## 1. Mission
 
@@ -82,7 +82,24 @@ Toxiproxy v2.12.0 compatibility maps its seven toxics—latency, bandwidth, slow
 
 ### Post-release faults
 
-Current Toxiproxy `main` includes `packet_loss`, which was not present in the v2.12.0 release tag. Eggchaos may add a compatibility spelling after M006, but the native model should call this stream-chunk loss or byte-stream corruption. Dropping user-space TCP stream chunks is not equivalent to IP/TCP packet loss because it bypasses retransmission semantics.
+ADR 007 activates deterministic userspace stream loss as the next native stream
+fault. The upstream motivation is Shopify Toxiproxy `packet_loss`, introduced
+after v2.12.0 and present in the researched snapshot
+`40f7fd31bee529d824116bd2a11a9e3425e904ec`.
+
+Native semantics deliberately use the name `stream-loss`. The first version
+uses a fixed 32 KiB logical grain keyed to absolute accepted stream byte
+position, deterministic fault-local RNG, and a simplified burst-correlation
+rule compatible in intent with upstream `loss_rate` + `correlation`.
+Caller write/Tokio poll boundaries are not loss boundaries.
+
+Execution order is:
+
+`M036 core/evidence -> M037 native/cross-language propagation -> M038 pinned Toxiproxy snapshot profile -> M039 exact-candidate qualification`.
+
+Strict Toxiproxy v2.12 remains a separate frozen/default compatibility profile.
+The post-v2.12 adapter spelling `packet_loss` is opt-in and pinned; it is not a
+claim against moving upstream `main`.
 
 Real packet loss/reordering belongs in a datagram or lower-layer impairment subsystem. The user-space UDP/datagram line is implemented under ADR 003 and M020–M023; lower-layer IP/qdisc phenomena remain out of scope.
 
@@ -455,6 +472,42 @@ established truthful hosted native-Python qualification, reconciled planning, an
 obtained a green exact-head hosted matrix (13/13 jobs). M032–M034 historical
 closure records remain immutable evidence of their original candidates.
 
+## 11I. Activated post-v2.12 stream-loss compatibility sequence
+
+ADR 007 activates a bounded compatibility extension without changing the frozen
+strict-v2.12 claim:
+
+```text
+M036 deterministic stream-loss core + additive evidence
+  -> M037 native/config/CLI/Scenario/OpenAPI/SDK/embed propagation
+  -> M038 pinned post-v2.12 Toxiproxy packet_loss profile
+  -> M039 exact-candidate dual-oracle qualification
+```
+
+M036 is ready. It adds only the protocol-neutral core primitive and freezes
+fragmentation-independent 32 KiB logical-grain decisions, burst correlation,
+composition, queue ownership, and additive evidence. The existing seven-entry
+activation arrays remain unchanged.
+
+M037 is blocked on M036. It propagates the already-proven semantic primitive
+through the existing native contract authorities and cross-language surfaces.
+It does not add Toxiproxy compatibility.
+
+M038 is blocked on M037. It adds an explicit opt-in profile for Shopify
+Toxiproxy snapshot `40f7fd31bee529d824116bd2a11a9e3425e904ec`, where
+`packet_loss` translates to native `StreamLoss`. The existing strict v2.12
+profile remains default, retains its existing pinned oracle, and continues to
+reject `packet_loss`.
+
+M039 is blocked on M038 and is the tranche-level exact-candidate authority. It
+must run the strict v2.12 and pinned post-v2.12 oracles together with native,
+SDK, embed/native-Python, fuzz/security, hosted cross-platform, package, and
+performance gates.
+
+This sequence does not model IP/TCP retransmission or lower-layer packet loss,
+does not reuse ADR 003 datagram-loss semantics, and does not track moving
+Toxiproxy `main`.
+
 ## 12. Performance targets
 
 No-fault overhead is a first-class regression metric.
@@ -496,7 +549,7 @@ Potential next lines:
 - eggprobe controlled-impairment integration is downstream work after M031, initially for transport-bearing TLS/HTTP paths while route/probe/report semantics remain EggProbe-owned;
 - cross-language bindings are implemented under ADR 006 + M032–M034 and correctively qualified under M035 (closed at `a710cd6`). A generic C ABI remains deferred pending a separate ADR and demand;
 - richer time-varying scenarios and deterministic schedule files are activated under ADR 004 + M026–M028;
-- post-v2.12 Toxiproxy extensions where useful;
+- post-v2.12 Toxiproxy stream-loss/`packet_loss` compatibility is activated under ADR 007 + M036–M039; later upstream extensions or a tagged successor require separate reconciliation against the pinned snapshot;
 - target-class SBC qualification and service-management integration through Eggstack shared updater/service machinery if operational demand exists.
 
 None of these may weaken the fixed-target, protocol-neutral core boundary.
