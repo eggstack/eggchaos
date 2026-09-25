@@ -4,8 +4,8 @@ use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
 use eggchaos_server::{
-    AdminConfig, FaultKindV1, NativeAdmin, NativeConfig, ServiceBuilder,
-    NATIVE_DEFAULT_BUFFER_BYTES, NATIVE_DEFAULT_PROXY_TIMEOUT_MS,
+    runtime_admission_limits, runtime_datagram_limits, AdminConfig, FaultKindV1, NativeAdmin,
+    NativeConfig, ServiceBuilder, NATIVE_DEFAULT_BUFFER_BYTES, NATIVE_DEFAULT_PROXY_TIMEOUT_MS,
 };
 use eggfetch_core::Client;
 use tokio::io::AsyncReadExt;
@@ -832,8 +832,7 @@ async fn serve(path: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
         .proxy_all(proxies.clone())
         .datagram_proxy_all(datagram_proxies)
         .limits(
-            runtime
-                .limits()
+            runtime_admission_limits(runtime)
                 .map_err(|error| format!("invalid runtime config: {error}"))?,
         )
         .relay_buffer(
@@ -847,8 +846,7 @@ async fn serve(path: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
                 .map_err(|error| format!("invalid runtime config: {error}"))?,
         )
         .datagram_limits(
-            runtime
-                .datagram_limits()
+            runtime_datagram_limits(runtime.datagram)
                 .map_err(|error| format!("invalid datagram runtime config: {error}"))?,
         )
         .build()?;

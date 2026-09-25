@@ -1,0 +1,8 @@
+[
+  {"id": "delay", "probability": 1.0, "kind": {"type": "delay", "delay_ns": 10000000, "jitter_ns": 1000000}},
+  {"id": "loss", "probability": 0.25, "kind": {"type": "loss"}},
+  {"id": "dupe", "probability": 0.5, "kind": {"type": "duplicate", "additional_copies": 2}},
+  {"id": "reorder", "probability": 1.0, "kind": {"type": "reorder", "hold_ns": 30000000}},
+  {"id": "corrupt", "probability": 1.0, "kind": {"type": "payload-corrupt", "bytes": 1}},
+  {"id": "bandwidth", "probability": 1.0, "kind": {"type": "bandwidth", "bytes_per_second": 100, "burst_bytes": 50}}
+]

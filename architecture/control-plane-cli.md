@@ -6,8 +6,11 @@ Evidence-first deep dive for the native control surface. Authority is code;
 `docs/control-plane.md` and `docs/configuration.md` are summaries, not the
 spec. All paths below are relative to the workspace root.
 
-Sources: `crates/eggchaos-server/src/admin.rs`,
-`crates/eggchaos-server/src/native.rs`,
+Sources: `crates/eggchaos-protocol/src/` (wire DTO + operation-inventory
+authority), `api/openapi/eggchaos-v1.yaml` (mechanically drift-checked
+contract), `crates/eggchaos-server/src/admin.rs`,
+`crates/eggchaos-server/src/native.rs` (server adapters + compatibility
+re-exports), `crates/eggchaos-server/src/native_v2.rs` (V2 re-exports),
 `crates/eggchaos-server/src/runtime.rs`,
 `crates/eggchaos-server/src/config.rs`,
 `crates/eggchaos-server/src/lib.rs`,
@@ -142,8 +145,9 @@ contract. `docs/control-plane.md:14-26` carries the same inventory in prose.
 
 ## 2. Schema-v1 TOML config
 
-Types in `crates/eggchaos-server/src/config.rs` and `native.rs`; re-exported by
-`crates/eggchaos-server/src/lib.rs:11-13`.
+Types in `crates/eggchaos-server/src/config.rs` and the `eggchaos-protocol`
+crate (`stream.rs`, `scenario_v2.rs`, `common.rs`, `routes.rs`); re-exported by
+`crates/eggchaos-server/src/lib.rs:11-13` for source compatibility.
 
 ### 2.1 `NativeConfig`
 

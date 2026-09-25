@@ -8,6 +8,7 @@ use tokio::net::TcpListener;
 
 use crate::{ControlError, ControlState, NativeConfigError};
 use eggchaos_core::Direction;
+use eggchaos_protocol::ErrorEnvelopeV1;
 
 /// Native admin listener security settings.
 #[derive(Clone)]
@@ -135,14 +136,9 @@ impl NativeAdmin {
     }
 }
 
-#[derive(Serialize)]
-struct ErrorEnvelope<'a> {
-    error: ErrorBody<'a>,
-}
-#[derive(Serialize)]
-struct ErrorBody<'a> {
-    code: &'a str,
-    message: &'a str,
+/// Bounded native error envelope shared with `eggchaos-protocol`.
+fn envelope(code: &str, message: &str) -> ErrorEnvelopeV1 {
+    ErrorEnvelopeV1::new(code, message)
 }
 
 fn control_status(error: &ControlError) -> StatusCode {
@@ -159,12 +155,7 @@ fn control_status(error: &ControlError) -> StatusCode {
 fn control_error_response(error: &ControlError) -> Response {
     json_response(
         control_status(error),
-        &ErrorEnvelope {
-            error: ErrorBody {
-                code: error.code(),
-                message: &error.to_string(),
-            },
-        },
+        &envelope(error.code(), &error.to_string()),
     )
 }
 
@@ -184,12 +175,7 @@ async fn handle_request(
         if !constant_time_equal(token.as_bytes(), expected.as_bytes()) {
             return Ok(json_response(
                 StatusCode::FORBIDDEN,
-                &ErrorEnvelope {
-                    error: ErrorBody {
-                        code: "unauthorized",
-                        message: "authorization required",
-                    },
-                },
+                &envelope("unauthorized", "authorization required"),
             ));
         }
     }
@@ -210,12 +196,7 @@ async fn handle_request(
             Err(()) => {
                 return Ok(json_response(
                     StatusCode::BAD_REQUEST,
-                    &ErrorEnvelope {
-                        error: ErrorBody {
-                            code: "invalid",
-                            message: "invalid path component",
-                        },
-                    },
+                    &envelope("invalid", "invalid path component"),
                 ));
             }
         }
@@ -236,23 +217,12 @@ async fn handle_request(
     let response = match route(&method, &decoded_segments, &body, &state).await {
         RouteOutcome::Response(response) => response,
         RouteOutcome::ControlError(error) => control_error_response(&error),
-        RouteOutcome::BadJson(error) => json_response(
-            StatusCode::BAD_REQUEST,
-            &ErrorEnvelope {
-                error: ErrorBody {
-                    code: "invalid_json",
-                    message: &error,
-                },
-            },
-        ),
+        RouteOutcome::BadJson(error) => {
+            json_response(StatusCode::BAD_REQUEST, &envelope("invalid_json", &error))
+        }
         RouteOutcome::NotFound => json_response(
             StatusCode::NOT_FOUND,
-            &ErrorEnvelope {
-                error: ErrorBody {
-                    code: "not_found",
-                    message: "route not found",
-                },
-            },
+            &envelope("not_found", "route not found"),
         ),
     };
     Ok(response)
@@ -328,7 +298,7 @@ async fn route(method: &str, segments: &[&str], body: &[u8], state: &ControlStat
                 Ok(value) => value,
                 Err(error) => return error,
             };
-            let spec = match request.into_runtime() {
+            let spec = match crate::native::datagram_proxy_request_into_spec(request) {
                 Ok(value) => value,
                 Err(error) => return RouteOutcome::ControlError(ControlError::Invalid(error)),
             };
@@ -409,7 +379,7 @@ async fn route(method: &str, segments: &[&str], body: &[u8], state: &ControlStat
                 Err(error) => return error,
             };
             let direction = upsert.direction;
-            let fault = match upsert.fault.into_runtime() {
+            let fault = match upsert.fault.into_core() {
                 Ok(value) => value,
                 Err(error) => return RouteOutcome::ControlError(ControlError::Invalid(error)),
             };
@@ -486,7 +456,7 @@ async fn route(method: &str, segments: &[&str], body: &[u8], state: &ControlStat
                 Ok(value) => value,
                 Err(error) => return error,
             };
-            let (probability, kind) = match patch.into_parts() {
+            let (probability, kind) = match crate::native::datagram_fault_patch_into_parts(patch) {
                 Ok(value) => value,
                 Err(error) => return RouteOutcome::ControlError(ControlError::Invalid(error)),
             };
@@ -632,7 +602,7 @@ async fn route(method: &str, segments: &[&str], body: &[u8], state: &ControlStat
                 Ok(spec) => spec,
                 Err(outcome) => return outcome,
             };
-            let spec = match request.into_runtime() {
+            let spec = match crate::native::proxy_request_into_spec(request) {
                 Ok(spec) => spec,
                 Err(error) => return RouteOutcome::ControlError(ControlError::Invalid(error)),
             };
@@ -686,7 +656,7 @@ async fn route(method: &str, segments: &[&str], body: &[u8], state: &ControlStat
                 Ok(upsert) => upsert,
                 Err(outcome) => return outcome,
             };
-            let upsert = match upsert.into_runtime() {
+            let upsert = match crate::native::fault_upsert_into_runtime(upsert) {
                 Ok(upsert) => upsert,
                 Err(error) => return RouteOutcome::ControlError(ControlError::Invalid(error)),
             };
@@ -716,7 +686,7 @@ async fn route(method: &str, segments: &[&str], body: &[u8], state: &ControlStat
                 Ok(patch) => patch,
                 Err(outcome) => return outcome,
             };
-            let patch = match patch.into_runtime() {
+            let patch = match crate::native::fault_patch_into_runtime(patch) {
                 Ok(patch) => patch,
                 Err(error) => return RouteOutcome::ControlError(ControlError::Invalid(error)),
             };
@@ -790,7 +760,7 @@ async fn route(method: &str, segments: &[&str], body: &[u8], state: &ControlStat
                 Err(error) => RouteOutcome::BadJson(error.to_string()),
             },
             _ => match serde_json::from_slice::<crate::ScenarioV1>(body) {
-                Ok(scenario) => match scenario.into_runtime() {
+                Ok(scenario) => match crate::native::scenario_v1_into_runtime(scenario) {
                     Ok(scenario) => match state.start_scenario(scenario).await {
                         Ok(record) => RouteOutcome::Response(json_response(
                             StatusCode::new(202).expect("accepted status"),

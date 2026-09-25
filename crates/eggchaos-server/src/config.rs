@@ -192,13 +192,12 @@ impl NativeConfig {
                 message: "too many datagram proxies".into(),
             });
         }
-        config
-            .runtime
-            .limits()
-            .map_err(|message| NativeConfigError::Field {
+        crate::native::runtime_admission_limits(config.runtime).map_err(|message| {
+            NativeConfigError::Field {
                 field: "runtime".into(),
                 message,
-            })?;
+            }
+        })?;
         config
             .runtime
             .relay_buffer()
@@ -213,13 +212,12 @@ impl NativeConfig {
                 field: "runtime.termination_grace_ms".into(),
                 message,
             })?;
-        config
-            .runtime
-            .datagram_limits()
-            .map_err(|message| NativeConfigError::Field {
+        crate::native::runtime_datagram_limits(config.runtime.datagram).map_err(|message| {
+            NativeConfigError::Field {
                 field: "runtime.datagram".into(),
                 message,
-            })?;
+            }
+        })?;
         if config.datagram_proxies.len() > config.runtime.datagram.max_proxies {
             return Err(NativeConfigError::Field {
                 field: "datagram_proxies".into(),
@@ -245,14 +243,12 @@ impl NativeConfig {
                 });
             }
             let compiled = proxy.compile()?;
-            let global =
-                config
-                    .runtime
-                    .datagram_limits()
-                    .map_err(|message| NativeConfigError::Field {
-                        field: "runtime.datagram".into(),
-                        message,
-                    })?;
+            let global = crate::native::runtime_datagram_limits(config.runtime.datagram).map_err(
+                |message| NativeConfigError::Field {
+                    field: "runtime.datagram".into(),
+                    message,
+                },
+            )?;
             compiled
                 .validate(global.max_associations)
                 .map_err(|error| NativeConfigError::Field {
@@ -275,12 +271,12 @@ impl NativeConfig {
         &self,
     ) -> Result<Vec<crate::DatagramProxySpec>, NativeConfigError> {
         let global =
-            self.runtime
-                .datagram_limits()
-                .map_err(|message| NativeConfigError::Field {
+            crate::native::runtime_datagram_limits(self.runtime.datagram).map_err(|message| {
+                NativeConfigError::Field {
                     field: "runtime.datagram".into(),
                     message,
-                })?;
+                }
+            })?;
         self.datagram_proxies
             .iter()
             .map(|proxy| {
@@ -353,12 +349,12 @@ impl DatagramProxyFileConfig {
             upstream_faults: self.upstream_faults.clone(),
             downstream_faults: self.downstream_faults.clone(),
         };
-        request
-            .into_runtime()
-            .map_err(|message| NativeConfigError::Field {
+        crate::native::datagram_proxy_request_into_spec(request).map_err(|message| {
+            NativeConfigError::Field {
                 field: format!("datagram_proxies.{}", self.name),
                 message,
-            })
+            }
+        })
     }
 }
 
@@ -478,7 +474,7 @@ impl FaultFileConfig {
                 })
             }
         };
-        let kind = kind.into_runtime().map_err(|message| {
+        let kind = kind.into_core().map_err(|message| {
             let (field, detail) = message
                 .split_once(' ')
                 .unwrap_or(("kind", message.as_str()));

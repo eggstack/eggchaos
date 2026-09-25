@@ -1,0 +1,9 @@
+[
+  {"direction": "downstream", "id": "latency", "probability": 1.0, "kind": {"type": "latency", "delay_ns": 250000000, "jitter_ns": 10000000, "max_buffer_bytes": 65536}},
+  {"direction": "upstream", "id": "bandwidth", "probability": 0.5, "kind": {"type": "bandwidth", "bytes_per_second": 1024, "burst_bytes": 4096}},
+  {"direction": "downstream", "id": "blackhole", "probability": 1.0, "kind": {"type": "blackhole", "close_after_ns": null}},
+  {"direction": "upstream", "id": "limit", "probability": 1.0, "kind": {"type": "limit-data", "bytes": 1024}},
+  {"direction": "downstream", "id": "slow", "probability": 1.0, "kind": {"type": "slow-close", "delay_ns": 1000000}},
+  {"direction": "upstream", "id": "slice", "probability": 0.25, "kind": {"type": "slice", "average_size": 512, "variation": 64, "delay_ns": 0}},
+  {"direction": "downstream", "id": "drop", "probability": 1.0, "kind": {"type": "disconnect", "after_ns": 0, "hard_reset": false}}
+]

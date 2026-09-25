@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "seed": 7,
+  "events": [
+    {"at_ms": 0, "action": {"type": "set-plan", "proxy": "cache", "direction": "downstream", "faults": [{"id": "delay", "probability": 1.0, "kind": {"type": "latency", "delay_ns": 5000000, "jitter_ns": 0, "max_buffer_bytes": 1024}}]}},
+    {"at_ms": 25, "action": {"type": "remove-fault", "proxy": "cache", "direction": "downstream", "id": "delay"}},
+    {"at_ms": 50, "action": {"type": "set-datagram-plan", "proxy": "dns", "direction": "upstream", "faults": [{"id": "loss", "probability": 0.5, "kind": {"type": "loss"}}]}},
+    {"at_ms": 75, "action": {"type": "remove-datagram-fault", "proxy": "dns", "direction": "upstream", "id": "loss"}}
+  ]
+}

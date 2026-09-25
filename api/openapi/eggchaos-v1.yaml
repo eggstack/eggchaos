@@ -1,0 +1,2084 @@
+openapi: 3.0.3
+info:
+  title: Eggchaos Native Control API
+  version: 1.0.0
+  description: >-
+    Versioned native control contract for eggchaos (`/v1` JSON plus
+    Prometheus-text `/metrics`). The Rust authority is the
+    `eggchaos-protocol` crate; this document is mechanically drift-checked
+    against that authority (operation inventory, fault discriminators,
+    required fields, error envelope). Durations are integer nanoseconds
+    unless a field name ends in `_ms`. Socket addresses are strings such
+    as `127.0.0.1:6379`. Unknown JSON properties are rejected by the
+    server.
+servers:
+  - url: http://127.0.0.1:8475
+    description: Default loopback native admin listener.
+security:
+  - bearerAuth: []
+paths:
+  /v1/health:
+    get:
+      operationId: getHealth
+      summary: Service liveness and global generation
+      responses:
+        '200':
+          description: Liveness report.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthV1'
+  /v1/version:
+    get:
+      operationId: getVersion
+      summary: Service and native API version
+      responses:
+        '200':
+          description: Version report.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VersionV1'
+  /metrics:
+    get:
+      operationId: getMetrics
+      summary: Prometheus text metrics (no /v1 prefix)
+      security: []
+      responses:
+        '200':
+          description: Prometheus exposition text.
+          content:
+            text/plain:
+              schema:
+                type: string
+  /v1/reset:
+    post:
+      operationId: resetService
+      summary: Reset stream and datagram state to configured definitions
+      responses:
+        '200':
+          description: Reset report.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResetReport'
+        '400':
+          $ref: '#/components/responses/Invalid'
+  /v1/proxies:
+    get:
+      operationId: listProxies
+      summary: List stream proxies
+      responses:
+        '200':
+          description: Stream proxy views.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/NativeProxyViewV1'
+    post:
+      operationId: createProxy
+      summary: Create a stream proxy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NativeProxyRequestV1'
+      responses:
+        '201':
+          description: Created proxy and generation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProxyMutationResponse'
+        '400':
+          $ref: '#/components/responses/Invalid'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /v1/proxies/{name}:
+    get:
+      operationId: getProxy
+      summary: Get a stream proxy
+      parameters:
+        - $ref: '#/components/parameters/ProxyName'
+      responses:
+        '200':
+          description: Stream proxy view.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NativeProxyViewV1'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      operationId: patchProxy
+      summary: Update a stream proxy
+      parameters:
+        - $ref: '#/components/parameters/ProxyName'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NativeProxyPatchV1'
+      responses:
+        '200':
+          description: Updated proxy and generation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProxyMutationResponse'
+        '400':
+          $ref: '#/components/responses/Invalid'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+    delete:
+      operationId: deleteProxy
+      summary: Delete a stream proxy
+      parameters:
+        - $ref: '#/components/parameters/ProxyName'
+      responses:
+        '200':
+          description: Deletion receipt.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletionResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/proxies/{name}/faults:
+    get:
+      operationId: listFaults
+      summary: List stream faults by direction
+      parameters:
+        - $ref: '#/components/parameters/ProxyName'
+      responses:
+        '200':
+          description: Faults by direction.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DirectionalFaultLists'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      operationId: addFault
+      summary: Add a stream fault
+      parameters:
+        - $ref: '#/components/parameters/ProxyName'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FaultUpsertV1'
+      responses:
+        '201':
+          description: Created fault.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FaultMutationResponse'
+        '400':
+          $ref: '#/components/responses/Invalid'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /v1/proxies/{name}/faults/{id}:
+    get:
+      operationId: getFault
+      summary: Get a stream fault
+      parameters:
+        - $ref: '#/components/parameters/ProxyName'
+        - $ref: '#/components/parameters/FaultId'
+      responses:
+        '200':
+          description: Fault with direction.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FaultMutationResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      operationId: patchFault
+      summary: Update a stream fault
+      parameters:
+        - $ref: '#/components/parameters/ProxyName'
+        - $ref: '#/components/parameters/FaultId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FaultPatchV1'
+      responses:
+        '200':
+          description: Updated fault.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FaultMutationResponse'
+        '400':
+          $ref: '#/components/responses/Invalid'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+    delete:
+      operationId: deleteFault
+      summary: Remove a stream fault
+      parameters:
+        - $ref: '#/components/parameters/ProxyName'
+        - $ref: '#/components/parameters/FaultId'
+      responses:
+        '200':
+          description: Deletion receipt.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletionResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/connections:
+    get:
+      operationId: listConnections
+      summary: List active stream connections
+      responses:
+        '200':
+          description: Active connection snapshots.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ConnectionSnapshot'
+  /v1/connections/{id}:
+    get:
+      operationId: getConnection
+      summary: Get an active stream connection
+      parameters:
+        - $ref: '#/components/parameters/ConnectionId'
+      responses:
+        '200':
+          description: Connection snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConnectionSnapshot'
+        '400':
+          $ref: '#/components/responses/Invalid'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      operationId: killConnection
+      summary: Terminate an active stream connection
+      parameters:
+        - $ref: '#/components/parameters/ConnectionId'
+      responses:
+        '200':
+          description: Termination receipt.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConnectionTerminationResponse'
+        '400':
+          $ref: '#/components/responses/Invalid'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/history:
+    get:
+      operationId: getHistory
+      summary: List retained closed-connection evidence
+      responses:
+        '200':
+          description: Closed-connection records.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ClosedConnection'
+  /v1/scenarios/apply:
+    post:
+      operationId: applyScenario
+      summary: Apply a Scenario V1 document or Scenario V2 schedule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: '#/components/schemas/ScenarioV1'
+                - $ref: '#/components/schemas/ScenarioScheduleV2Dto'
+              discriminator:
+                propertyName: version
+                mapping:
+                  '1': '#/components/schemas/ScenarioV1'
+                  '2': '#/components/schemas/ScenarioScheduleV2Dto'
+      responses:
+        '202':
+          description: Accepted run record (V1 or V2 shape).
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ScenarioRunV1'
+                  - $ref: '#/components/schemas/ScheduleRunV2'
+        '400':
+          $ref: '#/components/responses/Invalid'
+  /v1/scenarios/validate:
+    post:
+      operationId: validateSchedule
+      summary: Validate a Scenario V2 schedule without creating a run
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScenarioScheduleV2Dto'
+      responses:
+        '200':
+          description: Validation report.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScheduleValidateV2'
+        '400':
+          $ref: '#/components/responses/Invalid'
+  /v1/scenarios/compile:
+    post:
+      operationId: compileSchedule
+      summary: Compile a Scenario V2 schedule without creating a run
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScenarioScheduleV2Dto'
+      responses:
+        '200':
+          description: Compiled event tape.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScheduleCompileV2'
+        '400':
+          $ref: '#/components/responses/Invalid'
+  /v1/scenarios/{id}:
+    get:
+      operationId: getScenario
+      summary: Get a Scenario V1 or V2 run record
+      parameters:
+        - $ref: '#/components/parameters/ScenarioId'
+      responses:
+        '200':
+          description: Run record (V1 or V2 shape).
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ScenarioRunV1'
+                  - $ref: '#/components/schemas/ScheduleRunV2'
+        '400':
+          $ref: '#/components/responses/Invalid'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      operationId: cancelScenario
+      summary: Cancel a Scenario V1 or V2 run
+      parameters:
+        - $ref: '#/components/parameters/ScenarioId'
+      responses:
+        '200':
+          description: Cancelled run record (V1 or V2 shape).
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ScenarioRunV1'
+                  - $ref: '#/components/schemas/ScheduleRunV2'
+        '400':
+          $ref: '#/components/responses/Invalid'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/datagram-proxies:
+    get:
+      operationId: listDatagramProxies
+      summary: List datagram proxies
+      responses:
+        '200':
+          description: Datagram proxy views.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/NativeDatagramProxyViewV1'
+    post:
+      operationId: createDatagramProxy
+      summary: Create a datagram proxy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NativeDatagramProxyRequestV1'
+      responses:
+        '201':
+          description: Created datagram proxy and generation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DatagramProxyMutationResponse'
+        '400':
+          $ref: '#/components/responses/Invalid'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /v1/datagram-proxies/{name}:
+    get:
+      operationId: getDatagramProxy
+      summary: Get a datagram proxy
+      parameters:
+        - $ref: '#/components/parameters/ProxyName'
+      responses:
+        '200':
+          description: Datagram proxy view.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NativeDatagramProxyViewV1'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      operationId: patchDatagramProxy
+      summary: Update a datagram proxy
+      parameters:
+        - $ref: '#/components/parameters/ProxyName'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NativeDatagramProxyPatchV1'
+      responses:
+        '200':
+          description: Updated datagram proxy and generation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DatagramProxyMutationResponse'
+        '400':
+          $ref: '#/components/responses/Invalid'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+    delete:
+      operationId: deleteDatagramProxy
+      summary: Delete a datagram proxy
+      parameters:
+        - $ref: '#/components/parameters/ProxyName'
+      responses:
+        '200':
+          description: Deletion receipt.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletionResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/datagram-proxies/{name}/faults:
+    get:
+      operationId: listDatagramFaults
+      summary: List datagram faults by direction
+      parameters:
+        - $ref: '#/components/parameters/ProxyName'
+      responses:
+        '200':
+          description: Datagram faults by direction with generations.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DirectionalDatagramFaultLists'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      operationId: addDatagramFault
+      summary: Add a datagram fault
+      parameters:
+        - $ref: '#/components/parameters/ProxyName'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DatagramFaultUpsertV1'
+      responses:
+        '201':
+          description: Created datagram fault.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DatagramFaultMutationResponse'
+        '400':
+          $ref: '#/components/responses/Invalid'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /v1/datagram-proxies/{name}/faults/{id}:
+    get:
+      operationId: getDatagramFault
+      summary: Get a datagram fault
+      parameters:
+        - $ref: '#/components/parameters/ProxyName'
+        - $ref: '#/components/parameters/FaultId'
+      responses:
+        '200':
+          description: Datagram fault with direction.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DatagramFaultMutationResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      operationId: patchDatagramFault
+      summary: Update a datagram fault
+      parameters:
+        - $ref: '#/components/parameters/ProxyName'
+        - $ref: '#/components/parameters/FaultId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DatagramFaultPatchV1'
+      responses:
+        '200':
+          description: Updated datagram fault.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DatagramFaultMutationResponse'
+        '400':
+          $ref: '#/components/responses/Invalid'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+    delete:
+      operationId: deleteDatagramFault
+      summary: Remove a datagram fault
+      parameters:
+        - $ref: '#/components/parameters/ProxyName'
+        - $ref: '#/components/parameters/FaultId'
+      responses:
+        '200':
+          description: Deletion receipt.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletionResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /v1/datagram-associations:
+    get:
+      operationId: listDatagramAssociations
+      summary: List datagram associations
+      responses:
+        '200':
+          description: Datagram association views.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/NativeDatagramAssociationViewV1'
+  /v1/datagram-associations/{id}:
+    get:
+      operationId: getDatagramAssociation
+      summary: Get a datagram association
+      parameters:
+        - $ref: '#/components/parameters/AssociationId'
+      responses:
+        '200':
+          description: Datagram association view.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NativeDatagramAssociationViewV1'
+        '400':
+          $ref: '#/components/responses/Invalid'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      operationId: killDatagramAssociation
+      summary: Terminate a datagram association
+      parameters:
+        - $ref: '#/components/parameters/AssociationId'
+      responses:
+        '200':
+          description: Termination receipt.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DatagramAssociationTerminationResponse'
+        '400':
+          $ref: '#/components/responses/Invalid'
+        '404':
+          $ref: '#/components/responses/NotFound'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque
+      description: >-
+        Required on every operation when the admin listener is configured
+        with a bearer token (mandatory for non-loopback listeners).
+        Loopback listeners without a configured token accept
+        unauthenticated requests. Tokens travel only in the
+        `Authorization: Bearer <token>` header and never appear in
+        bodies, logs, or error output.
+  parameters:
+    ProxyName:
+      name: name
+      in: path
+      required: true
+      description: Proxy name (`[A-Za-z0-9._-]+`, 1..=128 bytes).
+      schema:
+        type: string
+        pattern: '^[A-Za-z0-9._-]+$'
+        minLength: 1
+        maxLength: 128
+    FaultId:
+      name: id
+      in: path
+      required: true
+      description: Fault identity (URL-encoded; decoded exactly once).
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+    ConnectionId:
+      name: id
+      in: path
+      required: true
+      description: Numeric connection identifier.
+      schema:
+        type: integer
+        format: uint64
+        minimum: 0
+    ScenarioId:
+      name: id
+      in: path
+      required: true
+      description: Numeric scenario run identifier.
+      schema:
+        type: integer
+        format: uint64
+        minimum: 0
+    AssociationId:
+      name: id
+      in: path
+      required: true
+      description: Numeric datagram association identifier.
+      schema:
+        type: integer
+        format: uint64
+        minimum: 0
+  responses:
+    Invalid:
+      description: Validation failure.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelopeV1'
+    NotFound:
+      description: Missing resource.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelopeV1'
+    Conflict:
+      description: Generation conflict or duplicate identity.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelopeV1'
+  schemas:
+    ErrorEnvelopeV1:
+      type: object
+      required: [error]
+      additionalProperties: false
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          additionalProperties: false
+          properties:
+            code:
+              type: string
+              description: Stable machine code.
+              enum: [not_found, conflict, invalid, invalid_json, unauthorized, bind_failed, restart_failed, serialization]
+            message:
+              type: string
+              description: Bounded human detail; never echoes bearer tokens.
+    HealthV1:
+      type: object
+      required: [running, generation]
+      additionalProperties: false
+      properties:
+        running:
+          type: boolean
+        generation:
+          type: integer
+          format: uint64
+          minimum: 0
+    VersionV1:
+      type: object
+      required: [version, api]
+      additionalProperties: false
+      properties:
+        version:
+          type: string
+        api:
+          type: string
+          enum: ['v1']
+    Direction:
+      type: string
+      enum: [upstream, downstream]
+    RngVersion:
+      type: string
+      enum: [V1]
+    NativeProxyRequestV1:
+      type: object
+      required: [name, listen, upstream]
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^[A-Za-z0-9._-]+$'
+        listen:
+          $ref: '#/components/schemas/SocketAddr'
+        upstream:
+          $ref: '#/components/schemas/SocketAddr'
+        enabled:
+          type: boolean
+          default: true
+        max_connections:
+          type: integer
+          format: uint64
+          minimum: 1
+          nullable: true
+        connect_timeout_ms:
+          type: integer
+          format: uint64
+          minimum: 1
+          maximum: 300000
+          default: 5000
+        seed:
+          type: integer
+          format: uint64
+          default: 0
+    NativeProxyPatchV1:
+      type: object
+      additionalProperties: false
+      properties:
+        listen:
+          $ref: '#/components/schemas/SocketAddr'
+        upstream:
+          $ref: '#/components/schemas/SocketAddr'
+        enabled:
+          type: boolean
+        max_connections:
+          type: integer
+          format: uint64
+          minimum: 1
+          nullable: true
+        connect_timeout_ms:
+          type: integer
+          format: uint64
+          minimum: 1
+          maximum: 300000
+    StreamFaultKind:
+      oneOf:
+        - $ref: '#/components/schemas/StreamFaultLatency'
+        - $ref: '#/components/schemas/StreamFaultBandwidth'
+        - $ref: '#/components/schemas/StreamFaultBlackhole'
+        - $ref: '#/components/schemas/StreamFaultLimitData'
+        - $ref: '#/components/schemas/StreamFaultSlowClose'
+        - $ref: '#/components/schemas/StreamFaultSlice'
+        - $ref: '#/components/schemas/StreamFaultDisconnect'
+      discriminator:
+        propertyName: type
+        mapping:
+          latency: '#/components/schemas/StreamFaultLatency'
+          bandwidth: '#/components/schemas/StreamFaultBandwidth'
+          blackhole: '#/components/schemas/StreamFaultBlackhole'
+          limit-data: '#/components/schemas/StreamFaultLimitData'
+          slow-close: '#/components/schemas/StreamFaultSlowClose'
+          slice: '#/components/schemas/StreamFaultSlice'
+          disconnect: '#/components/schemas/StreamFaultDisconnect'
+    StreamFaultLatency:
+      type: object
+      required: [type, delay_ns]
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          enum: [latency]
+        delay_ns:
+          type: integer
+          format: uint64
+          minimum: 0
+        jitter_ns:
+          type: integer
+          format: uint64
+          minimum: 0
+          default: 0
+        max_buffer_bytes:
+          type: integer
+          format: uint64
+          minimum: 1
+          maximum: 67108864
+          default: 65536
+    StreamFaultBandwidth:
+      type: object
+      required: [type]
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          enum: [bandwidth]
+        bytes_per_second:
+          type: integer
+          format: uint64
+          minimum: 1
+          default: 1
+        burst_bytes:
+          type: integer
+          format: uint64
+          minimum: 1
+          default: 65536
+    StreamFaultBlackhole:
+      type: object
+      required: [type]
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          enum: [blackhole]
+        close_after_ns:
+          type: integer
+          format: uint64
+          minimum: 0
+          nullable: true
+    StreamFaultLimitData:
+      type: object
+      required: [type]
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          enum: [limit-data]
+        bytes:
+          type: integer
+          format: uint64
+          minimum: 1
+          default: 1
+    StreamFaultSlowClose:
+      type: object
+      required: [type, delay_ns]
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          enum: [slow-close]
+        delay_ns:
+          type: integer
+          format: uint64
+          minimum: 0
+    StreamFaultSlice:
+      type: object
+      required: [type]
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          enum: [slice]
+        average_size:
+          type: integer
+          format: uint64
+          minimum: 1
+          default: 1024
+        variation:
+          type: integer
+          format: uint64
+          minimum: 0
+          default: 0
+        delay_ns:
+          type: integer
+          format: uint64
+          minimum: 0
+          default: 0
+    StreamFaultDisconnect:
+      type: object
+      required: [type]
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          enum: [disconnect]
+        after_ns:
+          type: integer
+          format: uint64
+          minimum: 0
+          default: 0
+        hard_reset:
+          type: boolean
+          default: false
+    FaultUpsertV1:
+      type: object
+      required: [direction, id, kind]
+      additionalProperties: false
+      properties:
+        direction:
+          $ref: '#/components/schemas/Direction'
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        probability:
+          type: number
+          minimum: 0
+          maximum: 1
+          default: 1.0
+        kind:
+          $ref: '#/components/schemas/StreamFaultKind'
+    FaultPatchV1:
+      type: object
+      additionalProperties: false
+      properties:
+        probability:
+          type: number
+          minimum: 0
+          maximum: 1
+        kind:
+          $ref: '#/components/schemas/StreamFaultKind'
+    NativeFaultViewV1:
+      type: object
+      required: [id, probability, kind]
+      properties:
+        id:
+          type: string
+        probability:
+          type: number
+        kind:
+          $ref: '#/components/schemas/StreamFaultKind'
+    NativeProxyViewV1:
+      type: object
+      required: [name, listen, upstream, running, enabled, upstream_faults, downstream_faults, upstream_generation, downstream_generation, upstream_seed_namespace, downstream_seed_namespace, connect_timeout_ms, seed]
+      properties:
+        name:
+          type: string
+        listen:
+          $ref: '#/components/schemas/SocketAddr'
+        upstream:
+          $ref: '#/components/schemas/SocketAddr'
+        bound_addr:
+          $ref: '#/components/schemas/SocketAddr'
+          nullable: true
+        running:
+          type: boolean
+        enabled:
+          type: boolean
+        upstream_faults:
+          type: array
+          items:
+            $ref: '#/components/schemas/NativeFaultViewV1'
+        downstream_faults:
+          type: array
+          items:
+            $ref: '#/components/schemas/NativeFaultViewV1'
+        upstream_generation:
+          type: integer
+          format: uint64
+        downstream_generation:
+          type: integer
+          format: uint64
+        upstream_seed_namespace:
+          type: integer
+          format: uint64
+        downstream_seed_namespace:
+          type: integer
+          format: uint64
+        max_connections:
+          type: integer
+          format: uint64
+          nullable: true
+        connect_timeout_ms:
+          type: integer
+          format: uint64
+        seed:
+          type: integer
+          format: uint64
+    ProxyMutationResponse:
+      type: object
+      required: [proxy, generation]
+      properties:
+        proxy:
+          $ref: '#/components/schemas/NativeProxyViewV1'
+        generation:
+          type: integer
+          format: uint64
+    DeletionResponse:
+      type: object
+      required: [generation, deleted]
+      properties:
+        generation:
+          type: integer
+          format: uint64
+        deleted:
+          type: boolean
+          enum: [true]
+    DirectionalFaultLists:
+      type: object
+      required: [upstream, downstream]
+      properties:
+        upstream:
+          type: array
+          items:
+            $ref: '#/components/schemas/NativeFaultViewV1'
+        downstream:
+          type: array
+          items:
+            $ref: '#/components/schemas/NativeFaultViewV1'
+    FaultMutationResponse:
+      type: object
+      required: [direction, fault]
+      properties:
+        direction:
+          $ref: '#/components/schemas/Direction'
+        fault:
+          $ref: '#/components/schemas/NativeFaultViewV1'
+        generation:
+          type: integer
+          format: uint64
+    SocketAddr:
+      type: string
+      description: Socket address such as `127.0.0.1:6379`.
+      example: 127.0.0.1:6379
+    ConnectionState:
+      type: string
+      enum: [Connecting, Relaying, Closed]
+    DirectionBytes:
+      type: object
+      required: [accepted, forwarded, discarded]
+      properties:
+        accepted:
+          type: integer
+          format: uint64
+        forwarded:
+          type: integer
+          format: uint64
+        discarded:
+          type: integer
+          format: uint64
+    ActiveFault:
+      type: object
+      required: [id, fault_type]
+      properties:
+        id:
+          type: string
+        fault_type:
+          type: string
+    ConnectionSnapshot:
+      type: object
+      required: [id, proxy, ordinal, peer, upstream, state, connection_key, seed, generation, accepted_upstream_generation, accepted_downstream_generation, accepted_upstream_seed, accepted_downstream_seed, observed_upstream_generation, observed_downstream_generation, upstream_seed_namespace, downstream_seed_namespace, upstream_transitions, downstream_transitions, upstream_bytes, downstream_bytes, upstream_faults, upstream_faults_truncated, downstream_faults, downstream_faults_truncated, rng_version]
+      properties:
+        id:
+          type: integer
+          format: uint64
+        proxy:
+          type: string
+        ordinal:
+          type: integer
+          format: uint64
+        peer:
+          $ref: '#/components/schemas/SocketAddr'
+        upstream:
+          $ref: '#/components/schemas/SocketAddr'
+        state:
+          $ref: '#/components/schemas/ConnectionState'
+        connection_key:
+          type: integer
+          format: uint64
+        seed:
+          type: integer
+          format: uint64
+        generation:
+          type: integer
+          format: uint64
+        accepted_upstream_generation:
+          type: integer
+          format: uint64
+        accepted_downstream_generation:
+          type: integer
+          format: uint64
+        accepted_upstream_seed:
+          type: integer
+          format: uint64
+        accepted_downstream_seed:
+          type: integer
+          format: uint64
+        observed_upstream_generation:
+          type: integer
+          format: uint64
+        observed_downstream_generation:
+          type: integer
+          format: uint64
+        pending_upstream_generation:
+          type: integer
+          format: uint64
+          nullable: true
+        pending_downstream_generation:
+          type: integer
+          format: uint64
+          nullable: true
+        upstream_seed_namespace:
+          type: integer
+          format: uint64
+        downstream_seed_namespace:
+          type: integer
+          format: uint64
+        upstream_transitions:
+          type: integer
+          format: uint64
+        downstream_transitions:
+          type: integer
+          format: uint64
+        upstream_bytes:
+          $ref: '#/components/schemas/DirectionBytes'
+        downstream_bytes:
+          $ref: '#/components/schemas/DirectionBytes'
+        upstream_faults:
+          type: array
+          items:
+            $ref: '#/components/schemas/ActiveFault'
+        upstream_faults_truncated:
+          type: boolean
+        downstream_faults:
+          type: array
+          items:
+            $ref: '#/components/schemas/ActiveFault'
+        downstream_faults_truncated:
+          type: boolean
+        rng_version:
+          $ref: '#/components/schemas/RngVersion'
+    ConnectionOutcome:
+      type: object
+      description: >-
+        Externally-tagged outcome enum. Exactly one key is present:
+        `RelayCompleted`, `ConnectFailed` (string), `KilledByOperator`,
+        `ServiceShutdown`, `ProxyRemoved`, `GracefulTermination`
+        (`{drained: boolean}`), `HardReset` (`{client, upstream}` reset
+        results), or `RelayError` (string).
+    TerminationRequest:
+      type: string
+      enum: [Graceful, HardReset]
+    TerminationInfo:
+      type: object
+      required: [request, direction]
+      properties:
+        request:
+          $ref: '#/components/schemas/TerminationRequest'
+        direction:
+          $ref: '#/components/schemas/Direction'
+        fault_id:
+          type: string
+          nullable: true
+    ResetResult:
+      type: object
+      description: >-
+        Externally-tagged reset outcome. Exactly one key is present:
+        `Applied`, `Failed` (string), or `Unsupported` (string).
+    ClosedConnection:
+      type: object
+      required: [snapshot, outcome]
+      properties:
+        snapshot:
+          $ref: '#/components/schemas/ConnectionSnapshot'
+        outcome:
+          $ref: '#/components/schemas/ConnectionOutcome'
+        upstream_termination:
+          $ref: '#/components/schemas/TerminationInfo'
+          nullable: true
+        downstream_termination:
+          $ref: '#/components/schemas/TerminationInfo'
+          nullable: true
+        detail:
+          type: string
+          nullable: true
+    ConnectionTerminationResponse:
+      type: object
+      required: [id, terminated]
+      properties:
+        id:
+          type: integer
+          format: uint64
+        terminated:
+          type: boolean
+          enum: [true]
+    ResetReport:
+      type: object
+      required: [generation, reset, failed_enables, failed_datagram_enables]
+      properties:
+        generation:
+          type: integer
+          format: uint64
+        reset:
+          type: boolean
+          enum: [true]
+        failed_enables:
+          type: array
+          items:
+            type: string
+        failed_datagram_enables:
+          type: array
+          items:
+            type: string
+    ScenarioFaultV1:
+      type: object
+      required: [id, kind]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        probability:
+          type: number
+          minimum: 0
+          maximum: 1
+          default: 1.0
+        kind:
+          $ref: '#/components/schemas/StreamFaultKind'
+    ScenarioActionV1:
+      oneOf:
+        - $ref: '#/components/schemas/ScenarioSetPlan'
+        - $ref: '#/components/schemas/ScenarioRemoveFault'
+        - $ref: '#/components/schemas/ScenarioSetDatagramPlan'
+        - $ref: '#/components/schemas/ScenarioRemoveDatagramFault'
+      discriminator:
+        propertyName: type
+        mapping:
+          set-plan: '#/components/schemas/ScenarioSetPlan'
+          remove-fault: '#/components/schemas/ScenarioRemoveFault'
+          set-datagram-plan: '#/components/schemas/ScenarioSetDatagramPlan'
+          remove-datagram-fault: '#/components/schemas/ScenarioRemoveDatagramFault'
+    ScenarioSetPlan:
+      type: object
+      required: [type, proxy, direction, faults]
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          enum: [set-plan]
+        proxy:
+          type: string
+        direction:
+          $ref: '#/components/schemas/Direction'
+        faults:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScenarioFaultV1'
+    ScenarioRemoveFault:
+      type: object
+      required: [type, proxy, direction, id]
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          enum: [remove-fault]
+        proxy:
+          type: string
+        direction:
+          $ref: '#/components/schemas/Direction'
+        id:
+          type: string
+    ScenarioSetDatagramPlan:
+      type: object
+      required: [type, proxy, direction, faults]
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          enum: [set-datagram-plan]
+        proxy:
+          type: string
+        direction:
+          $ref: '#/components/schemas/Direction'
+        faults:
+          type: array
+          items:
+            $ref: '#/components/schemas/DatagramFaultSpecV1'
+    ScenarioRemoveDatagramFault:
+      type: object
+      required: [type, proxy, direction, id]
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          enum: [remove-datagram-fault]
+        proxy:
+          type: string
+        direction:
+          $ref: '#/components/schemas/Direction'
+        id:
+          type: string
+    ScenarioEventV1:
+      type: object
+      required: [at_ms, action]
+      additionalProperties: false
+      properties:
+        at_ms:
+          type: integer
+          format: uint64
+          minimum: 0
+        action:
+          $ref: '#/components/schemas/ScenarioActionV1'
+    ScenarioV1:
+      type: object
+      required: [version, seed, events]
+      additionalProperties: false
+      properties:
+        version:
+          type: integer
+          enum: [1]
+        seed:
+          type: integer
+          format: uint64
+        events:
+          type: array
+          maxItems: 1024
+          items:
+            $ref: '#/components/schemas/ScenarioEventV1'
+    ScenarioStatusV1:
+      type: string
+      enum: [pending, running, cancelling, cancelled, completed, failed]
+    ScenarioEventResultV1:
+      type: object
+      required: [index, at_ms, action, proxy, direction, global_generation, upstream_generation, downstream_generation]
+      properties:
+        index:
+          type: integer
+          format: uint64
+        at_ms:
+          type: integer
+          format: uint64
+        action:
+          type: string
+        proxy:
+          type: string
+        direction:
+          $ref: '#/components/schemas/Direction'
+        global_generation:
+          type: integer
+          format: uint64
+        upstream_generation:
+          type: integer
+          format: uint64
+        downstream_generation:
+          type: integer
+          format: uint64
+    ScenarioRunV1:
+      type: object
+      required: [run_id, seed, status, applied, trail]
+      properties:
+        run_id:
+          type: integer
+          format: uint64
+        seed:
+          type: integer
+          format: uint64
+        status:
+          $ref: '#/components/schemas/ScenarioStatusV1'
+        applied:
+          type: integer
+          format: uint64
+        failure:
+          type: string
+          nullable: true
+        trail:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScenarioEventResultV1'
+    IsolationPolicyV2:
+      type: string
+      enum: [strict, live]
+      default: strict
+    CleanupPolicyV2:
+      type: string
+      enum: [restore-initial, leave]
+      default: restore-initial
+    ScenarioPhaseV2Dto:
+      type: object
+      required: [duration_ns, actions]
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          nullable: true
+        duration_ns:
+          type: integer
+          format: uint64
+          minimum: 0
+        actions:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScenarioActionV1'
+    ScenarioRepeatV2Dto:
+      type: object
+      required: [count, phases]
+      additionalProperties: false
+      properties:
+        count:
+          type: integer
+          format: uint32
+          minimum: 1
+        phases:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScenarioPhaseV2Dto'
+    ScenarioScheduleV2Dto:
+      type: object
+      required: [version, seed, execution_key]
+      additionalProperties: false
+      properties:
+        version:
+          type: integer
+          enum: [2]
+        seed:
+          type: integer
+          format: uint64
+        execution_key:
+          type: integer
+          format: uint64
+        isolation:
+          $ref: '#/components/schemas/IsolationPolicyV2'
+        cleanup:
+          $ref: '#/components/schemas/CleanupPolicyV2'
+        phases:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScenarioPhaseV2Dto'
+        repeat:
+          $ref: '#/components/schemas/ScenarioRepeatV2Dto'
+          nullable: true
+    ScheduleValidateV2:
+      type: object
+      required: [schedule_fingerprint, compiler_semantics_version, event_count, seed, execution_key, isolation, cleanup_policy]
+      properties:
+        schedule_fingerprint:
+          type: string
+        compiler_semantics_version:
+          type: integer
+          format: uint32
+        event_count:
+          type: integer
+          format: uint64
+        seed:
+          type: integer
+          format: uint64
+        execution_key:
+          type: integer
+          format: uint64
+        isolation:
+          $ref: '#/components/schemas/IsolationPolicyV2'
+        cleanup_policy:
+          $ref: '#/components/schemas/CleanupPolicyV2'
+    ScheduleCompiledEventV2:
+      type: object
+      required: [compiled_index, phase, offset_ns, action, proxy, direction, transport]
+      properties:
+        compiled_index:
+          type: integer
+          format: uint32
+        phase:
+          type: string
+        offset_ns:
+          type: integer
+          format: uint64
+        action:
+          type: string
+          enum: [set-plan, remove-fault, set-datagram-plan, remove-datagram-fault]
+        proxy:
+          type: string
+        direction:
+          $ref: '#/components/schemas/Direction'
+        transport:
+          type: string
+          enum: [stream, datagram]
+    ScheduleCompileV2:
+      type: object
+      required: [schedule_fingerprint, compiler_semantics_version, seed, execution_key, isolation, cleanup_policy, events]
+      properties:
+        schedule_fingerprint:
+          type: string
+        compiler_semantics_version:
+          type: integer
+          format: uint32
+        seed:
+          type: integer
+          format: uint64
+        execution_key:
+          type: integer
+          format: uint64
+        isolation:
+          $ref: '#/components/schemas/IsolationPolicyV2'
+        cleanup_policy:
+          $ref: '#/components/schemas/CleanupPolicyV2'
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScheduleCompiledEventV2'
+    ScheduleRunEventV2:
+      type: object
+      required: [compiled_index, phase, scheduled_offset_ns, applied_elapsed_ns, late_by_ns, action, proxy, direction, transport, global_generation, upstream_generation, downstream_generation]
+      properties:
+        compiled_index:
+          type: integer
+          format: uint32
+        phase:
+          type: string
+        scheduled_offset_ns:
+          type: integer
+          format: uint64
+        applied_elapsed_ns:
+          type: integer
+          format: uint64
+        late_by_ns:
+          type: integer
+          format: uint64
+        action:
+          type: string
+        proxy:
+          type: string
+        direction:
+          $ref: '#/components/schemas/Direction'
+        transport:
+          type: string
+          enum: [stream, datagram]
+        global_generation:
+          type: integer
+          format: uint64
+        upstream_generation:
+          type: integer
+          format: uint64
+        downstream_generation:
+          type: integer
+          format: uint64
+    ScheduleCleanupResourceV2:
+      type: object
+      required: [proxy, direction, transport, outcome]
+      properties:
+        proxy:
+          type: string
+        direction:
+          $ref: '#/components/schemas/Direction'
+        transport:
+          type: string
+          enum: [stream, datagram]
+        outcome:
+          type: string
+          enum: [restored, conflict, missing, not_requested]
+    ScheduleCleanupV2:
+      type: object
+      required: [policy, resources]
+      properties:
+        policy:
+          $ref: '#/components/schemas/CleanupPolicyV2'
+        resources:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScheduleCleanupResourceV2'
+    ScheduleRunV2:
+      type: object
+      required: [run_id, seed, execution_key, schedule_fingerprint, compiler_semantics_version, isolation, cleanup_policy, status, applied, events]
+      properties:
+        run_id:
+          type: integer
+          format: uint64
+        seed:
+          type: integer
+          format: uint64
+        execution_key:
+          type: integer
+          format: uint64
+        schedule_fingerprint:
+          type: string
+        compiler_semantics_version:
+          type: integer
+          format: uint32
+        isolation:
+          $ref: '#/components/schemas/IsolationPolicyV2'
+        cleanup_policy:
+          $ref: '#/components/schemas/CleanupPolicyV2'
+        status:
+          type: string
+          enum: [pending, running, cancelling, cancelled, completed, failed]
+        applied:
+          type: integer
+          format: uint64
+        failure:
+          type: string
+          nullable: true
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScheduleRunEventV2'
+        cleanup:
+          $ref: '#/components/schemas/ScheduleCleanupV2'
+          nullable: true
+    DatagramFaultKind:
+      oneOf:
+        - $ref: '#/components/schemas/DatagramFaultDelay'
+        - $ref: '#/components/schemas/DatagramFaultLoss'
+        - $ref: '#/components/schemas/DatagramFaultDuplicate'
+        - $ref: '#/components/schemas/DatagramFaultReorder'
+        - $ref: '#/components/schemas/DatagramFaultPayloadCorrupt'
+        - $ref: '#/components/schemas/DatagramFaultBandwidth'
+      discriminator:
+        propertyName: type
+        mapping:
+          delay: '#/components/schemas/DatagramFaultDelay'
+          loss: '#/components/schemas/DatagramFaultLoss'
+          duplicate: '#/components/schemas/DatagramFaultDuplicate'
+          reorder: '#/components/schemas/DatagramFaultReorder'
+          payload-corrupt: '#/components/schemas/DatagramFaultPayloadCorrupt'
+          bandwidth: '#/components/schemas/DatagramFaultBandwidth'
+    DatagramFaultDelay:
+      type: object
+      required: [type, delay_ns]
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          enum: [delay]
+        delay_ns:
+          type: integer
+          format: uint64
+          minimum: 0
+        jitter_ns:
+          type: integer
+          format: uint64
+          minimum: 0
+          default: 0
+    DatagramFaultLoss:
+      type: object
+      required: [type]
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          enum: [loss]
+    DatagramFaultDuplicate:
+      type: object
+      required: [type, additional_copies]
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          enum: [duplicate]
+        additional_copies:
+          type: integer
+          format: uint8
+          minimum: 0
+          maximum: 255
+    DatagramFaultReorder:
+      type: object
+      required: [type, hold_ns]
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          enum: [reorder]
+        hold_ns:
+          type: integer
+          format: uint64
+          minimum: 0
+    DatagramFaultPayloadCorrupt:
+      type: object
+      required: [type, bytes]
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          enum: [payload-corrupt]
+        bytes:
+          type: integer
+          format: uint64
+          minimum: 1
+    DatagramFaultBandwidth:
+      type: object
+      required: [type, bytes_per_second, burst_bytes]
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          enum: [bandwidth]
+        bytes_per_second:
+          type: integer
+          format: uint64
+          minimum: 1
+        burst_bytes:
+          type: integer
+          format: uint64
+          minimum: 1
+    DatagramFaultSpecV1:
+      type: object
+      required: [id, kind]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        probability:
+          type: number
+          minimum: 0
+          maximum: 1
+          default: 1.0
+        kind:
+          $ref: '#/components/schemas/DatagramFaultKind'
+    DatagramFaultUpsertV1:
+      type: object
+      required: [direction, id, kind]
+      additionalProperties: false
+      properties:
+        direction:
+          $ref: '#/components/schemas/Direction'
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        probability:
+          type: number
+          minimum: 0
+          maximum: 1
+          default: 1.0
+        kind:
+          $ref: '#/components/schemas/DatagramFaultKind'
+    DatagramFaultPatchV1:
+      type: object
+      additionalProperties: false
+      properties:
+        probability:
+          type: number
+          minimum: 0
+          maximum: 1
+        kind:
+          $ref: '#/components/schemas/DatagramFaultKind'
+    DirectionalDatagramFaultLists:
+      type: object
+      required: [upstream, downstream]
+      properties:
+        upstream:
+          $ref: '#/components/schemas/GenerationalDatagramFaultList'
+        downstream:
+          $ref: '#/components/schemas/GenerationalDatagramFaultList'
+    GenerationalDatagramFaultList:
+      type: object
+      required: [generation, seed_namespace, faults]
+      properties:
+        generation:
+          type: integer
+          format: uint64
+        seed_namespace:
+          type: integer
+          format: uint64
+        faults:
+          type: array
+          items:
+            $ref: '#/components/schemas/DatagramFaultSpecV1'
+    DatagramFaultMutationResponse:
+      type: object
+      required: [direction, fault]
+      properties:
+        direction:
+          $ref: '#/components/schemas/Direction'
+        fault:
+          $ref: '#/components/schemas/DatagramFaultSpecV1'
+        generation:
+          type: integer
+          format: uint64
+    NativeDatagramProxyRequestV1:
+      type: object
+      required: [name, listen, upstream]
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 128
+          pattern: '^[A-Za-z0-9._-]+$'
+        listen:
+          $ref: '#/components/schemas/SocketAddr'
+        upstream:
+          $ref: '#/components/schemas/SocketAddr'
+        max_associations:
+          type: integer
+          format: uint64
+          minimum: 0
+          default: 256
+        association_idle_timeout_ms:
+          type: integer
+          format: uint64
+          minimum: 1
+          maximum: 86400000
+          default: 60000
+        max_queued_datagrams:
+          type: integer
+          format: uint64
+          minimum: 1
+          default: 1024
+        max_queued_bytes:
+          type: integer
+          format: uint64
+          minimum: 1
+          default: 4194304
+        max_datagram_size:
+          type: integer
+          format: uint64
+          minimum: 1
+          default: 65507
+        seed:
+          type: integer
+          format: uint64
+          default: 0
+        upstream_faults:
+          type: array
+          items:
+            $ref: '#/components/schemas/DatagramFaultSpecV1'
+          default: []
+        downstream_faults:
+          type: array
+          items:
+            $ref: '#/components/schemas/DatagramFaultSpecV1'
+          default: []
+    NativeDatagramProxyPatchV1:
+      type: object
+      additionalProperties: false
+      properties:
+        enabled:
+          type: boolean
+        listen:
+          $ref: '#/components/schemas/SocketAddr'
+        upstream:
+          $ref: '#/components/schemas/SocketAddr'
+        max_associations:
+          type: integer
+          format: uint64
+          minimum: 0
+        association_idle_timeout_ms:
+          type: integer
+          format: uint64
+          minimum: 1
+          maximum: 86400000
+    NativeDatagramProxyViewV1:
+      type: object
+      required: [name, listen, upstream, running, max_associations, active_associations, association_idle_timeout_ms, max_datagram_size, max_queued_datagrams, max_queued_bytes, seed, upstream_generation, downstream_generation, oversize_datagrams, association_capacity_rejections, ingress_queue_overflow, association_setup_failures]
+      properties:
+        name:
+          type: string
+        listen:
+          $ref: '#/components/schemas/SocketAddr'
+        bound_addr:
+          $ref: '#/components/schemas/SocketAddr'
+          nullable: true
+        upstream:
+          $ref: '#/components/schemas/SocketAddr'
+        running:
+          type: boolean
+        max_associations:
+          type: integer
+          format: uint64
+        active_associations:
+          type: integer
+          format: uint64
+        association_idle_timeout_ms:
+          type: integer
+          format: uint64
+        max_datagram_size:
+          type: integer
+          format: uint64
+        max_queued_datagrams:
+          type: integer
+          format: uint64
+        max_queued_bytes:
+          type: integer
+          format: uint64
+        seed:
+          type: integer
+          format: uint64
+        upstream_generation:
+          type: integer
+          format: uint64
+        downstream_generation:
+          type: integer
+          format: uint64
+        oversize_datagrams:
+          type: integer
+          format: uint64
+        association_capacity_rejections:
+          type: integer
+          format: uint64
+        ingress_queue_overflow:
+          type: integer
+          format: uint64
+        association_setup_failures:
+          type: integer
+          format: uint64
+    DatagramProxyMutationResponse:
+      type: object
+      required: [proxy, generation]
+      properties:
+        proxy:
+          $ref: '#/components/schemas/NativeDatagramProxyViewV1'
+        generation:
+          type: integer
+          format: uint64
+    NativeDatagramEvidenceV1:
+      type: object
+      required: [admitted_datagrams, admitted_bytes, emitted_datagrams, emitted_bytes, configured_loss, queue_overflow, oversize_datagrams, duplicated_copies, corrupted_candidates, reorder_activations, queued_datagrams, queued_bytes, high_water_datagrams, high_water_bytes, fault_activations, injected_delay_nanos, bandwidth_delay_nanos, last_generation, last_seed_namespace, rng_version]
+      properties:
+        admitted_datagrams:
+          type: integer
+          format: uint64
+        admitted_bytes:
+          type: integer
+          format: uint64
+        emitted_datagrams:
+          type: integer
+          format: uint64
+        emitted_bytes:
+          type: integer
+          format: uint64
+        configured_loss:
+          type: integer
+          format: uint64
+        queue_overflow:
+          type: integer
+          format: uint64
+        oversize_datagrams:
+          type: integer
+          format: uint64
+        duplicated_copies:
+          type: integer
+          format: uint64
+        corrupted_candidates:
+          type: integer
+          format: uint64
+        reorder_activations:
+          type: integer
+          format: uint64
+        queued_datagrams:
+          type: integer
+          format: uint64
+        queued_bytes:
+          type: integer
+          format: uint64
+        high_water_datagrams:
+          type: integer
+          format: uint64
+        high_water_bytes:
+          type: integer
+          format: uint64
+        fault_activations:
+          type: array
+          minItems: 6
+          maxItems: 6
+          items:
+            type: integer
+            format: uint64
+        injected_delay_nanos:
+          type: integer
+          format: uint128
+        bandwidth_delay_nanos:
+          type: integer
+          format: uint128
+        last_generation:
+          type: integer
+          format: uint64
+        last_seed_namespace:
+          type: integer
+          format: uint64
+        rng_version:
+          $ref: '#/components/schemas/RngVersion'
+    NativeDatagramAssociationViewV1:
+      type: object
+      required: [id, proxy, client, upstream, age_ms, idle_ms, ingress_datagrams, ingress_bytes, egress_datagrams, egress_bytes, ingress_queue_overflow, oversize_datagrams, administrative_discards, send_errors, upstream_evidence, downstream_evidence]
+      properties:
+        id:
+          type: integer
+          format: uint64
+        proxy:
+          type: string
+        client:
+          $ref: '#/components/schemas/SocketAddr'
+        upstream:
+          $ref: '#/components/schemas/SocketAddr'
+        age_ms:
+          type: integer
+          format: uint64
+        idle_ms:
+          type: integer
+          format: uint64
+        ingress_datagrams:
+          type: integer
+          format: uint64
+        ingress_bytes:
+          type: integer
+          format: uint64
+        egress_datagrams:
+          type: integer
+          format: uint64
+        egress_bytes:
+          type: integer
+          format: uint64
+        ingress_queue_overflow:
+          type: integer
+          format: uint64
+        oversize_datagrams:
+          type: integer
+          format: uint64
+        administrative_discards:
+          type: integer
+          format: uint64
+        send_errors:
+          type: integer
+          format: uint64
+        upstream_evidence:
+          $ref: '#/components/schemas/NativeDatagramEvidenceV1'
+        downstream_evidence:
+          $ref: '#/components/schemas/NativeDatagramEvidenceV1'
+    DatagramAssociationTerminationResponse:
+      type: object
+      required: [id, terminated]
+      properties:
+        id:
+          type: integer
+          format: uint64
+        terminated:
+          type: boolean
+          enum: [true]

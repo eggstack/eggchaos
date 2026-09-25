@@ -10,6 +10,7 @@ cargo deny check advisories licenses bans sources
 cargo package -p eggchaos-core --allow-dirty
 cargo package -p eggchaos-core --list --allow-dirty
 cargo package -p eggchaos-experiment --list --allow-dirty
+cargo package -p eggchaos-protocol --list --allow-dirty
 cargo package -p eggchaos-server --list --allow-dirty
 cargo package -p eggchaos-eggfetch --list --allow-dirty
 cargo package -p eggchaos-toxiproxy --list --allow-dirty
@@ -23,7 +24,7 @@ cargo build --release --locked --package eggchaos-cli
 # are proven above via `cargo package --list` for every crate; here assert
 # that every intra-workspace path dependency carries the workspace version
 # requirement, so publishing in the documented order
-# (core -> experiment/eggfetch -> server/toxiproxy/cli) resolves from the registry.
+# (core -> experiment/eggfetch -> protocol -> server/toxiproxy/cli) resolves from the registry.
 # After each predecessor publishes, its dependents' full `cargo package`
 # succeeds; that post-publication check is an owner release-step action.
 python3 - <<'EOF'
@@ -47,5 +48,5 @@ if problems:
     print("ORDER-PROOF FAIL:")
     print("\n".join(problems))
     sys.exit(1)
-print(f'{{"order_proof":"pass","workspace_version":"{ws_version}","order":"core->experiment/eggfetch->server/toxiproxy/cli"}}')
+print(f'{{"order_proof":"pass","workspace_version":"{ws_version}","order":"core->experiment/eggfetch->protocol->server/toxiproxy/cli"}}')
 EOF

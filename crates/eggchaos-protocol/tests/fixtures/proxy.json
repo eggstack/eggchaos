@@ -1,0 +1,5 @@
+{
+  "create": {"name": "cache", "listen": "127.0.0.1:0", "upstream": "127.0.0.1:6379", "enabled": true, "connect_timeout_ms": 2500, "seed": 4},
+  "patch": {"enabled": false, "connect_timeout_ms": 1000},
+  "datagram_create": {"name": "dns", "listen": "127.0.0.1:0", "upstream": "127.0.0.1:5353"}
+}

@@ -61,7 +61,11 @@ Proxy response views contain explicit native fault views instead of core
 `at_ms` scheduling, and nested `action` objects tagged by `type` (`set-plan`
 or `remove-fault`); faults in `set-plan` use the same kind schema. Scenario run
 status values are lowercase. These DTOs define the native v1 contract
-independently of internal Rust enum layout.
+independently of internal Rust enum layout. The DTO authority is the
+`eggchaos-protocol` crate (re-exported by `eggchaos-server` for source
+compatibility); the machine-readable contract is
+`api/openapi/eggchaos-v1.yaml`, drift-checked by
+`./scripts/check_openapi.sh` and the `NATIVE_OPERATIONS` inventory.
 
 ## CLI command inventory
 

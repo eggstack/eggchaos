@@ -1,0 +1,16 @@
+{
+  "version": 2,
+  "seed": 7,
+  "execution_key": 11,
+  "isolation": "strict",
+  "cleanup": "restore-initial",
+  "phases": [
+    {
+      "name": "warmup",
+      "duration_ns": 1000000000,
+      "actions": [
+        {"type": "set-plan", "proxy": "cache", "direction": "downstream", "faults": [{"id": "delay", "probability": 1.0, "kind": {"type": "latency", "delay_ns": 5000000, "jitter_ns": 0, "max_buffer_bytes": 1024}}]}
+      ]
+    }
+  ]
+}

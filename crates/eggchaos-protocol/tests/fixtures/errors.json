@@ -1,0 +1,7 @@
+[
+  {"error": {"code": "not_found", "message": "proxy not found: cache"}},
+  {"error": {"code": "invalid", "message": "connect_timeout_ms must be in 1..=300000"}},
+  {"error": {"code": "conflict", "message": "datagram fault already exists"}},
+  {"error": {"code": "unauthorized", "message": "authorization required"}},
+  {"error": {"code": "invalid_json", "message": "expected value at line 1 column 1"}}
+]
