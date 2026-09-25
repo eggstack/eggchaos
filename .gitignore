@@ -13,3 +13,9 @@ fuzz/corpus/fault_evidence_json/
 fuzz/corpus/policy_transitions/
 fuzz/corpus/toxiproxy_attributes/
 fuzz/corpus/plan_json/
+bindings/typescript-client/node_modules/
+bindings/typescript-client/dist/
+bindings/python-client/build/
+bindings/python-client/*.egg-info/
+__pycache__/
+*.pyc
