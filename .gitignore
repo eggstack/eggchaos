@@ -19,3 +19,4 @@ bindings/python-client/build/
 bindings/python-client/*.egg-info/
 __pycache__/
 *.pyc
+bench-native.json
