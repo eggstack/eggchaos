@@ -11,7 +11,7 @@ Eggchaos is intended to be a small Rust-native successor to the useful core of T
 | `roadmap.md` | Long-term architecture, sequencing, release stages, and future extensions. |
 | `registry.md` | Current milestone status and dependency source of truth. |
 | `000-architecture-and-scope-baseline.md` | Investigated baseline, reuse decisions, scope boundaries, and initial dependency graph. |
-| `001-*.md` ... `035-*.md` | Bounded implementation, corrective, cleanup, feature, qualification, maintenance, richer-scenario, integration-boundary, language-binding, and closure-corrective handoffs in execution order. |
+| `001-*.md` ... `039-*.md` | Bounded implementation, corrective, cleanup, feature, qualification, maintenance, richer-scenario, integration-boundary, language-binding, post-v2.12 compatibility, and closure handoffs in execution order. |
 | `adrs/` | Durable architecture decisions that should not be silently changed by implementation. |
 | `reference/toxiproxy-parity.md` | Compatibility target and semantic mapping. |
 | `reference/verification-matrix.md` | Required evidence across faults, platforms, APIs, and performance. |
@@ -63,8 +63,21 @@ A post-closure audit registered one bounded corrective successor, now closed:
 language-client false-red cleanup exit, added portable hosted native-Python
 qualification, consolidated duplicated datagram fault mutation semantics between
 HTTP and embed, reconciled current-state planning, and obtained a green exact-head
-hosted qualification result. M035 does not rewrite M032–M034 history. No ready
-or blocked handoff remains; M035 activates no successor.
+hosted qualification result. M035 does not rewrite M032–M034 history.
+
+ADR 007 now activates the post-v2.12 Toxiproxy stream-loss compatibility
+tranche:
+
+`M036 (ready) -> M037 (blocked) -> M038 (blocked) -> M039 (blocked)`
+
+M036 is the sole ready handoff. It adds the deterministic core `stream-loss`
+primitive with a fixed 32 KiB logical grain and additive evidence while
+preserving the frozen seven-slot activation arrays. M037 propagates that
+semantic authority through native/config/CLI/scenario/OpenAPI/SDK/embed
+surfaces. M038 adds the opt-in `packet_loss` compatibility profile pinned to
+Shopify/Toxiproxy `40f7fd31bee529d824116bd2a11a9e3425e904ec`; strict
+v2.12 remains the default and keeps its existing oracle. M039 is the combined
+exact-candidate qualification/closure gate.
 
 Historical closure records remain preserved at their real candidate commits. M015 remains valid qualification evidence for `cd88b22`; M019 is the final current release-candidate authority at `ca527db`.
 
@@ -94,7 +107,7 @@ The initial architecture is deliberately narrow:
 
 The native admin plane should use the leaf `eggserve-server` + `eggserve-primitives` H1 substrate. The CLI should use a minimal `eggfetch-core` HTTP profile to call it. `eggress-admin` is not used because its state model is specific to Eggress routing, UDP, metrics, and reverse-proxy administration.
 
-The first release is TCP byte-stream focused. UDP/datagram chaos is implemented as the post-release tranche under ADR 003 (M020–M023), with M024/M025 performance and setup-hygiene successors closed, and remains outside the first-release/M019 historical scope. Richer deterministic scenarios are complete under ADR 004 + M026–M028. The consumer-neutral cross-project integration substrate is complete under ADR 005 + M029–M031; EggReplay/EggProbe product-specific adoption remains downstream work. Cross-language control/embedding is implemented under ADR 006 + M032–M034 and correctively qualified under M035 (closed at `a710cd6`: hosted SDK/native-Python qualification, shared datagram mutation authority, exact-head closure). A generic C ABI remains deferred. Arbitrary outbound proxy chains remain a later roadmap item.
+The first release is TCP byte-stream focused. UDP/datagram chaos is implemented as the post-release tranche under ADR 003 (M020–M023), with M024/M025 performance and setup-hygiene successors closed, and remains outside the first-release/M019 historical scope. Richer deterministic scenarios are complete under ADR 004 + M026–M028. The consumer-neutral cross-project integration substrate is complete under ADR 005 + M029–M031; EggReplay/EggProbe product-specific adoption remains downstream work. Cross-language control/embedding is implemented under ADR 006 + M032–M034 and correctively qualified under M035 (closed at `a710cd6`: hosted SDK/native-Python qualification, shared datagram mutation authority, exact-head closure). ADR 007 + M036–M039 now own the post-v2.12 deterministic stream-loss/`packet_loss` compatibility line; native stream loss remains distinct from ADR 003 datagram loss and strict v2.12 remains frozen. A generic C ABI remains deferred. Arbitrary outbound proxy chains remain a later roadmap item.
 
 ## Research baseline
 
@@ -117,3 +130,17 @@ On 2026-09-24 the UDP/datagram roadmap item was re-researched against current eg
 ## Language binding research update
 
 On 2026-09-25 the post-v1 language-binding direction was reviewed against the closure-backed M017/M026–M031 boundaries and current Rust/Python binding tooling. ADR 006 + M032–M034 encode the resulting order: native `/v1` protocol/OpenAPI authority first, Python + TypeScript remote SDKs second, and a coarse safe Rust facade + PyO3/maturin Python embedding pilot third. Direct binding of Tokio stream internals and a generic C ABI are intentionally deferred.
+
+
+## Post-v2.12 Toxiproxy research update
+
+On 2026-09-25 the post-v2.12 roadmap item was re-researched against
+Shopify/Toxiproxy v2.12.0 and current `main` at
+`40f7fd31bee529d824116bd2a11a9e3425e904ec`. The compared branch is 86
+commits ahead of v2.12.0; the substantive new server data-plane toxic is
+`packet_loss`, introduced at
+`7c01129a8c232bf01aaebaca8a87429fd16f69b2`. ADR 007 freezes the
+Eggchaos boundary: deterministic userspace stream loss is a native core
+primitive, not real TCP/IP packet loss and not ADR 003 datagram loss; strict
+v2.12 remains a distinct default profile; post-v2.12 compatibility uses a
+pinned snapshot oracle rather than moving `main`.
