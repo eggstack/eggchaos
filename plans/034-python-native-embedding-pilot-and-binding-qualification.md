@@ -1,8 +1,9 @@
 # M034 — Python Native Embedding Pilot and Binding Qualification
 
-Status: ready  
+Status: closed  
 Depends on: M033 (closed at `429d459`), ADR 006  
 Role: first in-process foreign-language embedding surface
+Closed at: `991818b1ef2afcfcf3bcc659a8edcd89cafd9550`; evidence in `plans/closure/M034-python-native-embedding-pilot-and-binding-qualification-closure.md`.
 
 ## Objective
 

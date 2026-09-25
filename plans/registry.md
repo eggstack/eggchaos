@@ -1,6 +1,6 @@
 # Eggchaos Plan Registry
 
-Last reconciled: 2026-09-25 (M033 closed at 429d459; M034 ready)
+Last reconciled: 2026-09-25 (ADR 006 chain complete: M032 closed at ed05f68, M033 at 429d459, M034 at 991818b)
 
 This file is the compact source of truth for active milestone state. Detailed scope lives in the numbered plans. Historical closure evidence belongs in `plans/closure/`.
 
@@ -40,7 +40,7 @@ This file is the compact source of truth for active milestone state. Detailed sc
 | M031 | `031-integration-boundary-qualification-and-downstream-handoff.md` | closed | M030 | Closed on exact candidate `fa189b9`; evidence in `plans/closure/M031-integration-boundary-qualification-and-downstream-handoff-closure.md`. Cross-project substrate qualified with downstream handoff table; no EggReplay/EggProbe product work. |
 | M032 | `032-native-protocol-contract-extraction-and-openapi-foundation.md` | **closed** | M031 + ADR 006 | Closed on exact candidate `ed05f68`; evidence in `plans/closure/M032-native-protocol-contract-extraction-and-openapi-foundation-closure.md`. `eggchaos-protocol` owns wire DTOs + `NATIVE_OPERATIONS`; OpenAPI drift-checked; server behavior preserved. |
 | M033 | `033-python-and-typescript-native-control-sdks.md` | **closed** | M032 | Closed on exact candidate `429d459`; evidence in `plans/closure/M033-python-and-typescript-native-control-sdks-closure.md`. Stdlib-only Python sync/async + zero-dep TypeScript clients over the exact M032 contract; drift-checked derivation, live cross-language qualification, package artifacts built. |
-| M034 | `034-python-native-embedding-pilot-and-binding-qualification.md` | **ready** | M033 | M033 closed; sole ready handoff. Add a safe `eggchaos-embed` facade and PyO3/maturin Python embedding pilot; generic C ABI remains unactivated. |
+| M034 | `034-python-native-embedding-pilot-and-binding-qualification.md` | **closed** | M033 | Closed on exact candidate `991818b`; evidence in `plans/closure/M034-python-native-embedding-pilot-and-binding-qualification-closure.md`. Safe `eggchaos-embed` facade + PyO3/maturin `eggchaos-native` pilot (abi3), remote/native conformance green, C ABI decided no-go. |
 
 ## Execution state
 
@@ -108,7 +108,7 @@ part of this chain.
 
 ADR 006 activates the cross-language contract/binding chain:
 
-`M032 (closed) -> M033 (closed) -> M034 (ready)`
+`M032 (closed) -> M033 (closed) -> M034 (closed)`
 
 M032 is closed (exact candidate `ed05f68`). It extracted the stable native wire contract
 into `eggchaos-protocol` and added mechanically drift-checked OpenAPI without
@@ -128,15 +128,15 @@ The completed UDP/datagram tranche is listed below; the remaining items are post
 | cross-project integration boundary / experiment harness | completed | ADR 005 tranche M029–M031 closed and qualified at `fa189b9`; follow-on substrate work requires separate planning. |
 | eggreplay timing/fault integration | ready downstream | M031 closure + EggReplay-owned adoption plan; `.eggr`/semantic timing remain EggReplay authority. |
 | eggprobe controlled impairment experiments | ready downstream | M031 closure + EggProbe-owned adoption plan; route/probe/report semantics remain EggProbe authority. |
-| cross-language control SDKs / native Python embedding | active planning | ADR 006; M032 closed, M033 ready, M034 blocked on M033. Remote `/v1` SDKs are primary; generic C ABI remains future/demand-driven. |
+| cross-language control SDKs / native Python embedding | completed | ADR 006 chain M032–M034 closed (`ed05f68`/`429d459`/`991818b`); remote `/v1` SDKs primary, native Python pilot qualified, generic C ABI decided no-go pending separate ADR + demand. |
 | richer deterministic scenarios / time-varying schedule files | completed | ADR 004 tranche M026–M028 closed and qualified at `ceb3bae`; ScenarioV1 remains a compatibility surface. Follow-on schedule work requires separate planning. |
 | current-Toxiproxy post-2.12 extensions such as stream-chunk `packet_loss` | future | M012 v2.12 parity requalified and M008 closed. |
 
 ## Dependency-ready view
 
-Completed work: M000–M031 and M008 are closed.
+Completed work: M000–M034 and M008 are closed.
 
-Ready: M034.
+Ready: none.
 
 Active: none.
 
@@ -160,7 +160,7 @@ Completed richer-scenario execution order: `ADR 004 -> M026 (closed) -> M027 (cl
 
 Completed integration-boundary execution order: `ADR 005 -> M029 (closed at add40b0) -> M030 (closed at 0bc45f0) -> M031 (closed at fa189b9)`. Downstream EggReplay/EggProbe product work may now register implementation milestones against the closure-backed seams in the M031 handoff table.
 
-Active cross-language execution order: `ADR 006 -> M032 (closed at ed05f68) -> M033 (closed at 429d459) -> M034 (ready)`. M034 is the sole ready handoff; it must conform to the M033 remote Python vocabulary.
+Completed cross-language execution order: `ADR 006 -> M032 (closed at ed05f68) -> M033 (closed at 429d459) -> M034 (closed at 991818b)`. The chain activates no automatic successor; a generic C ABI needs a separate ADR plus a second concrete consumer (M034 decided no-go).
 
 ## Closure requirements
 

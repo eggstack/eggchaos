@@ -1,6 +1,6 @@
 # Eggchaos Long-Term Roadmap
 
-Status: M008 and M009–M032 are closed work. M019 passed final pre-tag qualification at `ca527db`; the owner may proceed with the v0.1.0 tag and separate publication/release actions. ADR 003's post-release datagram feature tranche M020–M023 is complete, with M024/M025 performance and setup-hygiene successors closed. ADR 004's richer deterministic-scenario/time-varying schedule tranche M026–M028 is complete and qualified. ADR 005's integration-boundary/harness tranche M029–M031 is complete and qualified at `fa189b9`. ADR 006's cross-language contract/binding tranche has M032 closed at `ed05f68` and M033 closed at `429d459`; M034 is ready.
+Status: M008 and M009–M034 are closed work. M019 passed final pre-tag qualification at `ca527db`; the owner may proceed with the v0.1.0 tag and separate publication/release actions. ADR 003's post-release datagram feature tranche M020–M023 is complete, with M024/M025 performance and setup-hygiene successors closed. ADR 004's richer deterministic-scenario/time-varying schedule tranche M026–M028 is complete and qualified. ADR 005's integration-boundary/harness tranche M029–M031 is complete and qualified at `fa189b9`. ADR 006's cross-language contract/binding tranche is complete: M032 closed at `ed05f68`, M033 at `429d459`, M034 at `991818b`.
 
 ## 1. Mission
 
@@ -415,11 +415,14 @@ resources, Scenario V1/V2, evidence/control views, auth, errors, reset/history,
 and metrics. The SDKs do not manage the daemon lifecycle and contain no native
 extension.
 
-M034 is blocked on M033. It adds a coarse safe Rust embedding facade
+M034 is closed at `991818b`. It added a coarse safe Rust embedding facade
 (preferred crate `eggchaos-embed`) over existing server/control/experiment
-authorities and qualifies a PyO3/maturin Python native package. Rust/Tokio
-stream traits, futures, borrows, `Arc`, and monotonic `Instant` values do
-not become foreign ABI concepts.
+authorities and qualified the PyO3/maturin Python native package
+(`eggchaos-native`, abi3) with lifecycle, conformance, wheel-matrix, and
+control-overhead evidence. Rust/Tokio stream traits, futures, borrows,
+`Arc`, and monotonic `Instant` values did not become foreign ABI
+concepts. The closure records a no-go for a generic C ABI pending a
+separate ADR and a second concrete consumer.
 
 This tranche explicitly does not activate a generic C ABI, Node native addon,
 JNI, P/Invoke, cgo, UniFFI, or WASM. A generic C ABI requires a separate ADR
@@ -471,7 +474,7 @@ Potential next lines:
 - cross-project integration substrate/harness is implemented under ADR 005 + M029–M031 (closed at `fa189b9`); it remains consumer-neutral and dependency-inward;
 - eggreplay transport-chaos integration is downstream work after M031 so recorded/regression flows can be exercised under deterministic transport conditions without moving `.eggr` semantics into eggchaos;
 - eggprobe controlled-impairment integration is downstream work after M031, initially for transport-bearing TLS/HTTP paths while route/probe/report semantics remain EggProbe-owned;
-- cross-language bindings are activated under ADR 006 + M032–M034: native `/v1` protocol/OpenAPI first, Python/TypeScript remote SDKs second, and a Python native embedding pilot third; a generic C ABI remains deferred;
+- cross-language bindings are implemented under ADR 006 + M032–M034 (closed): native `/v1` protocol/OpenAPI first, Python/TypeScript remote SDKs second, and a qualified Python native embedding pilot third; a generic C ABI remains deferred pending a separate ADR and demand;
 - richer time-varying scenarios and deterministic schedule files are activated under ADR 004 + M026–M028;
 - post-v2.12 Toxiproxy extensions where useful;
 - target-class SBC qualification and service-management integration through Eggstack shared updater/service machinery if operational demand exists.
