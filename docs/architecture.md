@@ -3,9 +3,9 @@
 The dependency direction is inward:
 
 ```text
-eggchaos-cli -> eggchaos-server -> eggchaos-core
-eggchaos-toxiproxy -----------^        |
-eggchaos-eggfetch ------------^        +-> Tokio byte streams
+eggchaos-cli -> eggchaos-server -> eggchaos-experiment -> eggchaos-core
+eggchaos-toxiproxy -----------^               |
+eggchaos-eggfetch ------------^               +-> Tokio byte streams
 ```
 
 `eggchaos-core` is protocol-neutral. It owns typed stream and datagram fault
@@ -17,10 +17,18 @@ not know about HTTP, listeners, CLI, Toxiproxy, Eggfetch, or UDP sockets. The
 empty stream plan delegates directly to the wrapped Tokio stream and does not
 allocate a queue or timer.
 
+`eggchaos-experiment` is the consumer-neutral Scenario V2 authority:
+schedule semantics, the shared expected-generation driver, the
+prepare/arm/start lifecycle with one monotonic epoch, and the
+in-process stream policy target. It depends only on `eggchaos-core`.
+
 `eggchaos-server` owns fixed-target TCP listeners and uses `eggress-relay` for
 bidirectional copying and half-close policy. The native admin plane uses the
 generic EggServe H1 leaf runtime when enabled. Compatibility and Eggfetch are
 adapters over the server/core authority, never alternate state stores.
+`eggchaos-eggfetch::ChaosDialer` decorates an arbitrary caller-selected
+`Dialer` with deterministic connection identity and bounded transport
+evidence.
 
 The initial release is intentionally bounded: latency queues, connection
 counts, request bodies, histories, and control-plane resources have explicit

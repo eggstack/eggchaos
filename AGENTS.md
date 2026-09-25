@@ -11,6 +11,7 @@ eggchaos-eggfetch -> core (implements `eggfetch_core::Dialer`)
 ```
 
 - `eggchaos-core` (`crates/eggchaos-core/src/`): protocol-neutral stream `FaultPlan` + `ChaosStream<T>` write-side state machine and deterministic whole-datagram engine. Knows nothing about HTTP, listeners, CLI, Toxiproxy, or Eggfetch. Empty stream plan delegates without allocating queue/timer.
+- `eggchaos-experiment` (`crates/eggchaos-experiment/src/`): consumer-neutral Scenario V2 semantic authority (source/compiler/fingerprint/run), shared expected-generation schedule driver, prepare/arm/start lifecycle with one monotonic epoch gate, and the in-process `StreamPolicyTarget`. Depends only on core; never on server, EggServe, CLI, Toxiproxy, EggReplay, or EggProbe.
 - `eggchaos-server`: fixed-target TCP and UDP listeners (never a forward proxy). `eggress-relay` owns TCP bidirectional copy + half-close — do not fork its semantics. UDP associations own per-client connected upstream sockets. Admin H1 runtime is `eggserve-server` + `eggserve-primitives`; `native.rs` owns the explicit `/v1` DTO/conversion boundary.
 - `eggchaos-server/src/runtime/`: `mod.rs` composition/re-exports; `control.rs` single `ControlState` authority; `connection.rs` evidence/finalization; `supervisor.rs` listener admission; `transport.rs` reset wrapper; `metrics.rs` bounded metrics; `model.rs` runtime views; `datagram/` (`mod.rs` composition/re-exports, `model.rs`, `registry.rs` single `DatagramRuntime` authority, `association.rs`, `supervisor.rs`, `tests.rs`) owns UDP proxy/association lifecycle; `tests.rs` holds the TCP/runtime regression suite.
 - `eggchaos-cli`: thin adapter; control HTTP via `eggfetch-core` (minimal features). Never a second networking/state path.
@@ -86,15 +87,16 @@ exact-candidate qualification are implemented and qualified. ScenarioV1
 remains supported; do not implement v2 by adding clock/schedule branches to
 eggchaos-core.
 
-ADR 005 is accepted and activates the current handoff chain: `M029 (ready) ->
-M030 (blocked) -> M031 (blocked)`. M029 is the only ready item. It makes the
-EggFetch physical-stream chaos integration composable over arbitrary Dialers,
-adds caller-controlled deterministic physical connection identity, and exposes
-bounded bidirectional evidence. M030 may begin only after M029 closes and adds
-the consumer-neutral Scenario V2 experiment harness/shared monotonic start
-epoch. M031 is the exact-candidate qualification/downstream-handoff gate. Do
-not add `eggreplay-*` or `eggprobe-*` production dependencies to eggchaos;
-product-specific adoption remains downstream.
+ADR 005 activates the current handoff chain: `M029 (closed) ->
+M030 (closed) -> M031 (ready)`. M029 made the EggFetch physical-stream
+chaos integration composable over arbitrary Dialers, added
+caller-controlled deterministic physical connection identity, and exposed
+bounded bidirectional evidence. M030 added the consumer-neutral Scenario
+V2 experiment harness/shared monotonic start epoch behind
+`eggchaos-experiment`. M031 is the exact-candidate
+qualification/downstream-handoff gate. Do not add `eggreplay-*` or
+`eggprobe-*` production dependencies to eggchaos; product-specific
+adoption remains downstream.
 
 If the owner asks for new work: `plans/roadmap.md` is the architecture authority, `plans/reference/` holds parity/verification contracts (not status), ADRs live in `plans/adrs/`. Any new numbered plan needs objective, baseline/deps, scope + non-goals, affected crates, ordered work packages, invariants/failure semantics, test commands, acceptance criteria, stop conditions, closure evidence, and follow-on rules — and must update `plans/registry.md` in the same change. Never mark `closed` from source inspection; closure requires running the plan's tests on the exact candidate plus external/differential evidence where declared.
 

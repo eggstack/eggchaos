@@ -13,18 +13,19 @@ user-facing implementation boundaries live in `docs/architecture.md`,
 ## Workspace map
 
 ```text
-eggchaos-cli -> eggchaos-server -> eggchaos-core
-eggchaos-toxiproxy -----------^        |
-eggchaos-eggfetch ------------^        +-> Tokio byte streams + UDP sockets
+eggchaos-cli -> eggchaos-server -> eggchaos-experiment -> eggchaos-core
+eggchaos-toxiproxy -----------^               |
+eggchaos-eggfetch ------------^               +-> Tokio byte streams + UDP sockets
 ```
 
 | Crate | Path | Role |
 | --- | --- | --- |
 | `eggchaos-core` | `crates/eggchaos-core/` | Protocol-neutral deterministic fault engine: typed plans, `DirectionEngine` state machines, `ChaosStream<T>` / `BidirectionalChaosStream`, `LivePolicy`, SplitMix64-v1 identity-scoped RNG. No HTTP, listeners, CLI, Toxiproxy, or Eggfetch knowledge. |
-| `eggchaos-server` | `crates/eggchaos-server/` | Fixed-target TCP and UDP runtimes, bounded connection/association registries, native control authority (`ControlState`), native admin HTTP (`admin.rs`), schema-v1 TOML config (`config.rs`), deterministic scenario driver (`scenario.rs`). Uses `eggress-relay` for bidirectional copy / half-close; never forks its semantics. |
+| `eggchaos-experiment` | `crates/eggchaos-experiment/` | Consumer-neutral Scenario V2 authority (semantics, compiler, fingerprint), shared expected-generation schedule driver, prepare/arm/start lifecycle with one monotonic epoch, in-process stream policy target. Depends only on core; never on server, EggServe, CLI, Toxiproxy, EggReplay, or EggProbe. |
+| `eggchaos-server` | `crates/eggchaos-server/` | Fixed-target TCP and UDP runtimes, bounded connection/association registries, native control authority (`ControlState`), native admin HTTP (`admin.rs`), schema-v1 TOML config (`config.rs`), deterministic scenario driver (`scenario.rs`) via the shared experiment driver. Uses `eggress-relay` for bidirectional copy / half-close; never forks its semantics. |
 | `eggchaos-cli` | `crates/eggchaos-cli/` | `eggchaos` binary: `serve`, TCP `proxy`/`fault`/`connection`, UDP `datagram proxy`/`fault`/`association`, `scenario`, `version`, `reset`. Thin JSON client over the native admin API via `eggfetch-core`; `serve` boots `ServiceBuilder` + `NativeAdmin` from TOML. Machine-readable JSON is a first-class contract. |
 | `eggchaos-toxiproxy` | `crates/eggchaos-toxiproxy/` | Toxiproxy v2.12 compatibility adapter. Holds no state; every view derives from `ControlState` snapshots and every mutation goes through native control authority. Oracle-exact routes, status codes, and error envelopes; divergences classified in `plans/reference/toxiproxy-parity.md`. |
-| `eggchaos-eggfetch` | `crates/eggchaos-eggfetch/` | In-process `eggfetch-core::Dialer` adapter (`ChaosDialer`). Owns only raw direct TCP dial + physical-stream fault policy; Eggfetch remains authority for HTTP framing, pooling, TLS, SNI, cert verification. |
+| `eggchaos-eggfetch` | `crates/eggchaos-eggfetch/` | Composable in-process `eggfetch-core::Dialer` adapter (`ChaosDialer<D>`). Decorates an arbitrary caller-selected inner dialer (direct convenience included) with live physical-stream fault policy, caller-controlled deterministic connection identity, and bounded out-of-band transport evidence. Eggfetch remains authority for HTTP framing, pooling, TLS, SNI, cert verification. |
 
 Supporting workspace members: `benchmarks/` (no-fault throughput/latency vs bare
 `eggress-relay`), `fuzz/` (`plan_json` target), `qualification/` (perf snapshots,

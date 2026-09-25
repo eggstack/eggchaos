@@ -160,10 +160,52 @@ if a gate was not run, record it as incomplete (see §8).
   connection (`http2` feature), blackhole non-hang, mid-response truncation-as-error,
   downstream bandwidth pacing, idle-close redial, refused-dial shaped error,
   disconnect termination-as-error.
+- `crates/eggchaos-eggfetch/src/tests.rs` (20 tests, M029): arbitrary-inner
+  dialer composition (target forwarding, single attempt, routed dialer,
+  all five `DialErrorKind`s preserved), deterministic connection-key
+  providers (inputs, stability, explicit collision, failure/panic
+  behavior), bounded `RecordingObserver` (exactly-once, eviction),
+  bidirectional evidence (generations, bytes, termination, post-drop
+  reads), H1 keep-alive reuse vs forced separate connections, live
+  policy engagement, and the H1/H2 client regressions.
+- `crates/eggchaos-eggfetch/tests/correlation.rs` (M031): cross-layer
+  fixture correlating schedule fingerprint/seed/execution key, event
+  generations, physical connection key, active fault evidence, and the
+  workload-observed outcome through EggFetch + route dialer + chaos
+  adapter + prepared experiment on one shared epoch.
+- `crates/eggchaos-eggfetch/tests/adapter_overhead.rs` (M031):
+  empty-plan throughput vs bare duplex (functional ratio bounds),
+  wrap latency with observer disabled/enabled, and
+  compile/prepare/start overhead for small and 1024-event schedules.
 - Gate: `scripts/qualify_eggfetch.sh` runs
   `cargo test -p eggchaos-eggfetch --all-features` plus
   `cargo test -p eggchaos-server --all-features` (M015: adapter 3 +
   regression 10 + server 37 + toxiproxy 10, all pass).
+
+### Integration-boundary and experiment harness (M029–M031)
+
+- `crates/eggchaos-experiment` (23 tests, M030): compiler determinism
+  and seed sensitivity, prepare-time capability/missing-resource
+  rejection with no publication, epoch-gate sharing (exactly-once
+  capture, late waiters), no-event-before-release, paused-time
+  drift-free deadlines and compiled-order preservation, cancel
+  before/while/after publication, strict conflict without overwrite,
+  live-mode current-state behavior, restore/leave cleanup, set/remove
+  flows, and target bounds.
+- `crates/eggchaos-server/src/scenario_v2/conformance_tests.rs`
+  (M030): server `ControlState` adapter vs in-process stream target
+  produce equivalent event/generation outcomes for the stream subset;
+  datagram actions fail explicitly on the stream-only target while the
+  server applies them.
+- Golden Scenario V2 corpus (`schedule_corpus`, M026/M028) runs
+  unchanged against the extracted `eggchaos-experiment` authority via
+  server re-exports; fingerprints and namespace vectors are frozen.
+- Dependency direction is verified structurally (`cargo tree -p
+  eggchaos-experiment` shows only core + serde/sha2/thiserror/
+  tokio/tokio-util) and by the release order proof
+  (`core->experiment/eggfetch->server/toxiproxy/cli` in
+  `scripts/release-smoke.sh`); no `eggreplay-*`/`eggprobe-*`
+  dependency exists anywhere in the workspace.
 
 ### No-fault throughput/latency regression vs bare `eggress-relay`
 

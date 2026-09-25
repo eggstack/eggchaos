@@ -128,6 +128,11 @@ activation chance, decided from the seed — never from global RNG state.
   let composed = ChaosDialer::wrap(my_dialer, seed, "api")
       .with_observer(observer);
   ```
+- **Embedded deterministic experiments:** `eggchaos-experiment` runs
+  Scenario V2 schedules against a consumer-neutral policy target
+  (standalone server or in-process `LivePolicy` pairs) with a shared
+  monotonic start epoch for schedule and caller workload — no server
+  dependency, no product-specific types.
 
 ## Docs
 

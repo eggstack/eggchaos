@@ -1,7 +1,7 @@
 # M031 — Integration Boundary Qualification and Downstream Handoff
 
-Status: blocked  
-Depends on: M030  
+Status: ready  
+Depends on: M030 (closed)  
 Role: exact-candidate qualification gate for the integration-boundary/harness tranche
 
 ## Objective

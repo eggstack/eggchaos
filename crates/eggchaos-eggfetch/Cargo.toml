@@ -24,8 +24,10 @@ tokio.workspace = true
 
 [dev-dependencies]
 bytes.workspace = true
+eggchaos-experiment = { path = "../eggchaos-experiment", version = "0.1.0" }
 h2.workspace = true
 http.workspace = true
 rcgen.workspace = true
 rustls.workspace = true
 tokio-rustls.workspace = true
+tokio-util.workspace = true

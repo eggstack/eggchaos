@@ -187,6 +187,18 @@ impl ConnectionKeyProvider for FailProvider {
     }
 }
 
+/// Provider that panics. Panics propagate to the dial caller (no
+/// recovery inside networking internals); the stream is dropped
+/// before Eggfetch handoff, so no handed-over stream can be corrupt.
+#[derive(Debug, Clone, Copy, Default)]
+struct PanicProvider;
+
+impl ConnectionKeyProvider for PanicProvider {
+    fn connection_key(&self, _ctx: &ConnectionKeyContext<'_>) -> Result<u64, KeyError> {
+        panic!("provider panic");
+    }
+}
+
 fn recorder(capacity: usize) -> (Arc<RecordingObserver>, Arc<dyn ConnectionObserver>) {
     let observer = Arc::new(RecordingObserver::new(capacity));
     let sink: Arc<dyn ConnectionObserver> = observer.clone();
@@ -621,6 +633,23 @@ async fn provider_failure_fails_dial_with_bounded_error() {
     assert_eq!(error.kind(), DialErrorKind::Other);
     assert!(error.message().contains("provider exploded"));
     assert!(observer.is_empty());
+}
+
+#[test]
+fn panicking_provider_propagates_without_evidence() {
+    let (observer, sink) = recorder(16);
+    let dialer = ChaosDialer::wrap(DuplexDialer::default(), 1, "p")
+        .with_key_provider(Arc::new(PanicProvider))
+        .with_observer(sink);
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        runtime.block_on(dialer.dial(target("h", 9)))
+    }));
+    assert!(result.is_err(), "provider panic must propagate");
+    assert!(observer.is_empty(), "no evidence from a panicked dial");
 }
 
 #[tokio::test]

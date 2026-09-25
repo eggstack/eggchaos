@@ -1,7 +1,8 @@
 # M030 — Consumer-Neutral Experiment Harness and Coordinated Start
 
-Status: ready  
+Status: closed  
 Depends on: M029 (closed), ADR 005  
+Closed at: `0bc45f03e1a944a957cd80edabcf4489c9f4afbc`; evidence in `plans/closure/M030-consumer-neutral-experiment-harness-and-coordinated-start-closure.md`.
 Role: reusable deterministic experiment orchestration boundary
 
 ## Objective

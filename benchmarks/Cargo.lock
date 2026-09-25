@@ -152,11 +152,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "eggchaos-experiment"
+version = "0.1.0"
+dependencies = [
+ "eggchaos-core",
+ "serde",
+ "sha2",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
 name = "eggchaos-server"
 version = "0.1.0"
 dependencies = [
  "bytes",
  "eggchaos-core",
+ "eggchaos-experiment",
  "eggress-relay",
  "eggserve-primitives",
  "eggserve-server",
