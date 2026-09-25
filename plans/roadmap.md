@@ -1,6 +1,6 @@
 # Eggchaos Long-Term Roadmap
 
-Status: M008 and M009–M031 are closed work. M019 passed final pre-tag qualification at `ca527db`; the owner may proceed with the v0.1.0 tag and separate publication/release actions. ADR 003's post-release datagram feature tranche M020–M023 is complete, with M024/M025 performance and setup-hygiene successors closed. ADR 004's richer deterministic-scenario/time-varying schedule tranche M026–M028 is complete and qualified. ADR 005's integration-boundary/harness tranche M029–M031 is complete and qualified at `fa189b9`, with the downstream handoff table in the M031 closure.
+Status: M008 and M009–M031 are closed work. M019 passed final pre-tag qualification at `ca527db`; the owner may proceed with the v0.1.0 tag and separate publication/release actions. ADR 003's post-release datagram feature tranche M020–M023 is complete, with M024/M025 performance and setup-hygiene successors closed. ADR 004's richer deterministic-scenario/time-varying schedule tranche M026–M028 is complete and qualified. ADR 005's integration-boundary/harness tranche M029–M031 is complete and qualified at `fa189b9`. ADR 006 activates the cross-language contract/binding tranche: M032 is ready; M033/M034 are blocked in dependency order.
 
 ## 1. Mission
 
@@ -394,6 +394,43 @@ M031 is closed (`fa189b9`) as the exact-candidate qualification gate. It froze d
 
 The dependency rule is strict: eggchaos must not depend on `eggreplay-*` or `eggprobe-*`. Route identity and impairment identity remain orthogonal. EggReplay continues to own `.eggr`, semantic replay timing, and regression models; EggProbe continues to own route/probe/report/assertion semantics. Their product integrations begin only after M031 closes.
 
+## 11H. Activated cross-language contract and binding sequence
+
+ADR 006 activates a contract-first language-binding tranche:
+
+    M032 native protocol contract extraction + OpenAPI foundation
+      -> M033 Python + TypeScript native-control SDKs
+      -> M034 Python native embedding pilot + binding qualification
+
+M032 is ready and is the sole implementation handoff. It extracts the explicit
+native `/v1` wire DTOs from `eggchaos-server` into a narrow
+`eggchaos-protocol` crate, preserves compatibility re-exports, and adds a
+checked-in OpenAPI contract whose drift against the real server/protocol
+authority is mechanically detected. It adds no foreign SDK or FFI.
+
+M033 is blocked on M032. It builds complete Python and TypeScript/Node remote
+control SDKs from the exact M032 contract, covering stream and datagram
+resources, Scenario V1/V2, evidence/control views, auth, errors, reset/history,
+and metrics. The SDKs do not manage the daemon lifecycle and contain no native
+extension.
+
+M034 is blocked on M033. It adds a coarse safe Rust embedding facade
+(preferred crate `eggchaos-embed`) over existing server/control/experiment
+authorities and qualifies a PyO3/maturin Python native package. Rust/Tokio
+stream traits, futures, borrows, `Arc`, and monotonic `Instant` values do
+not become foreign ABI concepts.
+
+This tranche explicitly does not activate a generic C ABI, Node native addon,
+JNI, P/Invoke, cgo, UniFFI, or WASM. A generic C ABI requires a separate ADR
+after M034 and evidence for at least one additional concrete native consumer
+beyond Python (or equivalently strong demand). Remote Go/Java/.NET clients
+should normally reuse the M032 OpenAPI contract.
+
+All normal Eggchaos Rust crates retain the safe-Rust boundary. No handwritten
+unsafe code is authorized by this tranche; any binding-framework generated FFI
+exception must remain isolated to the binding crate and be recorded/audited by
+M034.
+
 ## 12. Performance targets
 
 No-fault overhead is a first-class regression metric.
@@ -433,7 +470,7 @@ Potential next lines:
 - cross-project integration substrate/harness is implemented under ADR 005 + M029–M031 (closed at `fa189b9`); it remains consumer-neutral and dependency-inward;
 - eggreplay transport-chaos integration is downstream work after M031 so recorded/regression flows can be exercised under deterministic transport conditions without moving `.eggr` semantics into eggchaos;
 - eggprobe controlled-impairment integration is downstream work after M031, initially for transport-bearing TLS/HTTP paths while route/probe/report semantics remain EggProbe-owned;
-- language bindings around the stable Rust engine;
+- cross-language bindings are activated under ADR 006 + M032–M034: native `/v1` protocol/OpenAPI first, Python/TypeScript remote SDKs second, and a Python native embedding pilot third; a generic C ABI remains deferred;
 - richer time-varying scenarios and deterministic schedule files are activated under ADR 004 + M026–M028;
 - post-v2.12 Toxiproxy extensions where useful;
 - target-class SBC qualification and service-management integration through Eggstack shared updater/service machinery if operational demand exists.

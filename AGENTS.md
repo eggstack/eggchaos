@@ -98,6 +98,16 @@ V2 experiment harness/shared monotonic start epoch behind
 `eggreplay-*` or `eggprobe-*` production dependencies to eggchaos;
 product-specific adoption remains downstream.
 
+ADR 006 activates the current handoff chain: `M032 (ready) -> M033
+(blocked) -> M034 (blocked)`. M032 is the sole ready item. It must first
+extract the explicit native wire contract into `eggchaos-protocol` and add
+mechanically checked OpenAPI while preserving server behavior/re-exports. M033
+then builds Python and TypeScript remote SDKs from that exact contract. M034
+then adds a safe coarse `eggchaos-embed` facade and PyO3/maturin Python
+native pilot. Do not start a generic C ABI, Node native addon, JNI, P/Invoke,
+cgo, UniFFI, or WASM work under these plans; a generic C ABI requires a later
+ADR after demonstrated multi-consumer demand.
+
 If the owner asks for new work: `plans/roadmap.md` is the architecture authority, `plans/reference/` holds parity/verification contracts (not status), ADRs live in `plans/adrs/`. Any new numbered plan needs objective, baseline/deps, scope + non-goals, affected crates, ordered work packages, invariants/failure semantics, test commands, acceptance criteria, stop conditions, closure evidence, and follow-on rules — and must update `plans/registry.md` in the same change. Never mark `closed` from source inspection; closure requires running the plan's tests on the exact candidate plus external/differential evidence where declared.
 
 ## Verification

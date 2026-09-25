@@ -11,7 +11,7 @@ Eggchaos is intended to be a small Rust-native successor to the useful core of T
 | `roadmap.md` | Long-term architecture, sequencing, release stages, and future extensions. |
 | `registry.md` | Current milestone status and dependency source of truth. |
 | `000-architecture-and-scope-baseline.md` | Investigated baseline, reuse decisions, scope boundaries, and initial dependency graph. |
-| `001-*.md` ... `031-*.md` | Bounded implementation, corrective, cleanup, feature, qualification, maintenance, richer-scenario, and integration-boundary handoffs in execution order. |
+| `001-*.md` ... `034-*.md` | Bounded implementation, corrective, cleanup, feature, qualification, maintenance, richer-scenario, integration-boundary, and language-binding handoffs in execution order. |
 | `adrs/` | Durable architecture decisions that should not be silently changed by implementation. |
 | `reference/toxiproxy-parity.md` | Compatibility target and semantic mapping. |
 | `reference/verification-matrix.md` | Required evidence across faults, platforms, APIs, and performance. |
@@ -46,14 +46,19 @@ engines. Later schedule work (ramps, predicates, lifecycle actions, cron)
 requires separate planning and must compile to or compose with this bounded
 model rather than bypass it.
 
-ADR 005 now activates the cross-project integration-boundary/harness tranche:
-`M029 (ready) -> M030 (blocked) -> M031 (blocked)`. M029 is the sole ready
-handoff and must first make the EggFetch chaos adapter composable over arbitrary
-Dialers, freeze caller-controlled physical connection identity, and expose
-bounded bidirectional evidence. M030 then adds the consumer-neutral Scenario V2
-experiment harness/shared monotonic start epoch; M031 qualifies the exact
-candidate and records downstream EggReplay/EggProbe handoff seams. No
-EggReplay/EggProbe production dependency belongs in eggchaos.
+ADR 005's cross-project integration-boundary/harness tranche is complete:
+`M029 (closed) -> M030 (closed) -> M031 (closed)`. M031 qualified exact
+candidate `fa189b9` and recorded the closure-backed EggReplay/EggProbe
+handoff seams. No EggReplay/EggProbe production dependency belongs in
+eggchaos.
+
+ADR 006 now activates the language-binding tranche:
+`M032 (ready) -> M033 (blocked) -> M034 (blocked)`. M032 is the sole ready
+handoff and first extracts the stable native wire contract into a narrow
+`eggchaos-protocol` crate with mechanically verified OpenAPI. M033 then
+builds Python and TypeScript remote SDKs from that contract. M034 adds a safe
+Rust embedding facade plus the first native Python pilot. A generic C ABI is
+explicitly deferred pending evidence for another native consumer.
 
 Historical closure records remain preserved at their real candidate commits. M015 remains valid qualification evidence for `cd88b22`; M019 is the final current release-candidate authority at `ca527db`.
 
@@ -83,7 +88,7 @@ The initial architecture is deliberately narrow:
 
 The native admin plane should use the leaf `eggserve-server` + `eggserve-primitives` H1 substrate. The CLI should use a minimal `eggfetch-core` HTTP profile to call it. `eggress-admin` is not used because its state model is specific to Eggress routing, UDP, metrics, and reverse-proxy administration.
 
-The first release is TCP byte-stream focused. UDP/datagram chaos is implemented as the post-release tranche under ADR 003 (M020–M023), with M024/M025 performance and setup-hygiene successors closed, and remains outside the first-release/M019 historical scope. Richer deterministic scenarios are complete under ADR 004 + M026–M028. The consumer-neutral cross-project integration substrate is now activated under ADR 005 + M029–M031; EggReplay/EggProbe product-specific adoption remains downstream work after M031. Arbitrary outbound proxy chains and language bindings remain later roadmap items.
+The first release is TCP byte-stream focused. UDP/datagram chaos is implemented as the post-release tranche under ADR 003 (M020–M023), with M024/M025 performance and setup-hygiene successors closed, and remains outside the first-release/M019 historical scope. Richer deterministic scenarios are complete under ADR 004 + M026–M028. The consumer-neutral cross-project integration substrate is complete under ADR 005 + M029–M031; EggReplay/EggProbe product-specific adoption remains downstream work. Cross-language control/embedding work is activated under ADR 006 + M032–M034, beginning with the native protocol/OpenAPI boundary rather than a generic C ABI. Arbitrary outbound proxy chains remain a later roadmap item.
 
 ## Research baseline
 
@@ -102,3 +107,7 @@ See the baseline and reference documents for exact conclusions.
 ## Datagram research update
 
 On 2026-09-24 the UDP/datagram roadmap item was re-researched against current eggchaos `main`, current Eggress UDP/runtime surfaces (especially `eggress-udp` and its fixed-target compatibility behavior), Tokio UDP receive semantics, and Linux `tc netem` as a semantic reference rather than an implementation dependency. ADR 003 and M020–M023 encode the resulting boundary and execution order.
+
+## Language binding research update
+
+On 2026-09-25 the post-v1 language-binding direction was reviewed against the closure-backed M017/M026–M031 boundaries and current Rust/Python binding tooling. ADR 006 + M032–M034 encode the resulting order: native `/v1` protocol/OpenAPI authority first, Python + TypeScript remote SDKs second, and a coarse safe Rust facade + PyO3/maturin Python embedding pilot third. Direct binding of Tokio stream internals and a generic C ABI are intentionally deferred.
