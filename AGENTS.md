@@ -103,14 +103,15 @@ V2 experiment harness/shared monotonic start epoch behind
 product-specific adoption remains downstream.
 
 ADR 006's feature chain is complete: `M032 (closed at ed05f68) ->
-M033 (closed at 429d459) -> M034 (closed at 991818b)`. A post-closure audit
-registered `M035 (ready)` as the sole current handoff. M035 is corrective:
-fix the hosted language-client cleanup false failure, make native-Python
-qualification host-aware and protected by hosted CI, consolidate datagram
-fault mutation semantics below HTTP/embed, reconcile current-state planning,
-and require green exact-head hosted evidence before closure. Do not rewrite
-M032–M034 closure history. Do not start a generic C ABI, Node native addon,
-JNI, P/Invoke, cgo, UniFFI, or WASM under M035; a generic C ABI still requires
+M033 (closed at 429d459) -> M034 (closed at 991818b)`. The post-closure
+corrective `M035 (closed at a710cd6)` fixed the hosted language-client
+cleanup false failure, made native-Python qualification host-aware and
+protected by hosted CI, consolidated datagram fault mutation semantics
+below HTTP/embed, reconciled current-state planning, and requalified the
+exact head with a green hosted matrix. No ready or blocked handoff
+remains; M035 activates no successor. Do not rewrite M032–M035 closure
+history. Do not start a generic C ABI, Node native addon, JNI, P/Invoke,
+cgo, UniFFI, or WASM under M035; a generic C ABI still requires
 a separate ADR after demonstrated multi-consumer demand.
 
 If the owner asks for new work: `plans/roadmap.md` is the architecture authority, `plans/reference/` holds parity/verification contracts (not status), ADRs live in `plans/adrs/`. Any new numbered plan needs objective, baseline/deps, scope + non-goals, affected crates, ordered work packages, invariants/failure semantics, test commands, acceptance criteria, stop conditions, closure evidence, and follow-on rules — and must update `plans/registry.md` in the same change. Never mark `closed` from source inspection; closure requires running the plan's tests on the exact candidate plus external/differential evidence where declared.

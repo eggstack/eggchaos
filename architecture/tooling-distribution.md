@@ -11,9 +11,9 @@ passed its final corrective qualification on `ca527db`; M025 closed the
 post-M024 datagram association setup/closure hygiene pass on `55911f6`.
 The ADR 004 scenario-schedule tranche (M026–M028), the ADR 005
 integration-boundary tranche (M029–M031), and the ADR 006
-cross-language tranche (M032–M034) are closed. M035 is the sole ready
-corrective successor for hosted SDK/native-Python qualification,
-shared datagram mutation authority, and planning closure.
+cross-language tranche (M032–M034) are closed. M035 closed the corrective
+successor on `a710cd6` (hosted SDK/native-Python qualification, shared
+datagram mutation authority, planning closure; hosted 13/13 matrix green).
 Tagging, crates.io publication, and GitHub release creation remain explicit
 owner actions (`plans/registry.md`, `plans/README.md`,
 `plans/019-qualification-expansion-and-final-corrective-requalification.md`).

@@ -1,6 +1,6 @@
 # Eggchaos Long-Term Roadmap
 
-Status: M008 and M009–M034 are historical closed work. M019 passed final pre-tag qualification at `ca527db`; the owner may proceed with the v0.1.0 tag and separate publication/release actions. ADR 003's post-release datagram feature tranche M020–M023 is complete, with M024/M025 successors closed. ADR 004's richer deterministic-scenario tranche M026–M028 is complete. ADR 005's integration-boundary tranche M029–M031 is complete. ADR 006's cross-language feature tranche M032–M034 is complete, but a post-closure audit registered M035 as the sole ready corrective successor for hosted qualification, datagram mutation authority consolidation, and planning closure.
+Status: M008 and M009–M035 are historical closed work. M019 passed final pre-tag qualification at `ca527db`; the owner may proceed with the v0.1.0 tag and separate publication/release actions. ADR 003's post-release datagram feature tranche M020–M023 is complete, with M024/M025 successors closed. ADR 004's richer deterministic-scenario tranche M026–M028 is complete. ADR 005's integration-boundary tranche M029–M031 is complete. ADR 006's cross-language feature tranche M032–M034 is complete, and the M035 corrective successor closed on `a710cd6` with green exact-head hosted SDK/native-Python qualification, a single datagram mutation authority, and reconciled planning. No ready or blocked handoff remains.
 
 ## 1. Mission
 
@@ -449,10 +449,10 @@ A post-M034 audit found four bounded closure defects, not a new binding feature:
 - current-state planning/handoff text is inconsistent with the already-closed
   M032–M034 rows.
 
-M035 is ready and is the sole corrective handoff. It must preserve the ADR 006
-architecture, consolidate datagram mutation semantics below HTTP/embed,
-establish truthful hosted native-Python qualification, reconcile planning, and
-obtain a green exact-head hosted matrix before closure. M032–M034 historical
+M035 is closed on `a710cd6` and is the corrective handoff record. It preserved the ADR 006
+architecture, consolidated datagram mutation semantics below HTTP/embed,
+established truthful hosted native-Python qualification, reconciled planning, and
+obtained a green exact-head hosted matrix (13/13 jobs). M032–M034 historical
 closure records remain immutable evidence of their original candidates.
 
 ## 12. Performance targets
@@ -494,7 +494,7 @@ Potential next lines:
 - cross-project integration substrate/harness is implemented under ADR 005 + M029–M031 (closed at `fa189b9`); it remains consumer-neutral and dependency-inward;
 - eggreplay transport-chaos integration is downstream work after M031 so recorded/regression flows can be exercised under deterministic transport conditions without moving `.eggr` semantics into eggchaos;
 - eggprobe controlled-impairment integration is downstream work after M031, initially for transport-bearing TLS/HTTP paths while route/probe/report semantics remain EggProbe-owned;
-- cross-language bindings are implemented under ADR 006 + M032–M034; M035 is the ready bounded corrective successor for hosted SDK/native-Python qualification, shared datagram mutation authority, and exact-head closure. A generic C ABI remains deferred pending a separate ADR and demand;
+- cross-language bindings are implemented under ADR 006 + M032–M034 and correctively qualified under M035 (closed at `a710cd6`). A generic C ABI remains deferred pending a separate ADR and demand;
 - richer time-varying scenarios and deterministic schedule files are activated under ADR 004 + M026–M028;
 - post-v2.12 Toxiproxy extensions where useful;
 - target-class SBC qualification and service-management integration through Eggstack shared updater/service machinery if operational demand exists.

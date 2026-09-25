@@ -1,6 +1,6 @@
 # Eggchaos Plan Registry
 
-Last reconciled: 2026-09-25 (M035 corrective/closure successor registered; M032–M034 remain historical closed work; M035 is sole ready handoff)
+Last reconciled: 2026-09-25 (M035 closed on `a710cd6`; M032–M035 are historical closed work; no ready or blocked handoff remains)
 
 This file is the compact source of truth for active milestone state. Detailed scope lives in the numbered plans. Historical closure evidence belongs in `plans/closure/`.
 
@@ -41,7 +41,7 @@ This file is the compact source of truth for active milestone state. Detailed sc
 | M032 | `032-native-protocol-contract-extraction-and-openapi-foundation.md` | **closed** | M031 + ADR 006 | Closed on exact candidate `ed05f68`; evidence in `plans/closure/M032-native-protocol-contract-extraction-and-openapi-foundation-closure.md`. `eggchaos-protocol` owns wire DTOs + `NATIVE_OPERATIONS`; OpenAPI drift-checked; server behavior preserved. |
 | M033 | `033-python-and-typescript-native-control-sdks.md` | **closed** | M032 | Closed on exact candidate `429d459`; evidence in `plans/closure/M033-python-and-typescript-native-control-sdks-closure.md`. Stdlib-only Python sync/async + zero-dep TypeScript clients over the exact M032 contract; drift-checked derivation, live cross-language qualification, package artifacts built. |
 | M034 | `034-python-native-embedding-pilot-and-binding-qualification.md` | **closed** | M033 | Closed on exact candidate `991818b`; evidence in `plans/closure/M034-python-native-embedding-pilot-and-binding-qualification-closure.md`. Safe `eggchaos-embed` facade + PyO3/maturin `eggchaos-native` pilot (abi3), remote/native conformance green, C ABI decided no-go. |
-| M035 | `035-cross-language-qualification-and-closure-corrective.md` | **ready** | M034 | Correct hosted SDK false-red cleanup semantics, add hosted native-Python qualification, consolidate datagram fault mutation authority, reconcile planning state, and requalify exact head. Sole ready handoff. |
+| M035 | `035-cross-language-qualification-and-closure-corrective.md` | **closed** | M034 | Closed on exact candidate `a710cd6`; evidence in `plans/closure/M035-cross-language-qualification-and-closure-corrective-closure.md`. Hosted SDK false-red fixed, hosted native-Python gate green, single datagram fault mutation authority, planning reconciled. Activates no successor. |
 
 ## Execution state
 
@@ -115,10 +115,11 @@ A post-closure audit found bounded qualification/hygiene debt rather than a new
 binding feature: hosted remote-SDK qualification prints pass but exits 143
 during expected child-process cleanup; native Python is not yet protected by a
 portable hosted gate; datagram fault mutation semantics are duplicated between
-HTTP and embed; and current-state planning text drifted. M035 is the sole ready
-corrective successor. It does not reopen or rewrite M032–M034 historical
-closures. A generic C ABI, Node native addon, JNI, P/Invoke, cgo, UniFFI, and
-WASM remain unactivated.
+HTTP and embed; and current-state planning text drifted. M035 closed on
+`a710cd6` as the corrective successor (hosted 13/13 matrix green, single
+datagram authority, planning reconciled). It does not reopen or rewrite
+M032–M034 historical closures. A generic C ABI, Node native addon, JNI,
+P/Invoke, cgo, UniFFI, and WASM remain unactivated.
 
 ## Post-release roadmap state
 
@@ -131,15 +132,15 @@ The completed UDP/datagram tranche is listed below; the remaining items are post
 | cross-project integration boundary / experiment harness | completed | ADR 005 tranche M029–M031 closed and qualified at `fa189b9`; follow-on substrate work requires separate planning. |
 | eggreplay timing/fault integration | ready downstream | M031 closure + EggReplay-owned adoption plan; `.eggr`/semantic timing remain EggReplay authority. |
 | eggprobe controlled impairment experiments | ready downstream | M031 closure + EggProbe-owned adoption plan; route/probe/report semantics remain EggProbe authority. |
-| cross-language control SDKs / native Python embedding | implemented; corrective qualification ready | ADR 006 chain M032–M034 remains historically closed; M035 is ready to reconcile hosted SDK/native-Python qualification, datagram mutation authority, and planning closure. Generic C ABI remains no-go pending separate ADR + demand. |
+| cross-language control SDKs / native Python embedding | implemented and correctively qualified | ADR 006 chain M032–M034 plus corrective M035 (closed at `a710cd6`) reconciled hosted SDK/native-Python qualification, datagram mutation authority, and planning closure. Generic C ABI remains no-go pending separate ADR + demand. |
 | richer deterministic scenarios / time-varying schedule files | completed | ADR 004 tranche M026–M028 closed and qualified at `ceb3bae`; ScenarioV1 remains a compatibility surface. Follow-on schedule work requires separate planning. |
 | current-Toxiproxy post-2.12 extensions such as stream-chunk `packet_loss` | future | M012 v2.12 parity requalified and M008 closed. |
 
 ## Dependency-ready view
 
-Completed work: M000–M034 and M008 are historical closed work.
+Completed work: M000–M035 and M008 are historical closed work.
 
-Ready: M035.
+Ready: none.
 
 Active: none.
 
@@ -165,7 +166,7 @@ Completed integration-boundary execution order: `ADR 005 -> M029 (closed at add4
 
 Completed cross-language execution order: `ADR 006 -> M032 (closed at ed05f68) -> M033 (closed at 429d459) -> M034 (closed at 991818b)`. The chain activates no automatic successor; a generic C ABI needs a separate ADR plus a second concrete consumer (M034 decided no-go).
 
-Corrective qualification successor: `M035 (ready)`. M035 is the sole implementation handoff and must obtain a green exact-head hosted matrix before closure; it does not rewrite M032–M034 closure evidence.
+Corrective qualification successor: `M035 (closed at a710cd6)`. M035 obtained a green exact-head hosted matrix (13/13 jobs) and reconciled planning without rewriting M032–M034 closure evidence. It activates no successor.
 
 ## Closure requirements
 
