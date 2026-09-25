@@ -53,7 +53,10 @@ fuzz_target!(|input: &[u8]| {
         let _ = value.validate();
     }
     if let Ok(value) = serde_json::from_slice::<RuntimeConfigV1>(input) {
-        let _ = value.clone().limits();
+        // `validate` is the current admission-bounds entry (the pre-M032
+        // `limits()` assembler was removed by the protocol extraction);
+        // conversion must never panic on arbitrary DTO bytes.
+        let _ = value.validate();
         let _ = value.clone().relay_buffer();
         let _ = value.termination_grace();
     }

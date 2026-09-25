@@ -3,8 +3,8 @@
 
 use eggchaos_embed::{EmbedOptions, EmbeddedService};
 use eggchaos_protocol::{
-    DatagramFaultUpsertV1, FaultUpsertV1, NativeDatagramProxyRequestV1, NativeProxyRequestV1,
-    ScenarioScheduleV2Dto, ScenarioV1,
+    DatagramFaultPatchV1, DatagramFaultUpsertV1, FaultUpsertV1, NativeDatagramProxyRequestV1,
+    NativeProxyRequestV1, ScenarioScheduleV2Dto, ScenarioV1,
 };
 
 fn proxy(name: &str) -> NativeProxyRequestV1 {
@@ -265,6 +265,248 @@ fn facade_and_http_admin_agree_on_protocol_views() {
         let http_fault: serde_json::Value =
             serde_json::from_slice(&response.bytes().await.unwrap()).unwrap();
         assert_eq!(http_fault["fault"], facade_fault);
+        admin.shutdown();
+        admin.wait().await;
+    });
+    service.shutdown();
+}
+
+fn datagram_upsert(direction: &str, id: &str, probability: f64) -> DatagramFaultUpsertV1 {
+    serde_json::from_value(serde_json::json!({
+        "direction": direction, "id": id, "probability": probability,
+        "kind": {"type": "loss"}
+    }))
+    .unwrap()
+}
+
+/// Datagram HTTP/embed conformance for the shared fault mutation
+/// authority: create/get/list/patch/delete plus same-direction,
+/// cross-direction, empty-patch, and post-delete not-found behavior.
+/// Both surfaces delegate to one `ControlState` authority, so any
+/// reintroduced semantic split fails here.
+#[test]
+fn datagram_facade_and_http_admin_agree_on_mutation_and_conflicts() {
+    let service = EmbeddedService::start(EmbedOptions::default()).unwrap();
+    let request: NativeDatagramProxyRequestV1 = serde_json::from_value(serde_json::json!({
+        "name": "dconf", "listen": "127.0.0.1:0", "upstream": "127.0.0.1:9"
+    }))
+    .unwrap();
+    let (embed_view, _) = service.create_datagram_proxy(request).unwrap();
+
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let (mut admin, base) = runtime.block_on(async {
+        let state = service.control_state();
+        let admin = eggchaos_server::NativeAdmin::start(
+            eggchaos_server::AdminConfig {
+                bind: "127.0.0.1:0".parse().unwrap(),
+                ..eggchaos_server::AdminConfig::default()
+            },
+            state,
+        )
+        .await
+        .unwrap();
+        let base = format!("http://{}", admin.local_addr());
+        (admin, base)
+    });
+
+    // 1. Datagram proxy creation view agrees.
+    runtime.block_on(async {
+        let client = eggfetch_core::Client::builder().build();
+        let mut response = client
+            .get(&format!("{base}/v1/datagram-proxies/dconf"))
+            .unwrap()
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        let http_view: serde_json::Value =
+            serde_json::from_slice(&response.bytes().await.unwrap()).unwrap();
+        assert_eq!(http_view, serde_json::to_value(&embed_view).unwrap());
+    });
+
+    // 2. Add an upstream fault through embed.
+    let (direction, fault, _) = service
+        .add_datagram_fault("dconf", datagram_upsert("upstream", "lag", 1.0))
+        .unwrap();
+    assert_eq!(direction, eggchaos_core::Direction::Upstream);
+    let facade_fault = serde_json::to_value(&fault).unwrap();
+
+    // 3-4. Get-by-path and directional list agree across surfaces.
+    // NOTE: embed calls must stay outside `block_on` (the facade owns a
+    // private runtime and cannot block from inside another runtime).
+    let http_list = runtime.block_on(async {
+        let client = eggfetch_core::Client::builder().build();
+        let mut response = client
+            .get(&format!("{base}/v1/datagram-proxies/dconf/faults/lag"))
+            .unwrap()
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        let http_got: serde_json::Value =
+            serde_json::from_slice(&response.bytes().await.unwrap()).unwrap();
+        assert_eq!(http_got["direction"], "upstream");
+        assert_eq!(http_got["fault"], facade_fault);
+        let mut response = client
+            .get(&format!("{base}/v1/datagram-proxies/dconf/faults"))
+            .unwrap()
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        let http_list: serde_json::Value =
+            serde_json::from_slice(&response.bytes().await.unwrap()).unwrap();
+        assert_eq!(http_list["upstream"]["faults"].as_array().unwrap().len(), 1);
+        assert_eq!(http_list["upstream"]["faults"][0], facade_fault);
+        assert!(http_list["downstream"]["faults"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+        http_list
+    });
+    let (embed_upstream, embed_downstream) = service.list_datagram_faults("dconf").unwrap();
+    assert_eq!(
+        http_list["upstream"]["faults"],
+        serde_json::to_value(&embed_upstream).unwrap()
+    );
+    assert_eq!(
+        http_list["downstream"]["faults"],
+        serde_json::to_value(&embed_downstream).unwrap()
+    );
+
+    // 5-6. Duplicate conflicts agree: same-direction and cross-direction
+    // adds are conflicts on both surfaces.
+    assert!(matches!(
+        service.add_datagram_fault("dconf", datagram_upsert("upstream", "lag", 0.5)),
+        Err(eggchaos_embed::EmbedError::Conflict(_))
+    ));
+    assert!(matches!(
+        service.add_datagram_fault("dconf", datagram_upsert("downstream", "lag", 0.5)),
+        Err(eggchaos_embed::EmbedError::Conflict(_))
+    ));
+    runtime.block_on(async {
+        let client = eggfetch_core::Client::builder().build();
+        for direction in ["upstream", "downstream"] {
+            let response = client
+                .post(&format!("{base}/v1/datagram-proxies/dconf/faults"))
+                .unwrap()
+                .json(&serde_json::json!({
+                    "direction": direction, "id": "lag",
+                    "probability": 0.5, "kind": {"type": "loss"}
+                }))
+                .unwrap()
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status(), 409, "duplicate via {direction}");
+        }
+    });
+
+    // 7. Patch through HTTP is visible through embed.
+    runtime.block_on(async {
+        let client = eggfetch_core::Client::builder().build();
+        let mut response = client
+            .patch(&format!("{base}/v1/datagram-proxies/dconf/faults/lag"))
+            .unwrap()
+            .json(&serde_json::json!({"probability": 0.5}))
+            .unwrap()
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        let patched: serde_json::Value =
+            serde_json::from_slice(&response.bytes().await.unwrap()).unwrap();
+        assert_eq!(patched["fault"]["probability"], 0.5);
+    });
+    let (_, got) = service.get_datagram_fault("dconf", "lag").unwrap();
+    assert_eq!(got.probability, 0.5);
+
+    // 8. Patch through embed is visible through HTTP.
+    let (_, updated, _) = service
+        .patch_datagram_fault(
+            "dconf",
+            "lag",
+            serde_json::from_value(serde_json::json!({"probability": 0.25})).unwrap(),
+        )
+        .unwrap();
+    assert_eq!(updated.probability, 0.25);
+    runtime.block_on(async {
+        let client = eggfetch_core::Client::builder().build();
+        let mut response = client
+            .get(&format!("{base}/v1/datagram-proxies/dconf/faults/lag"))
+            .unwrap()
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        let http_got: serde_json::Value =
+            serde_json::from_slice(&response.bytes().await.unwrap()).unwrap();
+        assert_eq!(http_got["fault"]["probability"], 0.25);
+    });
+
+    // 9. Empty patches are rejected on both surfaces.
+    let empty: DatagramFaultPatchV1 = serde_json::from_value(serde_json::json!({})).unwrap();
+    assert!(matches!(
+        service.patch_datagram_fault("dconf", "lag", empty),
+        Err(eggchaos_embed::EmbedError::Validation(_))
+    ));
+    runtime.block_on(async {
+        let client = eggfetch_core::Client::builder().build();
+        let response = client
+            .patch(&format!("{base}/v1/datagram-proxies/dconf/faults/lag"))
+            .unwrap()
+            .json(&serde_json::json!({}))
+            .unwrap()
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 400);
+    });
+
+    // 10. Delete through HTTP is a not-found on both surfaces after.
+    runtime.block_on(async {
+        let client = eggfetch_core::Client::builder().build();
+        let mut response = client
+            .delete(&format!("{base}/v1/datagram-proxies/dconf/faults/lag"))
+            .unwrap()
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        let deleted: serde_json::Value =
+            serde_json::from_slice(&response.bytes().await.unwrap()).unwrap();
+        assert_eq!(deleted["deleted"], true);
+        let response = client
+            .get(&format!("{base}/v1/datagram-proxies/dconf/faults/lag"))
+            .unwrap()
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 404);
+    });
+    assert!(matches!(
+        service.get_datagram_fault("dconf", "lag"),
+        Err(eggchaos_embed::EmbedError::NotFound(_))
+    ));
+    assert!(matches!(
+        service.remove_datagram_fault("dconf", "lag"),
+        Err(eggchaos_embed::EmbedError::NotFound(_))
+    ));
+
+    // 11. Proxy delete cleans up on both surfaces.
+    service.delete_datagram_proxy("dconf").unwrap();
+    runtime.block_on(async {
+        let client = eggfetch_core::Client::builder().build();
+        let response = client
+            .get(&format!("{base}/v1/datagram-proxies/dconf"))
+            .unwrap()
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 404);
         admin.shutdown();
         admin.wait().await;
     });

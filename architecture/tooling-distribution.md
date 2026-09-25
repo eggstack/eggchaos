@@ -9,6 +9,11 @@ workflows (`.github/workflows/`), dependency/supply-chain policy
 Pre-release `0.1.0`. Milestones M000–M025 plus M008 are closed. M019
 passed its final corrective qualification on `ca527db`; M025 closed the
 post-M024 datagram association setup/closure hygiene pass on `55911f6`.
+The ADR 004 scenario-schedule tranche (M026–M028), the ADR 005
+integration-boundary tranche (M029–M031), and the ADR 006
+cross-language tranche (M032–M034) are closed. M035 is the sole ready
+corrective successor for hosted SDK/native-Python qualification,
+shared datagram mutation authority, and planning closure.
 Tagging, crates.io publication, and GitHub release creation remain explicit
 owner actions (`plans/registry.md`, `plans/README.md`,
 `plans/019-qualification-expansion-and-final-corrective-requalification.md`).
@@ -31,10 +36,11 @@ re-implementing their steps.
 | `scripts/check_openapi.sh` | `cargo test -p eggchaos-protocol --all-features` (OpenAPI drift + golden fixtures) + `cargo test -p eggchaos-server --all-features --test native_route_inventory` (live 36-operation inventory proof) + a YAML shape assertion. | Native contract gate after any protocol/server/OpenAPI change; part of the release qualify lane. |
 | `scripts/check_python_client.sh` | Regeneration drift + Python unit tests (no server). | Python SDK changes. |
 | `scripts/check_typescript_client.sh` | Typecheck + build + contract/cross-language tests (no server). | TypeScript SDK changes. |
-| `scripts/qualify_language_clients.sh` | Loopback server: equivalent sync/async/TS flows + sdist/wheel and tarball builds. | Cross-language qualification. |
-| `scripts/check_python_native.sh` | `eggchaos-embed` + binding-crate tests, unsafe-boundary audit, binding-crate audit, abi3 wheel build, server-independent Python tests. | Native binding changes. |
-| `scripts/qualify_python_native.sh` | Remote/native conformance + control-overhead measurements against a loopback daemon. | Binding qualification. |
-| `scripts/build_python_native_artifacts.sh` | abi3 wheel matrix + sdist + per-artifact import smoke (no publication). | Wheel builds. |
+| `scripts/qualify_language_clients.sh` | Loopback servers: equivalent sync/async/TS flows + sdist/wheel and tarball builds. Uses status-preserving child cleanup (captured qualification status, guarded `wait` reaping, temp removal) so expected SIGTERM reaping never leaks exit 143. | Cross-language qualification. |
+| `scripts/tests/test_cleanup_traps.sh` | Regression for the qualification cleanup pattern: static trap-shape checks on both server-spawning qualification scripts plus pass/fail fixtures proving exit preservation, child reaping, and temp cleanup. | Binding-qualification hygiene; runs in the `language-clients` CI job. |
+| `scripts/check_python_native.sh` | `eggchaos-embed` + binding-crate tests, unsafe-boundary audit, binding-crate audit, abi3 wheel build, server-independent Python tests. Target selection is host-aware (OS + architecture; Apple targets only on Darwin; `EGGCHAOS_NATIVE_TARGET` override for intentional cross builds). | Native binding changes. |
+| `scripts/qualify_python_native.sh` | Remote/native conformance + control-overhead measurements against a loopback daemon. Same host-aware target selection and status-preserving server cleanup as above. | Binding qualification. |
+| `scripts/build_python_native_artifacts.sh` | Host-native abi3 wheel + sdist + per-artifact import smoke (no publication). Apple cross-arch wheels are only produced on a Darwin host with the target installed; cross-built wheels are never import-smoked without a matching interpreter. | Wheel builds. |
 | `scripts/release-smoke.sh` | Full pre-publish gate: fmt + clippy (`-D warnings`) + workspace tests + doc + `cargo build --workspace --release` + `cargo audit --deny warnings` + `cargo deny check advisories licenses bans sources` + `cargo package -p eggchaos-core --allow-dirty` + `cargo package --list --allow-dirty` for all workspace crates + `cargo build --release --locked --package eggchaos-cli` + `./scripts/release-artifact-smoke.sh` + an embedded Python `cargo metadata --locked` order-publishability proof asserting every intra-workspace path dependency requires exactly `^{workspace_version}` from the registry, documenting order `core -> experiment/eggfetch -> protocol -> server/toxiproxy/cli -> embed`. | Before any tag; first job step of the release `qualify` lane. |
 | `scripts/release-artifact-smoke.sh` | Boots `target/release/eggchaos serve --config qualification/release/eggchaos.toml` (overridable as `$1`/`$2`), waits up to ~5 s for the `eggchaos listening; admin=` log line, then asserts: `/v1/health`; TCP `proxy list`; UDP `datagram proxy list`; `reset`; and `version`. Prints `{"artifact_smoke":"pass"}`; cleans up the child process and log on exit via trap. | Standalone after a release build; also called at the end of `release-smoke.sh` and as the last step of the release `qualify` job. |
 
@@ -63,6 +69,19 @@ config/control/evidence, transition, and compatibility targets), `benchmarks/`
 Ordinary three-platform CI is necessary but not sufficient for release —
 M015 additionally requires the dedicated release workflow on the exact
 candidate (see §3).
+
+- Job `language-clients` (`timeout-minutes: 25`, matrix
+  `[ubuntu-latest, macos-latest] × python ["3.11", "3.12"] × node
+  ["20", "22"]`): `sh scripts/tests/test_cleanup_traps.sh`,
+  `./scripts/check_openapi.sh`, `./scripts/check_python_client.sh`,
+  `./scripts/check_typescript_client.sh`,
+  `./scripts/qualify_language_clients.sh`.
+- Job `python-native` (M035; `timeout-minutes: 25`, matrix
+  `[ubuntu-latest, macos-latest] × python ["3.12"]`, pinned
+  `maturin==1.9.5`): `./scripts/check_python_native.sh` then
+  `./scripts/qualify_python_native.sh` on native-host wheels, kept
+  separate so Rust and remote-SDK gates stay independent of Python
+  packaging availability.
 
 ## 3. Release qualification (`.github/workflows/release.yml`)
 
@@ -226,7 +245,7 @@ closure; neither may claim unsupported behavior.
 | Optional `eggress-outbound` chained upstreams | future | Proven demand; optional feature only; must not turn eggchaos into a second proxy framework. |
 | `eggreplay` timing/fault integration | future | Stable eggreplay flow model + M008. |
 | `eggprobe` controlled experiments | future | Stable eggprobe diagnostics contract + M008. |
-| Python / FFI / language bindings | future | Stable Rust API after first release; no parallel networking implementation. |
+| Python / TypeScript remote control SDKs + Python native embedding | implemented; corrective qualification via M035 | ADR 006 chain M032–M034 closed; M035 reconciles hosted SDK/native-Python qualification, the shared datagram mutation authority, and planning closure. A generic C ABI remains deferred pending a separate ADR and demonstrated multi-consumer demand. |
 | Richer schedulers / time-varying fault scripts | future | M011 corrected scenario model proven + M008. |
 | Post-v2.12 Toxiproxy (`packet_loss` etc.) | future | M012 v2.12 parity requalified + M008; native name must be stream-chunk loss, not packet loss. |
 | TLS interception / HTTP rewriting, forward/CONNECT/SOCKS proxying, QUIC/SSH protocols, plugin ABI, distributed coordination, DB persistence | non-goals (`plans/000-architecture-and-scope-baseline.md`) | Fresh planning pass; none may weaken the fixed-target, protocol-neutral core boundary (`plans/roadmap.md` §14). |

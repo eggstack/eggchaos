@@ -14,9 +14,22 @@ fi
 grep -n "allow(unsafe_code)" bindings/python-native/src/lib.rs
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT INT TERM
+# Host-aware target selection: derive from OS + architecture. Only Darwin
+# interpreters may select an Apple target; Linux/Windows always use
+# native-host builds. Override with EGGCHAOS_NATIVE_TARGET for intentional
+# cross builds (not runtime-qualified without a matching import).
 NATIVE_TARGET=""
-if [ "$(python3 -c 'import platform; print(platform.machine())')" = "x86_64" ]; then
-  NATIVE_TARGET="--target x86_64-apple-darwin"
+HOST_OS="$(uname -s)"
+HOST_ARCH="$(python3 -c 'import platform; print(platform.machine())')"
+case "$HOST_OS" in
+  Darwin)
+    case "$HOST_ARCH" in
+      x86_64) NATIVE_TARGET="--target x86_64-apple-darwin" ;;
+    esac
+    ;;
+esac
+if [ -n "${EGGCHAOS_NATIVE_TARGET:-}" ]; then
+  NATIVE_TARGET="--target $EGGCHAOS_NATIVE_TARGET"
 fi
 (cd bindings/python-native && python3 -m maturin build $NATIVE_TARGET --out "$WORK/wheels")
 WHEEL="$(ls "$WORK"/wheels/*.whl | head -1)"

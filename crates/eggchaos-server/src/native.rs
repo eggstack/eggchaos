@@ -214,6 +214,23 @@ pub fn datagram_fault_patch_into_parts(
     patch.into_core_parts()
 }
 
+/// Assemble a runtime datagram fault upsert from its wire request.
+pub fn datagram_fault_upsert_into_runtime(
+    upsert: DatagramFaultUpsertV1,
+) -> Result<(eggchaos_core::Direction, eggchaos_core::DatagramFaultSpec), String> {
+    let direction = upsert.direction;
+    let fault = upsert.fault.into_core()?;
+    Ok((direction, fault))
+}
+
+/// Assemble a runtime datagram fault patch from its wire request.
+pub fn datagram_fault_patch_into_runtime(
+    patch: DatagramFaultPatchV1,
+) -> Result<crate::DatagramFaultPatch, String> {
+    let (probability, kind) = datagram_fault_patch_into_parts(patch)?;
+    Ok(crate::DatagramFaultPatch { probability, kind })
+}
+
 impl From<DatagramProxyView> for NativeDatagramProxyViewV1 {
     fn from(value: DatagramProxyView) -> Self {
         Self {

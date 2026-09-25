@@ -60,7 +60,33 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
       - run: pip install build pytest pyyaml
+      - run: sh scripts/tests/test_cleanup_traps.sh
       - run: ./scripts/check_openapi.sh
       - run: ./scripts/check_python_client.sh
       - run: ./scripts/check_typescript_client.sh
       - run: ./scripts/qualify_language_clients.sh
+  python-native:
+    # M035 hosted native-Python gate: safe facade + binding audit/build +
+    # abi3 import/runtime smoke + remote/native conformance on
+    # native-host wheels. Kept separate so Rust and remote-SDK gates stay
+    # independent of Python packaging availability.
+    timeout-minutes: 25
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ["3.12"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.89.0
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: pip install maturin==1.9.5 pytest build
+      - run: cargo install cargo-audit --locked --version 0.22.2
+      - run: ./scripts/check_python_native.sh
+      - run: ./scripts/qualify_python_native.sh

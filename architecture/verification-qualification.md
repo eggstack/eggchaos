@@ -207,6 +207,49 @@ if a gate was not run, record it as incomplete (see §8).
   `scripts/release-smoke.sh`); no `eggreplay-*`/`eggprobe-*`
   dependency exists anywhere in the workspace.
 
+### Cross-language SDKs and native embedding (M032–M035)
+
+- Contract authority: `scripts/check_openapi.sh` runs
+  `cargo test -p eggchaos-protocol --all-features` (OpenAPI drift +
+  golden fixtures) + `cargo test -p eggchaos-server --all-features
+  --test native_route_inventory` (live 36-operation inventory proof) +
+  a YAML shape assertion.
+- Remote SDKs: `scripts/check_python_client.sh` (regeneration drift +
+  Python unit tests, no server), `scripts/check_typescript_client.sh`
+  (typecheck + build + contract/cross-language tests, no server),
+  `scripts/qualify_language_clients.sh` (loopback servers, equivalent
+  sync/async/TS flows, sdist/wheel + tarball builds). Hosted matrix:
+  `[ubuntu-latest, macos-latest] × python 3.11/3.12 × node 20/22`.
+- Cleanup hygiene (M035): both server-spawning qualification scripts
+  use status-preserving child cleanup (captured status, `set +e` in
+  cleanup, guarded `wait` reaping so expected SIGTERM never leaks exit
+  143, temp removal, exit with the original status).
+  `scripts/tests/test_cleanup_traps.sh` pins the trap shape plus
+  pass/fail exit-preservation, reaping, and temp-cleanup fixtures.
+- Shared datagram mutation authority (M035): `ControlState` owns
+  `add/get/list/update/remove_datagram_fault` (duplicate detection,
+  cross-direction ID uniqueness, patch non-emptiness, plan
+  reconstruction, generation-guarded publication) in core/runtime
+  types; `NativeAdmin` and `eggchaos-embed` only convert DTOs and map
+  errors. `crates/eggchaos-embed/tests/facade.rs`
+  (`datagram_facade_and_http_admin_agree_on_mutation_and_conflicts`)
+  proves HTTP/embed equivalence across create/get/list/patch/delete,
+  same-direction and cross-direction conflicts, empty-patch rejection,
+  and post-delete not-found, alongside the retained stream
+  conformance test.
+- Native binding: `scripts/check_python_native.sh`
+  (`eggchaos-embed` tests, binding-crate test/audit, handwritten-
+  `unsafe` audit, abi3 wheel inspection, import/runtime smoke) and
+  `scripts/qualify_python_native.sh` (remote/native conformance +
+  control-overhead measurements). Target selection is host-aware
+  (Apple targets only on Darwin; `EGGCHAOS_NATIVE_TARGET` override for
+  intentional cross builds, never runtime-qualified without a matching
+  import). Hosted gate: dedicated `python-native` CI job on
+  `[ubuntu-latest, macos-latest] × python 3.12` with pinned
+  `maturin==1.9.5`. Platform support claims live in
+  `bindings/python-native/README.md` (hosted runtime-qualified vs
+  built-only vs unqualified).
+
 ### No-fault throughput/latency regression vs bare `eggress-relay`
 
 - Harness: `benchmarks/src/main.rs` (7 cases: `bare_eggress_relay`,
@@ -292,6 +335,14 @@ if a gate was not run, record it as incomplete (see §8).
   `cargo audit --deny warnings`,
   `cargo deny check advisories licenses bans sources`.
   M015: run `35810065730` on `cd88b22`, all three platforms green.
+- Hosted SDK/native gates (`.github/workflows/ci.yml`): job
+  `language-clients` (`[ubuntu-latest, macos-latest] × python
+  3.11/3.12 × node 20/22`: cleanup-trap regression, OpenAPI drift,
+  Python/TS checks, live cross-language qualification) and job
+  `python-native` (M035; `[ubuntu-latest, macos-latest] × python
+  3.12` with `maturin==1.9.5`: embed/binding checks plus
+  remote/native conformance on native-host wheels). M035 closure
+  records the exact-candidate run IDs/URLs for the full matrix.
 - Release qualification (`.github/workflows/release.yml`, `workflow_dispatch`
   + `v*.*.*` tags): `qualify` job on ubuntu (`timeout-minutes: 60`:
   `release-smoke.sh` → fuzz 10k → toxiproxy qualify → eggfetch qualify →
@@ -326,6 +377,14 @@ TOXIPROXY_SERVER=/path/to/pinned/v2.12.0 ./scripts/qualify_toxiproxy_v2_12.sh
 ./scripts/qualify_eggfetch.sh
 ./scripts/release-smoke.sh
 ./scripts/release-artifact-smoke.sh
+sh scripts/tests/test_cleanup_traps.sh
+./scripts/check_openapi.sh
+./scripts/check_python_client.sh
+./scripts/check_typescript_client.sh
+./scripts/qualify_language_clients.sh
+./scripts/check_python_native.sh
+./scripts/qualify_python_native.sh
+./scripts/benchmark_datagram.sh
 ```
 
 Integration-test files (via `crates/*/tests/*` glob): exactly

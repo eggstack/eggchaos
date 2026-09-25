@@ -400,6 +400,176 @@ impl ControlState {
         Ok(generation)
     }
 
+    /// Add a datagram fault to one direction.
+    ///
+    /// This is the single HTTP-independent datagram fault mutation
+    /// authority shared by the native admin route and `eggchaos-embed`:
+    /// same-direction duplicate detection, cross-direction ID uniqueness
+    /// (required for path lookup), plan reconstruction, and
+    /// generation-guarded publication all live here. Wire DTO conversion
+    /// stays with the callers.
+    pub async fn add_datagram_fault(
+        &self,
+        name: &str,
+        direction: Direction,
+        fault: eggchaos_core::DatagramFaultSpec,
+    ) -> Result<(Direction, eggchaos_core::DatagramFaultSpec, u64), ControlError> {
+        let (plan, generation, seed) = self.get_datagram_plan(name, direction).await?;
+        if plan.faults().iter().any(|existing| existing.id == fault.id) {
+            return Err(ControlError::Conflict(
+                "datagram fault already exists".into(),
+            ));
+        }
+        let other_direction = match direction {
+            Direction::Upstream => Direction::Downstream,
+            Direction::Downstream => Direction::Upstream,
+        };
+        if self
+            .get_datagram_plan(name, other_direction)
+            .await
+            .is_ok_and(|(other, _, _)| {
+                other
+                    .faults()
+                    .iter()
+                    .any(|existing| existing.id == fault.id)
+            })
+        {
+            return Err(ControlError::Conflict(
+                "datagram fault id must be unique across directions for path lookup".into(),
+            ));
+        }
+        let mut faults = plan.faults().to_vec();
+        faults.push(fault.clone());
+        let plan = eggchaos_core::DatagramPlan::new(faults)
+            .map_err(|error| ControlError::Invalid(error.to_string()))?;
+        let next = self
+            .publish_datagram_plan(name, direction, plan, seed, Some(generation))
+            .await?;
+        Ok((direction, fault, next))
+    }
+
+    /// Fetch one datagram fault by path ID, searching upstream then
+    /// downstream. Reads come from live plan snapshots.
+    pub async fn get_datagram_fault(
+        &self,
+        name: &str,
+        id: &str,
+    ) -> Option<(Direction, eggchaos_core::DatagramFaultSpec)> {
+        for direction in [Direction::Upstream, Direction::Downstream] {
+            if let Ok((plan, _, _)) = self.get_datagram_plan(name, direction).await {
+                if let Some(fault) = plan.faults().iter().find(|fault| fault.id.as_str() == id) {
+                    return Some((direction, fault.clone()));
+                }
+            }
+        }
+        None
+    }
+
+    /// List both directional datagram fault plans from live snapshots.
+    pub async fn list_datagram_faults(
+        &self,
+        name: &str,
+    ) -> Option<(
+        Vec<eggchaos_core::DatagramFaultSpec>,
+        Vec<eggchaos_core::DatagramFaultSpec>,
+    )> {
+        let (upstream, _, _) = self
+            .get_datagram_plan(name, Direction::Upstream)
+            .await
+            .ok()?;
+        let (downstream, _, _) = self
+            .get_datagram_plan(name, Direction::Downstream)
+            .await
+            .ok()?;
+        Some((upstream.faults().to_vec(), downstream.faults().to_vec()))
+    }
+
+    /// Update a datagram fault's probability and/or behavior in place,
+    /// preserving order. Empty patches are rejected at this semantic
+    /// layer, after DTO conversion, so both surfaces agree.
+    pub async fn update_datagram_fault(
+        &self,
+        name: &str,
+        id: &str,
+        patch: DatagramFaultPatch,
+    ) -> Result<(Direction, eggchaos_core::DatagramFaultSpec, u64), ControlError> {
+        if patch.probability.is_none() && patch.kind.is_none() {
+            return Err(ControlError::Invalid(
+                "fault patch must include probability or kind".into(),
+            ));
+        }
+        if let Some(probability) = patch.probability {
+            if !(0.0..=1.0).contains(&probability) || !probability.is_finite() {
+                return Err(ControlError::Invalid(
+                    "probability must be finite and between 0 and 1".into(),
+                ));
+            }
+        }
+        for direction in [Direction::Upstream, Direction::Downstream] {
+            let Ok((plan, generation, seed)) = self.get_datagram_plan(name, direction).await else {
+                continue;
+            };
+            let Some(mut fault) = plan
+                .faults()
+                .iter()
+                .find(|fault| fault.id.as_str() == id)
+                .cloned()
+            else {
+                continue;
+            };
+            if let Some(probability) = patch.probability {
+                fault.probability = eggchaos_core::Probability::new(probability)
+                    .map_err(|error| ControlError::Invalid(error.to_string()))?;
+            }
+            if let Some(kind) = patch.kind.clone() {
+                fault.kind = kind;
+            }
+            let mut faults = plan.faults().to_vec();
+            if let Some(existing) = faults
+                .iter_mut()
+                .find(|candidate| candidate.id.as_str() == id)
+            {
+                *existing = fault.clone();
+            }
+            let updated = eggchaos_core::DatagramPlan::new(faults)
+                .map_err(|error| ControlError::Invalid(error.to_string()))?;
+            let next = self
+                .publish_datagram_plan(name, direction, updated, seed, Some(generation))
+                .await?;
+            return Ok((direction, fault, next));
+        }
+        Err(ControlError::NotFound(format!("fault {id} on {name}")))
+    }
+
+    /// Remove a datagram fault from either direction. Returns the
+    /// direction that owned the fault plus the new generation.
+    pub async fn remove_datagram_fault(
+        &self,
+        name: &str,
+        id: &str,
+    ) -> Result<(Direction, u64), ControlError> {
+        for direction in [Direction::Upstream, Direction::Downstream] {
+            let Ok((plan, generation, seed)) = self.get_datagram_plan(name, direction).await else {
+                continue;
+            };
+            if plan.faults().iter().any(|fault| fault.id.as_str() == id) {
+                let faults = plan
+                    .faults()
+                    .iter()
+                    .filter(|fault| fault.id.as_str() != id)
+                    .cloned()
+                    .collect();
+                let plan = eggchaos_core::DatagramPlan::new(faults)
+                    .map_err(|error| ControlError::Invalid(error.to_string()))?;
+                let next = self
+                    .publish_datagram_plan(name, direction, plan, seed, Some(generation))
+                    .await?;
+                return Ok((direction, next));
+            }
+        }
+        Err(ControlError::NotFound(format!("fault {id} on {name}")))
+    }
+
     /// List live datagram associations.
     pub async fn datagram_associations(&self) -> Vec<DatagramAssociationSnapshot> {
         self.runtime.datagrams.all_associations().await

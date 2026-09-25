@@ -4,10 +4,35 @@
 set -eu
 cargo build -p eggchaos-cli --locked
 WORK="$(mktemp -d)"
-trap 'kill "${SERVER_PID:-}" 2>/dev/null; wait "${SERVER_PID:-}" 2>/dev/null; rm -rf "$WORK"' EXIT INT TERM
+SERVER_PID=""
+# Status-preserving cleanup (see qualify_language_clients.sh): reap the
+# intentionally SIGTERM-terminated server without leaking its 143 status.
+cleanup() {
+  status=$?
+  set +e
+  if [ -n "${SERVER_PID:-}" ]; then kill "$SERVER_PID" 2>/dev/null || true; fi
+  if [ -n "${SERVER_PID:-}" ]; then wait "$SERVER_PID" 2>/dev/null || true; fi
+  rm -rf "$WORK"
+  exit "$status"
+}
+trap cleanup EXIT INT TERM
+# Host/target selection is resolved below (OS + architecture); no implicit
+# macOS target may be assumed here.
 NATIVE_TARGET=""
-if [ "$(python3 -c 'import platform; print(platform.machine())')" = "x86_64" ]; then
-  NATIVE_TARGET="--target x86_64-apple-darwin"
+HOST_OS="$(uname -s)"
+HOST_ARCH="$(python3 -c 'import platform; print(platform.machine())')"
+case "$HOST_OS" in
+  Darwin)
+    case "$HOST_ARCH" in
+      x86_64) NATIVE_TARGET="--target x86_64-apple-darwin" ;;
+    esac
+    ;;
+esac
+# Linux/Windows and Darwin/arm64 use native-host builds (empty target).
+# Override with EGGCHAOS_NATIVE_TARGET when a cross build is intended;
+# cross-built wheels are not runtime-qualified without a matching import.
+if [ -n "${EGGCHAOS_NATIVE_TARGET:-}" ]; then
+  NATIVE_TARGET="--target $EGGCHAOS_NATIVE_TARGET"
 fi
 cat > "$WORK/eggchaos.toml" <<'EOF'
 version = 1

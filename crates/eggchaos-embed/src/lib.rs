@@ -39,10 +39,10 @@ use eggchaos_protocol::{
     ScheduleRunV2, ScheduleValidateV2, VersionV1,
 };
 use eggchaos_server::{
-    compile_schedule, datagram_fault_patch_into_parts, datagram_proxy_request_into_spec,
-    fault_patch_into_runtime, fault_upsert_into_runtime, proxy_request_into_spec,
-    runtime_admission_limits, runtime_datagram_limits, scenario_v1_into_runtime, ControlState,
-    ServiceBuilder,
+    compile_schedule, datagram_fault_patch_into_runtime, datagram_fault_upsert_into_runtime,
+    datagram_proxy_request_into_spec, fault_patch_into_runtime, fault_upsert_into_runtime,
+    proxy_request_into_spec, runtime_admission_limits, runtime_datagram_limits,
+    scenario_v1_into_runtime, ControlState, ServiceBuilder,
 };
 use thiserror::Error;
 
@@ -574,6 +574,11 @@ impl EmbeddedService {
     }
 
     /// Add a datagram fault; returns direction, view, and generation.
+    ///
+    /// Mutation semantics (duplicate/cross-direction conflicts, plan
+    /// reconstruction, generation-guarded publication) are owned by the
+    /// shared [`ControlState`] authority; this method only converts the
+    /// wire DTO and maps the result.
     pub fn add_datagram_fault(
         &self,
         proxy: &str,
@@ -587,39 +592,11 @@ impl EmbeddedService {
         EmbedError,
     > {
         self.block_on(async {
-            let direction = upsert.direction;
-            let fault = upsert.fault.into_core().map_err(EmbedError::Validation)?;
-            let (plan, generation, seed) = self
+            let (direction, fault) =
+                datagram_fault_upsert_into_runtime(upsert).map_err(EmbedError::Validation)?;
+            let (direction, fault, next) = self
                 .control
-                .get_datagram_plan(proxy, direction)
-                .await
-                .map_err(EmbedError::from)?;
-            if plan.faults().iter().any(|existing| existing.id == fault.id) {
-                return Err(EmbedError::Conflict("datagram fault already exists".into()));
-            }
-            let other = match direction {
-                eggchaos_core::Direction::Upstream => eggchaos_core::Direction::Downstream,
-                eggchaos_core::Direction::Downstream => eggchaos_core::Direction::Upstream,
-            };
-            if self
-                .control
-                .get_datagram_plan(proxy, other)
-                .await
-                .is_ok_and(|(plan, _, _)| {
-                    plan.faults().iter().any(|existing| existing.id == fault.id)
-                })
-            {
-                return Err(EmbedError::Conflict(
-                    "datagram fault id must be unique across directions for path lookup".into(),
-                ));
-            }
-            let mut faults = plan.faults().to_vec();
-            faults.push(fault.clone());
-            let plan = eggchaos_core::DatagramPlan::new(faults)
-                .map_err(|error| EmbedError::Validation(error.to_string()))?;
-            let next = self
-                .control
-                .publish_datagram_plan(proxy, direction, plan, seed, Some(generation))
+                .add_datagram_fault(proxy, direction, fault)
                 .await
                 .map_err(EmbedError::from)?;
             Ok((direction, DatagramFaultSpecV1::from(fault), next))
@@ -639,21 +616,45 @@ impl EmbeddedService {
         EmbedError,
     > {
         self.block_on(async {
-            for direction in [
-                eggchaos_core::Direction::Upstream,
-                eggchaos_core::Direction::Downstream,
-            ] {
-                if let Ok((plan, _, _)) = self.control.get_datagram_plan(proxy, direction).await {
-                    if let Some(fault) = plan.faults().iter().find(|fault| fault.id.as_str() == id)
-                    {
-                        return Ok((
-                            direction,
-                            eggchaos_protocol::DatagramFaultSpecV1::from(fault.clone()),
-                        ));
-                    }
-                }
-            }
-            Err(EmbedError::NotFound(format!("fault {id} on {proxy}")))
+            let (direction, fault) = self
+                .control
+                .get_datagram_fault(proxy, id)
+                .await
+                .ok_or_else(|| EmbedError::NotFound(format!("fault {id} on {proxy}")))?;
+            Ok((
+                direction,
+                eggchaos_protocol::DatagramFaultSpecV1::from(fault),
+            ))
+        })
+    }
+
+    /// List datagram fault views by direction.
+    pub fn list_datagram_faults(
+        &self,
+        proxy: &str,
+    ) -> Result<
+        (
+            Vec<eggchaos_protocol::DatagramFaultSpecV1>,
+            Vec<eggchaos_protocol::DatagramFaultSpecV1>,
+        ),
+        EmbedError,
+    > {
+        self.block_on(async {
+            let (upstream, downstream) = self
+                .control
+                .list_datagram_faults(proxy)
+                .await
+                .ok_or_else(|| EmbedError::NotFound(proxy.to_owned()))?;
+            Ok((
+                upstream
+                    .into_iter()
+                    .map(eggchaos_protocol::DatagramFaultSpecV1::from)
+                    .collect(),
+                downstream
+                    .into_iter()
+                    .map(eggchaos_protocol::DatagramFaultSpecV1::from)
+                    .collect(),
+            ))
         })
     }
 
@@ -672,90 +673,29 @@ impl EmbeddedService {
         EmbedError,
     > {
         self.block_on(async {
-            let (probability, kind) =
-                datagram_fault_patch_into_parts(patch).map_err(EmbedError::Validation)?;
-            if probability.is_none() && kind.is_none() {
-                return Err(EmbedError::Validation(
-                    "fault patch must include probability or kind".into(),
-                ));
-            }
-            for direction in [
-                eggchaos_core::Direction::Upstream,
-                eggchaos_core::Direction::Downstream,
-            ] {
-                let Ok((plan, generation, seed)) =
-                    self.control.get_datagram_plan(proxy, direction).await
-                else {
-                    continue;
-                };
-                let Some(mut fault) = plan
-                    .faults()
-                    .iter()
-                    .find(|fault| fault.id.as_str() == id)
-                    .cloned()
-                else {
-                    continue;
-                };
-                if let Some(probability) = probability {
-                    fault.probability = eggchaos_core::Probability::new(probability)
-                        .map_err(|error| EmbedError::Validation(error.to_string()))?;
-                }
-                if let Some(kind) = kind.clone() {
-                    fault.kind = kind;
-                }
-                let mut faults = plan.faults().to_vec();
-                if let Some(existing) = faults
-                    .iter_mut()
-                    .find(|candidate| candidate.id.as_str() == id)
-                {
-                    *existing = fault.clone();
-                }
-                let updated = eggchaos_core::DatagramPlan::new(faults)
-                    .map_err(|error| EmbedError::Validation(error.to_string()))?;
-                let next = self
-                    .control
-                    .publish_datagram_plan(proxy, direction, updated, seed, Some(generation))
-                    .await
-                    .map_err(EmbedError::from)?;
-                return Ok((
-                    direction,
-                    eggchaos_protocol::DatagramFaultSpecV1::from(fault),
-                    next,
-                ));
-            }
-            Err(EmbedError::NotFound(format!("fault {id} on {proxy}")))
+            let patch = datagram_fault_patch_into_runtime(patch).map_err(EmbedError::Validation)?;
+            let (direction, fault, next) = self
+                .control
+                .update_datagram_fault(proxy, id, patch)
+                .await
+                .map_err(EmbedError::from)?;
+            Ok((
+                direction,
+                eggchaos_protocol::DatagramFaultSpecV1::from(fault),
+                next,
+            ))
         })
     }
 
     /// Remove a datagram fault; returns the generation.
     pub fn remove_datagram_fault(&self, proxy: &str, id: &str) -> Result<u64, EmbedError> {
         self.block_on(async {
-            for direction in [
-                eggchaos_core::Direction::Upstream,
-                eggchaos_core::Direction::Downstream,
-            ] {
-                let Ok((plan, generation, seed)) =
-                    self.control.get_datagram_plan(proxy, direction).await
-                else {
-                    continue;
-                };
-                if plan.faults().iter().any(|fault| fault.id.as_str() == id) {
-                    let faults = plan
-                        .faults()
-                        .iter()
-                        .filter(|fault| fault.id.as_str() != id)
-                        .cloned()
-                        .collect();
-                    let plan = eggchaos_core::DatagramPlan::new(faults)
-                        .map_err(|error| EmbedError::Validation(error.to_string()))?;
-                    return self
-                        .control
-                        .publish_datagram_plan(proxy, direction, plan, seed, Some(generation))
-                        .await
-                        .map_err(EmbedError::from);
-                }
-            }
-            Err(EmbedError::NotFound(format!("fault {id} on {proxy}")))
+            let (_, next) = self
+                .control
+                .remove_datagram_fault(proxy, id)
+                .await
+                .map_err(EmbedError::from)?;
+            Ok(next)
         })
     }
 

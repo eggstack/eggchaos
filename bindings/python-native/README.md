@@ -48,3 +48,26 @@ No handwritten `unsafe` exists in the binding sources; the crate-local
 `allow(unsafe_code)` covers PyO3 macro-generated FFI glue only (see the
 M034 closure audit). No Python callback runs on data-plane hot paths;
 Python never executes per-packet code.
+
+## Platform support (M035)
+
+Wheels are abi3 (`abi3-py311`) built by maturin (pinned `1.9.5` in the
+hosted gate). Target selection is host-aware: native-host builds by
+default, Apple targets only on a Darwin host (`EGGCHAOS_NATIVE_TARGET`
+overrides for intentional cross builds). Support is claimed only where
+a matching interpreter actually imports and exercises the wheel:
+
+- Hosted runtime-qualified: Linux x86_64 (`ubuntu-latest`, Python
+  3.12) and macOS native architecture (`macos-latest`, Python 3.12),
+  via the dedicated `python-native` CI job (`check_python_native.sh`
+  + `qualify_python_native.sh`: embed/binding tests, unsafe audit,
+  abi3 inspection, import/runtime smoke, remote/native conformance).
+- Built-only: macOS cross-arch wheels produced by
+  `build_python_native_artifacts.sh` on a Darwin host (import-smoked
+  only when a matching interpreter is present).
+- Unqualified: Windows and every other platform (no hosted
+  native-Python gate, no import/runtime smoke — no support claimed).
+
+No claim is inferred from the Rust CLI artifact matrix. Remote-control
+users who need portability without a compiler should prefer
+`eggchaos-client`.

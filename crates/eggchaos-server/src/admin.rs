@@ -378,70 +378,21 @@ async fn route(method: &str, segments: &[&str], body: &[u8], state: &ControlStat
                 Ok(value) => value,
                 Err(error) => return error,
             };
-            let direction = upsert.direction;
-            let fault = match upsert.fault.into_core() {
+            let (direction, fault) = match crate::native::datagram_fault_upsert_into_runtime(upsert)
+            {
                 Ok(value) => value,
                 Err(error) => return RouteOutcome::ControlError(ControlError::Invalid(error)),
             };
-            match state.get_datagram_plan(name, direction).await {
-                Ok((plan, generation, seed)) => {
-                    if plan.faults().iter().any(|existing| existing.id == fault.id) {
-                        return RouteOutcome::ControlError(ControlError::Conflict(
-                            "datagram fault already exists".into(),
-                        ));
-                    }
-                    let other_direction = match direction {
-                        Direction::Upstream => Direction::Downstream,
-                        Direction::Downstream => Direction::Upstream,
-                    };
-                    if state
-                        .get_datagram_plan(name, other_direction)
-                        .await
-                        .is_ok_and(|(other, _, _)| {
-                            other
-                                .faults()
-                                .iter()
-                                .any(|existing| existing.id == fault.id)
-                        })
-                    {
-                        return RouteOutcome::ControlError(ControlError::Conflict(
-                            "datagram fault id must be unique across directions for path lookup"
-                                .into(),
-                        ));
-                    }
-                    let mut faults = plan.faults().to_vec();
-                    faults.push(fault.clone());
-                    match eggchaos_core::DatagramPlan::new(faults) {
-                        Ok(plan) => match state
-                            .publish_datagram_plan(name, direction, plan, seed, Some(generation))
-                            .await
-                        {
-                            Ok(next) => RouteOutcome::Response(json_response(
-                                StatusCode::CREATED,
-                                &serde_json::json!({"direction": direction.as_str(), "fault": crate::DatagramFaultSpecV1::from(fault), "generation": next}),
-                            )),
-                            Err(error) => RouteOutcome::ControlError(error),
-                        },
-                        Err(error) => {
-                            RouteOutcome::ControlError(ControlError::Invalid(error.into()))
-                        }
-                    }
-                }
+            match state.add_datagram_fault(name, direction, fault).await {
+                Ok((direction, fault, generation)) => RouteOutcome::Response(json_response(
+                    StatusCode::CREATED,
+                    &serde_json::json!({"direction": direction.as_str(), "fault": crate::DatagramFaultSpecV1::from(fault), "generation": generation}),
+                )),
                 Err(error) => RouteOutcome::ControlError(error),
             }
         }
         ("GET", ["v1", "datagram-proxies", name, "faults", id]) => {
-            let mut found = None;
-            for direction in [Direction::Upstream, Direction::Downstream] {
-                if let Ok((plan, _, _)) = state.get_datagram_plan(name, direction).await {
-                    if let Some(fault) = plan.faults().iter().find(|fault| fault.id.as_str() == *id)
-                    {
-                        found = Some((direction, fault.clone()));
-                        break;
-                    }
-                }
-            }
-            match found {
+            match state.get_datagram_fault(name, id).await {
                 Some((direction, fault)) => RouteOutcome::Response(json_response(
                     StatusCode::OK,
                     &serde_json::json!({"direction": direction.as_str(), "fault": crate::DatagramFaultSpecV1::from(fault)}),
@@ -456,100 +407,26 @@ async fn route(method: &str, segments: &[&str], body: &[u8], state: &ControlStat
                 Ok(value) => value,
                 Err(error) => return error,
             };
-            let (probability, kind) = match crate::native::datagram_fault_patch_into_parts(patch) {
+            let patch = match crate::native::datagram_fault_patch_into_runtime(patch) {
                 Ok(value) => value,
                 Err(error) => return RouteOutcome::ControlError(ControlError::Invalid(error)),
             };
-            if probability.is_none() && kind.is_none() {
-                return RouteOutcome::ControlError(ControlError::Invalid(
-                    "fault patch must include probability or kind".into(),
-                ));
-            }
-            let mut result = None;
-            for direction in [Direction::Upstream, Direction::Downstream] {
-                let Ok((plan, generation, seed)) = state.get_datagram_plan(name, direction).await
-                else {
-                    continue;
-                };
-                let Some(mut fault) = plan
-                    .faults()
-                    .iter()
-                    .find(|fault| fault.id.as_str() == *id)
-                    .cloned()
-                else {
-                    continue;
-                };
-                if let Some(probability) = probability {
-                    fault.probability = eggchaos_core::Probability::new(probability)
-                        .expect("validated probability");
-                }
-                if let Some(kind) = kind.clone() {
-                    fault.kind = kind;
-                }
-                let mut faults = plan.faults().to_vec();
-                if let Some(existing) = faults
-                    .iter_mut()
-                    .find(|candidate| candidate.id.as_str() == *id)
-                {
-                    *existing = fault.clone();
-                }
-                let updated = match eggchaos_core::DatagramPlan::new(faults) {
-                    Ok(value) => value,
-                    Err(error) => {
-                        return RouteOutcome::ControlError(ControlError::Invalid(error.into()))
-                    }
-                };
-                result = Some((
-                    direction,
-                    fault,
-                    state
-                        .publish_datagram_plan(name, direction, updated, seed, Some(generation))
-                        .await,
-                ));
-                break;
-            }
-            match result {
-                Some((direction, fault, Ok(generation))) => RouteOutcome::Response(json_response(
+            match state.update_datagram_fault(name, id, patch).await {
+                Ok((direction, fault, generation)) => RouteOutcome::Response(json_response(
                     StatusCode::OK,
                     &serde_json::json!({"direction": direction.as_str(), "fault": crate::DatagramFaultSpecV1::from(fault), "generation": generation}),
                 )),
-                Some((_, _, Err(error))) => RouteOutcome::ControlError(error),
-                None => RouteOutcome::ControlError(ControlError::NotFound(format!(
-                    "fault {id} on {name}"
-                ))),
+                Err(error) => RouteOutcome::ControlError(error),
             }
         }
         ("DELETE", ["v1", "datagram-proxies", name, "faults", id]) => {
-            for direction in [Direction::Upstream, Direction::Downstream] {
-                let Ok((plan, generation, seed)) = state.get_datagram_plan(name, direction).await
-                else {
-                    continue;
-                };
-                if plan.faults().iter().any(|fault| fault.id.as_str() == *id) {
-                    let faults = plan
-                        .faults()
-                        .iter()
-                        .filter(|fault| fault.id.as_str() != *id)
-                        .cloned()
-                        .collect();
-                    return match eggchaos_core::DatagramPlan::new(faults) {
-                        Ok(plan) => match state
-                            .publish_datagram_plan(name, direction, plan, seed, Some(generation))
-                            .await
-                        {
-                            Ok(generation) => RouteOutcome::Response(json_response(
-                                StatusCode::OK,
-                                &serde_json::json!({"generation": generation, "deleted": true}),
-                            )),
-                            Err(error) => RouteOutcome::ControlError(error),
-                        },
-                        Err(error) => {
-                            RouteOutcome::ControlError(ControlError::Invalid(error.into()))
-                        }
-                    };
-                }
+            match state.remove_datagram_fault(name, id).await {
+                Ok((_, generation)) => RouteOutcome::Response(json_response(
+                    StatusCode::OK,
+                    &serde_json::json!({"generation": generation, "deleted": true}),
+                )),
+                Err(error) => RouteOutcome::ControlError(error),
             }
-            RouteOutcome::ControlError(ControlError::NotFound(format!("fault {id} on {name}")))
         }
         ("GET", ["v1", "datagram-associations"]) => RouteOutcome::Response(json_response(
             StatusCode::OK,

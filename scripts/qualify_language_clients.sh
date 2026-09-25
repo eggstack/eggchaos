@@ -4,7 +4,22 @@
 set -eu
 cargo build -p eggchaos-cli --locked
 WORK="$(mktemp -d)"
-trap 'kill "${SERVER_PID:-}" 2>/dev/null; wait "${SERVER_PID:-}" 2>/dev/null; rm -rf "$WORK"' EXIT INT TERM
+SERVER_PID=""
+AUTH_PID=""
+# Status-preserving cleanup: capture the qualification exit before reaping
+# intentionally SIGTERM-terminated child servers. `wait` observes 143 for
+# SIGTERM children; that status must never escape as the script status.
+cleanup() {
+  status=$?
+  set +e
+  if [ -n "${SERVER_PID:-}" ]; then kill "$SERVER_PID" 2>/dev/null || true; fi
+  if [ -n "${AUTH_PID:-}" ]; then kill "$AUTH_PID" 2>/dev/null || true; fi
+  if [ -n "${SERVER_PID:-}" ]; then wait "$SERVER_PID" 2>/dev/null || true; fi
+  if [ -n "${AUTH_PID:-}" ]; then wait "$AUTH_PID" 2>/dev/null || true; fi
+  rm -rf "$WORK"
+  exit "$status"
+}
+trap cleanup EXIT INT TERM
 cat > "$WORK/eggchaos.toml" <<'EOF'
 version = 1
 seed = 11
@@ -24,7 +39,6 @@ EOF
 SERVER_PID=$!
 ./target/debug/eggchaos serve --config "$WORK/eggchaos-auth.toml" > "$WORK/auth-server.log" 2>&1 &
 AUTH_PID=$!
-trap 'kill "${SERVER_PID:-}" "${AUTH_PID:-}" 2>/dev/null; wait "${SERVER_PID:-}" "${AUTH_PID:-}" 2>/dev/null; rm -rf "$WORK"' EXIT INT TERM
 ADMIN=""
 for _ in $(seq 1 100); do
   ADMIN="$(grep -o 'admin=[^ ]*' "$WORK/server.log" | tail -1 | cut -c7- || true)"

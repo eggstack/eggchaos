@@ -189,6 +189,17 @@ pub struct FaultPatch {
     pub kind: Option<FaultKind>,
 }
 
+/// Datagram fault update body: only supplied fields change. The fault
+/// identity and direction are fixed; moving a fault across directions is
+/// delete plus add.
+#[derive(Debug, Clone, Default)]
+pub struct DatagramFaultPatch {
+    /// Replacement activation probability.
+    pub probability: Option<f64>,
+    /// Replacement fault behavior.
+    pub kind: Option<eggchaos_core::DatagramFaultKind>,
+}
+
 /// Operator-visible proxy state: configured definition plus actual runtime
 /// listener state. A successful mutation reflects an actual listener, never
 /// a map entry alone.

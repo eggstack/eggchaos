@@ -97,6 +97,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "eggchaos-experiment"
+version = "0.1.0"
+dependencies = [
+ "eggchaos-core",
+ "serde",
+ "sha2",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+]
+
+[[package]]
 name = "eggchaos-fuzz"
 version = "0.0.0"
 dependencies = [
@@ -112,11 +124,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "eggchaos-protocol"
+version = "0.1.0"
+dependencies = [
+ "eggchaos-core",
+ "eggchaos-experiment",
+ "serde",
+ "serde_json",
+ "toml",
+]
+
+[[package]]
 name = "eggchaos-server"
 version = "0.1.0"
 dependencies = [
  "bytes",
  "eggchaos-core",
+ "eggchaos-experiment",
+ "eggchaos-protocol",
  "eggress-relay",
  "eggserve-primitives",
  "eggserve-server",

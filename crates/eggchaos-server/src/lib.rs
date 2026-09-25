@@ -17,7 +17,8 @@ pub use config::{
 };
 pub use eggchaos_core::{ActiveFault, FAULT_TYPE_NAMES};
 pub use native::{
-    datagram_fault_patch_into_parts, datagram_proxy_request_into_spec, fault_patch_into_runtime,
+    datagram_fault_patch_into_parts, datagram_fault_patch_into_runtime,
+    datagram_fault_upsert_into_runtime, datagram_proxy_request_into_spec, fault_patch_into_runtime,
     fault_upsert_into_runtime, proxy_request_into_spec, runtime_admission_limits,
     runtime_datagram_limits, scenario_v1_into_runtime, DatagramFaultKindV1, DatagramFaultPatchV1,
     DatagramFaultSpecV1, DatagramFaultUpsertV1, DatagramRuntimeConfigV1, FaultKindV1, FaultPatchV1,
@@ -37,12 +38,13 @@ pub use native_v2::{
 };
 pub use runtime::{
     AdmissionLimits, ClosedConnection, ConnectionEvidence, ConnectionOutcome, ConnectionSnapshot,
-    ConnectionState, ControlError, ControlState, DatagramAssociationSnapshot, DatagramProxySpec,
-    DatagramProxyView, DatagramRuntime, DatagramRuntimeError, DatagramRuntimeLimits,
-    DirectionBytes, EggchaosError, EggchaosService, ExpectedPublish, FaultPatch, FaultUpsert,
-    MetricTables, MetricsCounters, PerProxyMetrics, ProxyPatch, ProxySpec, ProxyView, ResetReport,
-    ResetResult, ResettableTcpStream, RuntimeParams, ServiceBuilder, ServiceHandle, TcpResetHandle,
-    MAX_METRIC_ACTIVATIONS, MAX_METRIC_PROXIES, OUTCOME_CLASS_NAMES, VERSION,
+    ConnectionState, ControlError, ControlState, DatagramAssociationSnapshot, DatagramFaultPatch,
+    DatagramProxySpec, DatagramProxyView, DatagramRuntime, DatagramRuntimeError,
+    DatagramRuntimeLimits, DirectionBytes, EggchaosError, EggchaosService, ExpectedPublish,
+    FaultPatch, FaultUpsert, MetricTables, MetricsCounters, PerProxyMetrics, ProxyPatch, ProxySpec,
+    ProxyView, ResetReport, ResetResult, ResettableTcpStream, RuntimeParams, ServiceBuilder,
+    ServiceHandle, TcpResetHandle, MAX_METRIC_ACTIVATIONS, MAX_METRIC_PROXIES, OUTCOME_CLASS_NAMES,
+    VERSION,
 };
 pub use scenario::{
     drive_scenario_run, validate_scenario, Scenario, ScenarioAction, ScenarioEvent,
