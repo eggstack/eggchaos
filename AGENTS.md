@@ -102,15 +102,16 @@ V2 experiment harness/shared monotonic start epoch behind
 `eggreplay-*` or `eggprobe-*` production dependencies to eggchaos;
 product-specific adoption remains downstream.
 
-ADR 006 activates the current handoff chain: `M032 (ready) -> M033
-(blocked) -> M034 (blocked)`. M032 is the sole ready item. It must first
-extract the explicit native wire contract into `eggchaos-protocol` and add
-mechanically checked OpenAPI while preserving server behavior/re-exports. M033
-then builds Python and TypeScript remote SDKs from that exact contract. M034
-then adds a safe coarse `eggchaos-embed` facade and PyO3/maturin Python
-native pilot. Do not start a generic C ABI, Node native addon, JNI, P/Invoke,
-cgo, UniFFI, or WASM work under these plans; a generic C ABI requires a later
-ADR after demonstrated multi-consumer demand.
+ADR 006's feature chain is complete: `M032 (closed at ed05f68) ->
+M033 (closed at 429d459) -> M034 (closed at 991818b)`. A post-closure audit
+registered `M035 (ready)` as the sole current handoff. M035 is corrective:
+fix the hosted language-client cleanup false failure, make native-Python
+qualification host-aware and protected by hosted CI, consolidate datagram
+fault mutation semantics below HTTP/embed, reconcile current-state planning,
+and require green exact-head hosted evidence before closure. Do not rewrite
+M032–M034 closure history. Do not start a generic C ABI, Node native addon,
+JNI, P/Invoke, cgo, UniFFI, or WASM under M035; a generic C ABI still requires
+a separate ADR after demonstrated multi-consumer demand.
 
 If the owner asks for new work: `plans/roadmap.md` is the architecture authority, `plans/reference/` holds parity/verification contracts (not status), ADRs live in `plans/adrs/`. Any new numbered plan needs objective, baseline/deps, scope + non-goals, affected crates, ordered work packages, invariants/failure semantics, test commands, acceptance criteria, stop conditions, closure evidence, and follow-on rules — and must update `plans/registry.md` in the same change. Never mark `closed` from source inspection; closure requires running the plan's tests on the exact candidate plus external/differential evidence where declared.
 
