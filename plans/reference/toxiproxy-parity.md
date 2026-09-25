@@ -17,7 +17,12 @@ Claim levels: `exact`, `behaviorally compatible` (tolerances noted),
 ## Version policy
 
 Eggchaos does not claim compatibility with an unversioned moving Toxiproxy
-`main`. Current `main` additions such as `packet_loss` are out of scope.
+`main`. This file remains the frozen strict-v2.12 parity contract.
+
+ADR 007 + M036–M039 separately plan an opt-in post-v2.12 snapshot profile for
+`packet_loss`, pinned to upstream commit
+`40f7fd31bee529d824116bd2a11a9e3425e904ec`. That work must not broaden or
+rewrite the strict v2.12 claims recorded here.
 
 ## Route parity
 
