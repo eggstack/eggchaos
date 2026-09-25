@@ -10,6 +10,10 @@ wildcards = "deny"
 confidence-threshold = 0.8
 allow = [
     "Apache-2.0",
+    # M034: standard LLVM exception on Apache-2.0 for target-lexicon,
+    # a transitive build dependency of pyo3-build-config. Permissive,
+    # no copyleft effect on eggchaos crates (all MIT).
+    "Apache-2.0 WITH LLVM-exception",
     "BSD-3-Clause",
     "CC0-1.0",
     "CDLA-Permissive-2.0",

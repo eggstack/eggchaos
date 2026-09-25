@@ -1,0 +1,26 @@
+[package]
+name = "eggchaos-embed"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "Safe coarse embedding facade over the eggchaos runtime authorities"
+
+[dependencies]
+eggchaos-core = { path = "../eggchaos-core", version = "0.1.0" }
+eggchaos-experiment = { path = "../eggchaos-experiment", version = "0.1.0" }
+eggchaos-protocol = { path = "../eggchaos-protocol", version = "0.1.0" }
+eggchaos-server = { path = "../eggchaos-server", version = "0.1.0" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+eggfetch-core.workspace = true

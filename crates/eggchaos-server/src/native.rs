@@ -31,7 +31,7 @@ use crate::{
 ///
 /// Wire bounds are checked by the protocol DTO first; runtime identity and
 /// plan validation remain the `ProxySpec` authority.
-pub(crate) fn proxy_request_into_spec(request: NativeProxyRequestV1) -> Result<ProxySpec, String> {
+pub fn proxy_request_into_spec(request: NativeProxyRequestV1) -> Result<ProxySpec, String> {
     request.validate()?;
     let mut proxy = ProxySpec::new(request.name, request.listen, request.upstream);
     proxy.enabled = request.enabled;
@@ -55,7 +55,7 @@ impl From<NativeProxyPatchV1> for ProxyPatch {
 }
 
 /// Assemble a runtime fault upsert from its wire request.
-pub(crate) fn fault_upsert_into_runtime(upsert: FaultUpsertV1) -> Result<FaultUpsert, String> {
+pub fn fault_upsert_into_runtime(upsert: FaultUpsertV1) -> Result<FaultUpsert, String> {
     let (direction, spec) = upsert.into_core()?;
     Ok(FaultUpsert {
         direction,
@@ -66,7 +66,7 @@ pub(crate) fn fault_upsert_into_runtime(upsert: FaultUpsertV1) -> Result<FaultUp
 }
 
 /// Assemble a runtime fault patch from its wire request.
-pub(crate) fn fault_patch_into_runtime(patch: FaultPatchV1) -> Result<FaultPatch, String> {
+pub fn fault_patch_into_runtime(patch: FaultPatchV1) -> Result<FaultPatch, String> {
     let (probability, kind) = patch.into_core()?;
     Ok(FaultPatch { probability, kind })
 }
@@ -128,7 +128,7 @@ pub fn runtime_datagram_limits(
 }
 
 /// Assemble a runtime Scenario V1 document from its wire DTO.
-pub(crate) fn scenario_v1_into_runtime(scenario: ScenarioV1) -> Result<crate::Scenario, String> {
+pub fn scenario_v1_into_runtime(scenario: ScenarioV1) -> Result<crate::Scenario, String> {
     let version = scenario.version;
     let seed = scenario.seed;
     let actions = scenario.into_core_actions()?;
@@ -181,7 +181,7 @@ impl From<crate::ScenarioRunRecord> for ScenarioRunV1 {
 /// Wire bounds, queue limits, fault conversion, and cross-direction ID
 /// uniqueness are checked by the protocol DTO first; policy wiring and
 /// global association validation remain the server authority.
-pub(crate) fn datagram_proxy_request_into_spec(
+pub fn datagram_proxy_request_into_spec(
     request: NativeDatagramProxyRequestV1,
 ) -> Result<DatagramProxySpec, String> {
     let parts = request.into_core_parts()?;
@@ -208,7 +208,7 @@ pub(crate) fn datagram_proxy_request_into_spec(
 }
 
 /// Convert a wire datagram fault patch to validated probability/kind parts.
-pub(crate) fn datagram_fault_patch_into_parts(
+pub fn datagram_fault_patch_into_parts(
     patch: DatagramFaultPatchV1,
 ) -> Result<(Option<f64>, Option<eggchaos_core::DatagramFaultKind>), String> {
     patch.into_core_parts()

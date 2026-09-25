@@ -335,6 +335,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "eggchaos-embed"
+version = "0.1.0"
+dependencies = [
+ "eggchaos-core",
+ "eggchaos-experiment",
+ "eggchaos-protocol",
+ "eggchaos-server",
+ "eggfetch-core",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
 name = "eggchaos-experiment"
 version = "0.1.0"
 dependencies = [

@@ -4,6 +4,7 @@ members = [
     "crates/eggchaos-core",
     "crates/eggchaos-experiment",
     "crates/eggchaos-protocol",
+    "crates/eggchaos-embed",
     "crates/eggchaos-server",
     "crates/eggchaos-cli",
     "crates/eggchaos-toxiproxy",

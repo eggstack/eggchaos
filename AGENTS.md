@@ -8,11 +8,14 @@ Rust workspace (edition 2021, pinned `1.89.0` in `rust-toolchain.toml` + CI). `u
 eggchaos-cli -> eggchaos-server -> eggchaos-core (Tokio byte streams + datagrams)
 eggchaos-toxiproxy -> server/core (adapter, no separate state store)
 eggchaos-eggfetch -> core (implements `eggfetch_core::Dialer`)
+eggchaos-embed -> server/protocol/experiment (safe coarse facade, owns lifecycle)
+eggchaos-native -> embed (PyO3 pilot, standalone maturin crate outside the workspace)
 ```
 
 - `eggchaos-core` (`crates/eggchaos-core/src/`): protocol-neutral stream `FaultPlan` + `ChaosStream<T>` write-side state machine and deterministic whole-datagram engine. Knows nothing about HTTP, listeners, CLI, Toxiproxy, or Eggfetch. Empty stream plan delegates without allocating queue/timer.
 - `eggchaos-experiment` (`crates/eggchaos-experiment/src/`): consumer-neutral Scenario V2 semantic authority (source/compiler/fingerprint/run), shared expected-generation schedule driver, prepare/arm/start lifecycle with one monotonic epoch gate, and the in-process `StreamPolicyTarget`. Depends only on core; never on server, EggServe, CLI, Toxiproxy, EggReplay, or EggProbe.
 - `eggchaos-protocol` (`crates/eggchaos-protocol/src/`): stable native `/v1` wire DTOs + `NATIVE_OPERATIONS` inventory, drift-checked against `api/openapi/eggchaos-v1.yaml`. Depends on core/experiment only; never on server, EggServe, CLI, Toxiproxy, or Eggfetch.
+- `eggchaos-embed` (`crates/eggchaos-embed/src/`): safe coarse embedding facade over server/control/experiment authorities; owns lifecycle on a private Tokio runtime. Depends on server/protocol/experiment/core; never on listeners beyond what it owns, CLI, Toxiproxy, or Eggfetch.
 - `eggchaos-server`: fixed-target TCP and UDP listeners (never a forward proxy). `eggress-relay` owns TCP bidirectional copy + half-close — do not fork its semantics. UDP associations own per-client connected upstream sockets. Admin H1 runtime is `eggserve-server` + `eggserve-primitives`; `native.rs` owns server-side DTO adapters + compatibility re-exports.
 - `eggchaos-server/src/runtime/`: `mod.rs` composition/re-exports; `control.rs` single `ControlState` authority; `connection.rs` evidence/finalization; `supervisor.rs` listener admission; `transport.rs` reset wrapper; `metrics.rs` bounded metrics; `model.rs` runtime views; `datagram/` (`mod.rs` composition/re-exports, `model.rs`, `registry.rs` single `DatagramRuntime` authority, `association.rs`, `supervisor.rs`, `tests.rs`) owns UDP proxy/association lifecycle; `tests.rs` holds the TCP/runtime regression suite.
 - `eggchaos-cli`: thin adapter; control HTTP via `eggfetch-core` (minimal features). Never a second networking/state path.
@@ -53,7 +56,7 @@ Qualification scripts (release workflow): `scripts/qualify_fuzz.sh`, `scripts/qu
 
 - Toxiproxy differential needs the pinned oracle: `TOXIPROXY_SERVER="$(./scripts/fetch_toxiproxy_v2_12.sh)" EGGCHAOS_REQUIRE_TOXIPROXY_ORACLE=1 ./scripts/qualify_toxiproxy_v2_12.sh`. Developer mode without a verified oracle reports `differential:incomplete` (exit 0) — that is not a pass. Compat server: `cargo run -p eggchaos-toxiproxy --example compat_server -- 127.0.0.1:8474`.
 - Fuzz: `cargo-fuzz 0.13.2` cannot build under pinned 1.89 (transitive `cargo-platform` needs rustc 1.91). Release workflow installs it with `RUSTUP_TOOLCHAIN=stable`; the fuzz target itself still builds under 1.89 with `--sanitizer none`. See `release.yml`.
-- Publish order matters (intra-workspace deps use `version = "0.1.0"` registry reqs): `core -> experiment/eggfetch -> protocol -> server/toxiproxy/cli`. `scripts/release-smoke.sh` asserts this order-proof.
+- Publish order matters (intra-workspace deps use `version = "0.1.0"` registry reqs): `core -> experiment/eggfetch -> protocol -> server/toxiproxy/cli -> embed`. `scripts/release-smoke.sh` asserts this order-proof. The `eggchaos-native` PyO3 pilot stands outside the workspace (plain cargo cannot link a macOS extension-module cdylib); maturin owns its build.
 - Directions are `upstream` (client→target) and `downstream` (target→client). Faults wrap destination writes; reads stay pass-through.
 - Native control is versioned under `/v1` except `GET /metrics` (Prometheus text, no prefix). Request bodies capped at 1 MiB. CLI: `eggchaos --admin <url> [--json] <command>`; every command emits one JSON doc with `--json` and exits nonzero on failure. Route/CLI inventory: `docs/control-plane.md`.
 - Admin binds loopback by default. Non-loopback requires explicit public-admin opt-in + bearer token; failures return bounded JSON without echoing the token.

@@ -206,6 +206,9 @@ lifecycle: start `eggchaos serve` (or embed it) and pass the admin URL.
 
 This is distinct from Toxiproxy compatibility (`docs/toxiproxy.md`),
 which serves the legacy TCP subset for existing Toxiproxy clients, and
-from future in-process bindings (a Python native embedding pilot is
-planned separately; it reuses the same validation/default semantics
-but runs the service in-process instead of over HTTP).
+from in-process embedding: `eggchaos-native` (`bindings/python-native`)
+runs the same service in the Python test process via the safe
+`eggchaos-embed` facade — fixture-local startup/control with no admin
+HTTP hop, but the same validation, defaults, bounds, and error
+semantics. Remote clients remain the portability-first option; the
+native module is for harnesses that must own lifecycle in-process.

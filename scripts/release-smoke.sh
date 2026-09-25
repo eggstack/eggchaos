@@ -14,6 +14,7 @@ cargo package -p eggchaos-protocol --list --allow-dirty
 cargo package -p eggchaos-server --list --allow-dirty
 cargo package -p eggchaos-eggfetch --list --allow-dirty
 cargo package -p eggchaos-toxiproxy --list --allow-dirty
+cargo package -p eggchaos-embed --list --allow-dirty
 cargo package -p eggchaos-cli --list --allow-dirty
 cargo build --release --locked --package eggchaos-cli
 ./scripts/release-artifact-smoke.sh
@@ -24,7 +25,7 @@ cargo build --release --locked --package eggchaos-cli
 # are proven above via `cargo package --list` for every crate; here assert
 # that every intra-workspace path dependency carries the workspace version
 # requirement, so publishing in the documented order
-# (core -> experiment/eggfetch -> protocol -> server/toxiproxy/cli) resolves from the registry.
+# (core -> experiment/eggfetch -> protocol -> server/toxiproxy/cli -> embed) resolves from the registry.
 # After each predecessor publishes, its dependents' full `cargo package`
 # succeeds; that post-publication check is an owner release-step action.
 python3 - <<'EOF'
@@ -48,5 +49,5 @@ if problems:
     print("ORDER-PROOF FAIL:")
     print("\n".join(problems))
     sys.exit(1)
-print(f'{{"order_proof":"pass","workspace_version":"{ws_version}","order":"core->experiment/eggfetch->protocol->server/toxiproxy/cli"}}')
+print(f'{{"order_proof":"pass","workspace_version":"{ws_version}","order":"core->experiment/eggfetch->protocol->server/toxiproxy/cli->embed"}}')
 EOF
