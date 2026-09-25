@@ -1,6 +1,6 @@
 # Eggchaos Long-Term Roadmap
 
-Status: M008 and M009–M031 are closed work. M019 passed final pre-tag qualification at `ca527db`; the owner may proceed with the v0.1.0 tag and separate publication/release actions. ADR 003's post-release datagram feature tranche M020–M023 is complete, with M024/M025 performance and setup-hygiene successors closed. ADR 004's richer deterministic-scenario/time-varying schedule tranche M026–M028 is complete and qualified. ADR 005's integration-boundary/harness tranche M029–M031 is complete and qualified at `fa189b9`. ADR 006 activates the cross-language contract/binding tranche: M032 is ready; M033/M034 are blocked in dependency order.
+Status: M008 and M009–M032 are closed work. M019 passed final pre-tag qualification at `ca527db`; the owner may proceed with the v0.1.0 tag and separate publication/release actions. ADR 003's post-release datagram feature tranche M020–M023 is complete, with M024/M025 performance and setup-hygiene successors closed. ADR 004's richer deterministic-scenario/time-varying schedule tranche M026–M028 is complete and qualified. ADR 005's integration-boundary/harness tranche M029–M031 is complete and qualified at `fa189b9`. ADR 006's cross-language contract/binding tranche has M032 closed at `ed05f68`; M033 is ready and M034 is blocked on M033.
 
 ## 1. Mission
 
@@ -402,13 +402,13 @@ ADR 006 activates a contract-first language-binding tranche:
       -> M033 Python + TypeScript native-control SDKs
       -> M034 Python native embedding pilot + binding qualification
 
-M032 is ready and is the sole implementation handoff. It extracts the explicit
+M032 is closed at `ed05f68`. It extracted the explicit
 native `/v1` wire DTOs from `eggchaos-server` into a narrow
-`eggchaos-protocol` crate, preserves compatibility re-exports, and adds a
+`eggchaos-protocol` crate, preserved compatibility re-exports, and added a
 checked-in OpenAPI contract whose drift against the real server/protocol
-authority is mechanically detected. It adds no foreign SDK or FFI.
+authority is mechanically detected. It added no foreign SDK or FFI.
 
-M033 is blocked on M032. It builds complete Python and TypeScript/Node remote
+M033 is ready (M032 closed). It builds complete Python and TypeScript/Node remote
 control SDKs from the exact M032 contract, covering stream and datagram
 resources, Scenario V1/V2, evidence/control views, auth, errors, reset/history,
 and metrics. The SDKs do not manage the daemon lifecycle and contain no native

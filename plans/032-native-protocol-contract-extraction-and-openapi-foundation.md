@@ -1,8 +1,9 @@
 # M032 — Native Protocol Contract Extraction and OpenAPI Foundation
 
-Status: ready  
+Status: closed  
 Depends on: M031 (closed), ADR 006  
 Role: cross-language contract foundation
+Closed at: `ed05f68e07bfc4cca62317c5b1757bb3966da6ec`; evidence in `plans/closure/M032-native-protocol-contract-extraction-and-openapi-foundation-closure.md`.
 
 ## Objective
 
