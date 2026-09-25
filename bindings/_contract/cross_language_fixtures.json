@@ -19,6 +19,12 @@
       "wire": {"direction": "upstream", "id": "cap", "kind": {"type": "bandwidth"}}
     },
     {
+      "name": "stream_fault_stream_loss",
+      "method": "addFault",
+      "path": "/v1/proxies/redis/faults",
+      "wire": {"direction": "upstream", "id": "loss", "kind": {"type": "stream-loss", "loss_rate": 0.25, "correlation": 0.1}}
+    },
+    {
       "name": "datagram_fault_loss",
       "method": "addDatagramFault",
       "path": "/v1/datagram-proxies/dns/faults",

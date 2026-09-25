@@ -19,6 +19,7 @@ from eggchaos_client import (
     ProxyCreate,
     ScheduleV2,
     ScenarioV1,
+    StreamLossFault,
 )
 
 ADMIN_URL = os.environ.get("EGGCHAOS_ADMIN_URL")
@@ -44,6 +45,27 @@ def stream_flow(client: Client) -> None:
     assert client.patch_fault("pytest", "lag", probability=0.25)["fault"]["probability"] == 0.25
     faults = client.list_faults("pytest")
     assert {f["id"] for f in faults["downstream"]} >= {"lag"}
+    # Stream-loss round-trip: add, read, patch, remove under the live server.
+    loss = client.add_fault(
+        "pytest",
+        "downstream",
+        "loss",
+        StreamLossFault(loss_rate=0.25, correlation=0.1),
+        probability=1.0,
+    )
+    assert loss["fault"]["id"] == "loss"
+    read_loss = client.get_fault("pytest", "loss")["fault"]
+    assert read_loss["kind"]["type"] == "stream-loss"
+    assert read_loss["kind"]["loss_rate"] == 0.25
+    assert read_loss["kind"]["correlation"] == 0.1
+    patched = client.patch_fault(
+        "pytest",
+        "loss",
+        kind=StreamLossFault(loss_rate=0.5, correlation=0.0),
+    )["fault"]["kind"]
+    assert patched["loss_rate"] == 0.5
+    assert patched["correlation"] == 0.0
+    assert client.delete_fault("pytest", "loss")["deleted"] is True
     assert isinstance(client.list_connections(), list)
     assert isinstance(client.history(), list)
     assert "eggchaos_" in client.metrics_text()

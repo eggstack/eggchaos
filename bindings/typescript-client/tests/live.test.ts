@@ -74,6 +74,22 @@ describe("typescript live client", { skip: !BASE_URL }, () => {
       ((await client.deleteFault("ts-client", "lag")) as { deleted: boolean }).deleted,
       true,
     );
+    const loss = (await client.addFault("ts-client", "downstream", "loss", {
+      type: "stream-loss",
+      loss_rate: 0.25,
+      correlation: 0.1,
+    })) as { fault: { id: string } };
+    assert.equal(loss.fault.id, "loss");
+    const lossView = ((await client.getFault("ts-client", "loss")) as {
+      fault: { kind: { type: string; loss_rate: number; correlation: number } };
+    }).fault;
+    assert.equal(lossView.kind.type, "stream-loss");
+    assert.equal(lossView.kind.loss_rate, 0.25);
+    assert.equal(lossView.kind.correlation, 0.1);
+    assert.equal(
+      ((await client.deleteFault("ts-client", "loss")) as { deleted: boolean }).deleted,
+      true,
+    );
     assert.equal(
       ((await client.deleteProxy("ts-client")) as { deleted: boolean }).deleted,
       true,

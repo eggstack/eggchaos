@@ -106,6 +106,28 @@ class DisconnectFault:
         return {"type": self.type, "after_ns": self.after_ns, "hard_reset": self.hard_reset}
 
 
+@dataclass
+class StreamLossFault:
+    """Deterministic userspace stream-chunk loss (ADR 007 / M037).
+
+    Loss is decided in fixed 32 KiB logical chunks keyed to the absolute
+    accepted stream offset, so identical byte streams decide identically
+    under any caller write fragmentation. This is userspace stream-chunk
+    loss, not IP/TCP packet loss.
+    """
+
+    type: str = "stream-loss"
+    loss_rate: float = 0.0
+    correlation: float = 0.0
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "type": self.type,
+            "loss_rate": self.loss_rate,
+            "correlation": self.correlation,
+        }
+
+
 StreamFaultKind = Union[
     LatencyFault,
     BandwidthFault,
@@ -114,6 +136,7 @@ StreamFaultKind = Union[
     SlowCloseFault,
     SliceFault,
     DisconnectFault,
+    StreamLossFault,
 ]
 
 _STREAM_FAULTS: dict[str, Any] = {
@@ -124,6 +147,7 @@ _STREAM_FAULTS: dict[str, Any] = {
     "slow-close": SlowCloseFault,
     "slice": SliceFault,
     "disconnect": DisconnectFault,
+    "stream-loss": StreamLossFault,
 }
 
 

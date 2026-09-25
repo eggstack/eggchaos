@@ -232,7 +232,19 @@ pub(super) fn merge_evidence(
     let Some(record) = evidence else {
         return merged;
     };
-    for (handle, observed, pending, namespace, transitions, bytes, faults, truncated) in [
+    for (
+        handle,
+        observed,
+        pending,
+        namespace,
+        transitions,
+        bytes,
+        faults,
+        truncated,
+        chunks_evaluated,
+        chunks_dropped,
+        bytes_discarded,
+    ) in [
         (
             &record.upstream,
             &mut merged.observed_upstream_generation,
@@ -242,6 +254,9 @@ pub(super) fn merge_evidence(
             &mut merged.upstream_bytes,
             &mut merged.upstream_faults,
             &mut merged.upstream_faults_truncated,
+            &mut merged.upstream_stream_loss_chunks_evaluated,
+            &mut merged.upstream_stream_loss_chunks_dropped,
+            &mut merged.upstream_stream_loss_bytes_discarded,
         ),
         (
             &record.downstream,
@@ -252,6 +267,9 @@ pub(super) fn merge_evidence(
             &mut merged.downstream_bytes,
             &mut merged.downstream_faults,
             &mut merged.downstream_faults_truncated,
+            &mut merged.downstream_stream_loss_chunks_evaluated,
+            &mut merged.downstream_stream_loss_chunks_dropped,
+            &mut merged.downstream_stream_loss_bytes_discarded,
         ),
     ] {
         *observed = handle.observed_generation();
@@ -272,6 +290,10 @@ pub(super) fn merge_evidence(
         let (faults_live, truncated_live) = handle.active_faults();
         *faults = faults_live;
         *truncated = truncated_live;
+        let snapshot = handle.snapshot(eggchaos_core::RngVersion::V1);
+        *chunks_evaluated = snapshot.stream_loss_chunks_evaluated;
+        *chunks_dropped = snapshot.stream_loss_chunks_dropped;
+        *bytes_discarded = snapshot.stream_loss_bytes_discarded;
     }
     merged
 }

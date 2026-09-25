@@ -72,6 +72,11 @@ describe("typescript cross-language fixtures", () => {
       max_buffer_bytes: 65536,
     }, 0.5);
     await client.addFault("redis", "upstream", "cap", { type: "bandwidth" });
+    await client.addFault("redis", "upstream", "loss", {
+      type: "stream-loss",
+      loss_rate: 0.25,
+      correlation: 0.1,
+    });
     await client.addDatagramFault("dns", "upstream", "loss", { type: "loss" }, 0.25);
     await client.applyScenario({
       version: 1,
@@ -96,9 +101,10 @@ describe("typescript cross-language fixtures", () => {
     // Two faults share one path; assert both from the raw capture order.
     assert.deepEqual(captured[1].body, wire("stream_fault_latency"));
     assert.deepEqual(captured[2].body, wire("stream_fault_bandwidth_defaults"));
-    assert.deepEqual(captured[3].body, wire("datagram_fault_loss"));
-    assert.deepEqual(captured[4].body, wire("scenario_v1_apply"));
-    assert.deepEqual(captured[5].body, wire("schedule_v2_validate"));
+    assert.deepEqual(captured[3].body, wire("stream_fault_stream_loss"));
+    assert.deepEqual(captured[4].body, wire("datagram_fault_loss"));
+    assert.deepEqual(captured[5].body, wire("scenario_v1_apply"));
+    assert.deepEqual(captured[6].body, wire("schedule_v2_validate"));
   });
 
   it("omits absent optionals so server defaults apply", async () => {

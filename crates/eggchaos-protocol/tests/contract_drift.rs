@@ -137,6 +137,10 @@ fn stream_fault_tags() -> BTreeSet<String> {
             after_ns: 0,
             hard_reset: false,
         },
+        FaultKindV1::StreamLoss {
+            loss_rate: 0.2,
+            correlation: 0.4,
+        },
     ];
     kinds
         .iter()
@@ -288,6 +292,10 @@ fn every_stream_fault_variant_survives_a_wire_round_trip() {
                 "disconnect" => FaultKindV1::Disconnect {
                     after_ns: 0,
                     hard_reset: true,
+                },
+                "stream-loss" => FaultKindV1::StreamLoss {
+                    loss_rate: 0.2,
+                    correlation: 0.4,
                 },
                 other => panic!("unknown stream fault tag {other}"),
             },

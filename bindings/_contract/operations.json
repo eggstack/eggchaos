@@ -203,6 +203,7 @@
     "latency",
     "limit-data",
     "slice",
-    "slow-close"
+    "slow-close",
+    "stream-loss"
   ]
 }

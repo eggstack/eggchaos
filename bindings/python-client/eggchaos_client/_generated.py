@@ -41,7 +41,7 @@ OPERATIONS = (
     {"method": 'GET', "path": '/v1/version', "operation_id": 'getVersion'},
 )
 
-STREAM_FAULT_TAGS = ('bandwidth', 'blackhole', 'disconnect', 'latency', 'limit-data', 'slice', 'slow-close')
+STREAM_FAULT_TAGS = ('bandwidth', 'blackhole', 'disconnect', 'latency', 'limit-data', 'slice', 'slow-close', 'stream-loss')
 
 DATAGRAM_FAULT_TAGS = ('bandwidth', 'delay', 'duplicate', 'loss', 'payload-corrupt', 'reorder')
 

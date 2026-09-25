@@ -819,6 +819,7 @@ components:
         - $ref: '#/components/schemas/StreamFaultSlowClose'
         - $ref: '#/components/schemas/StreamFaultSlice'
         - $ref: '#/components/schemas/StreamFaultDisconnect'
+        - $ref: '#/components/schemas/StreamFaultStreamLoss'
       discriminator:
         propertyName: type
         mapping:
@@ -829,6 +830,7 @@ components:
           slow-close: '#/components/schemas/StreamFaultSlowClose'
           slice: '#/components/schemas/StreamFaultSlice'
           disconnect: '#/components/schemas/StreamFaultDisconnect'
+          stream-loss: '#/components/schemas/StreamFaultStreamLoss'
     StreamFaultLatency:
       type: object
       required: [type, delay_ns]
@@ -947,6 +949,31 @@ components:
         hard_reset:
           type: boolean
           default: false
+    StreamFaultStreamLoss:
+      description: |
+        Deterministic userspace stream-chunk loss (ADR 007 / M037). Loss is
+        decided in fixed 32 KiB logical chunks keyed to the absolute accepted
+        stream offset, so identical byte streams decide identically under any
+        caller write fragmentation. `correlation` raises the drop probability
+        after the previous chunk was dropped (capped at 1). This is userspace
+        stream-chunk loss, not IP/TCP packet loss.
+      type: object
+      required: [type, loss_rate, correlation]
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          enum: [stream-loss]
+        loss_rate:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+        correlation:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
     FaultUpsertV1:
       type: object
       required: [direction, id, kind]

@@ -255,9 +255,11 @@ suffix, `u64` number, checked `nanos` multiply. Anything else is
 - `blackhole`\|`timeout` → `Blackhole{close_after: delay-as-duration?}`.
 - `limit_data` → `LimitData{bytes!}`.
 - `slow_close` → `SlowClose{delay}`.
-- `slicer`\|`slice` → `Slice{average_size!, variation, delay}`.
-- `disconnect`\|`reset_peer` → `Disconnect{after: delay, hard_reset}`.
-- else `Field{fault.type, unsupported type ...}`.
+ - `slicer`\|`slice` → `Slice{average_size!, variation, delay}`.
+ - `disconnect`\|`reset_peer` → `Disconnect{after: delay, hard_reset}`.
+ - `stream-loss` → `StreamLoss{loss_rate, correlation}` (ADR 007; both
+   required and must be finite `[0, 1]`, validated by `FaultPlan`).
+ - else `Field{fault.type, unsupported type ...}`.
 
 `!` = `None`/zero rejected as `Field`. Core range rules (bounded IDs,
 finite probability, `variation < average_size`, non-zero capacities) come
@@ -346,8 +348,11 @@ Global flags (`main.rs:9-24`):
 - `slow-close`\|`slowclose` requires `--delay-ms`.
 - `slice` requires `--average-size`; optional `--variation` (0),
   `--delay-ms` (0).
-- `disconnect` optional `--after-ms` (0), `--hard-reset`.
-- else `unknown --kind ...`.
+ - `disconnect` optional `--after-ms` (0), `--hard-reset`.
+ - `stream-loss` requires `--loss-rate` and `--correlation` (both finite
+   `[0, 1]`; deterministic userspace stream-chunk loss in fixed 32 KiB
+   logical grains — explicitly not IP/TCP packet loss).
+ - else `unknown --kind ...`.
 - All native fault durations are encoded as integer nanoseconds. The
   `FaultKindV1` DTO owns the explicit lowercase `type` spelling and is reused
   by config conversion and native HTTP create/patch/response conversion.

@@ -14,7 +14,7 @@ use std::{
 use eggchaos_core::{
     BandwidthConfig, BlackholeConfig, DatagramFaultKind, DatagramFaultSpec, DatagramPlan,
     DatagramQueueLimits, Direction, DisconnectConfig, FaultId, FaultKind, FaultPlan, FaultSpec,
-    LatencyConfig, LimitDataConfig, Probability, SliceConfig, SlowCloseConfig,
+    LatencyConfig, LimitDataConfig, Probability, SliceConfig, SlowCloseConfig, StreamLossConfig,
 };
 use serde::{Deserialize, Serialize};
 
@@ -203,6 +203,14 @@ pub enum FaultKindV1 {
         #[serde(default)]
         hard_reset: bool,
     },
+    /// Deterministic userspace stream-chunk loss (ADR 007 / M037).
+    ///
+    /// Loss is decided in fixed 32 KiB logical chunks keyed to the absolute
+    /// accepted stream offset, so identical byte streams decide identically
+    /// under any caller write fragmentation. `correlation` raises the drop
+    /// probability after the previous chunk was dropped (capped at 1).
+    /// This is userspace stream-chunk loss, not IP/TCP packet loss.
+    StreamLoss { loss_rate: f64, correlation: f64 },
 }
 
 impl FaultKindV1 {
@@ -225,6 +233,13 @@ impl FaultKindV1 {
             NonZeroU64::new(value).ok_or_else(|| format!("{field} must be non-zero"))
         };
         let duration = |nanos: u64| Duration::from_nanos(nanos);
+        let finite_probability = |field: &str, value: f64| {
+            if value.is_finite() && (0.0..=1.0).contains(&value) {
+                Probability::new(value).map_err(|error| error.to_string())
+            } else {
+                Err(format!("{field} must be finite and between 0 and 1"))
+            }
+        };
         Ok(match self {
             Self::Latency {
                 delay_ns,
@@ -274,6 +289,13 @@ impl FaultKindV1 {
                 after: duration(after_ns),
                 hard_reset,
             }),
+            Self::StreamLoss {
+                loss_rate,
+                correlation,
+            } => FaultKind::StreamLoss(StreamLossConfig {
+                loss_rate: finite_probability("loss_rate", loss_rate)?,
+                correlation: finite_probability("correlation", correlation)?,
+            }),
         })
     }
 
@@ -307,15 +329,10 @@ impl FaultKindV1 {
                 after_ns: ns(v.after),
                 hard_reset: v.hard_reset,
             },
-            // M036 temporary compile-only arm: no native `stream-loss` DTO
-            // exists yet, so a core-constructed StreamLoss has no wire
-            // representation. Unreachable through every M036 construction
-            // path (native authoring cannot name the kind); M037 replaces
-            // this arm with the versioned `stream-loss` DTO.
-            FaultKind::StreamLoss(_) => unreachable!(
-                "native stream-loss DTO is owned by M037; \
-                 core StreamLoss cannot round-trip through protocol in M036"
-            ),
+            FaultKind::StreamLoss(v) => Self::StreamLoss {
+                loss_rate: v.loss_rate.get(),
+                correlation: v.correlation.get(),
+            },
         }
     }
 }
@@ -1306,6 +1323,13 @@ mod tests {
                     hard_reset: false,
                 },
                 r#"{"type":"disconnect","after_ns":0,"hard_reset":false}"#,
+            ),
+            (
+                FaultKindV1::StreamLoss {
+                    loss_rate: 0.2,
+                    correlation: 0.4,
+                },
+                r#"{"type":"stream-loss","loss_rate":0.2,"correlation":0.4}"#,
             ),
         ];
         for (kind, expected) in fixtures {

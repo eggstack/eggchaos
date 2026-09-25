@@ -360,15 +360,13 @@ fn attrs_from_kind(kind: &FaultKind) -> (&'static str, ToxicAttributes) {
                 ..ToxicAttributes::default()
             },
         ),
-        // M036 temporary compile-only arm: native StreamLoss has no
-        // construction path yet (compat input rejects `packet_loss` as an
-        // invalid v2.12 type and native DTOs cannot name `stream-loss`),
-        // so this arm is unreachable. M038 replaces it with the explicit
-        // strict-profile view policy plus the opt-in snapshot-profile
-        // `packet_loss` reverse mapping.
+        // Strict v2.12 must not name stream loss. The Toxiproxy v2.12 toxic
+        // set is frozen by M012 and has no `packet_loss` spelling. M037
+        // keeps strict v2.12 unchanged; M038 adds the explicit opt-in
+        // snapshot-profile presentation.
         FaultKind::StreamLoss(_) => unreachable!(
             "strict v2.12 StreamLoss presentation is owned by M038; \
-             native StreamLoss cannot reach the compat adapter in M036"
+             native StreamLoss cannot reach the compat adapter in M037"
         ),
     }
 }
@@ -1366,6 +1364,63 @@ mod tests {
         assert_eq!(
             serde_json::from_slice::<Value>(&body).unwrap(),
             json!({"version": "2.12.0"})
+        );
+        handle.shutdown();
+        handle.wait().await;
+    }
+
+    #[tokio::test]
+    async fn strict_v212_rejects_post_v212_packet_loss_toxic() {
+        // M037/M038 lock: the strict v2.12 profile (default) rejects the
+        // post-v2.12 `packet_loss` toxic spelling with the same
+        // `invalid toxic type` 400 the v2.12 oracle returns. The opt-in
+        // snapshot profile (M038) accepts it; this test exercises only
+        // the strict default to keep the v2.12 frozen profile stable.
+        let adapter = ToxiproxyAdapter::new(ControlState::default());
+        let handle = ToxiproxyHttp::start("127.0.0.1:0".parse().unwrap(), adapter)
+            .await
+            .unwrap();
+        let client = eggfetch_core::Client::builder().build();
+        // Create proxy first.
+        let create = serde_json::json!({
+            "name": "echo",
+            "listen": "127.0.0.1:0",
+            "upstream": "127.0.0.1:1",
+            "enabled": true,
+            "toxics": []
+        });
+        let response = client
+            .post(&format!("http://{}/proxies", handle.local_addr()))
+            .unwrap()
+            .json(&create)
+            .unwrap()
+            .send()
+            .await
+            .unwrap();
+        assert!(response.status().is_success(), "proxy create");
+        // Try to add the post-v2.12 toxic; strict v2.12 must reject it.
+        let toxic = serde_json::json!({
+            "name": "loss",
+            "type": "packet_loss",
+            "stream": "downstream",
+            "toxicity": 1.0,
+            "attributes": {"loss_rate": 0.5, "correlation": 0.0}
+        });
+        let response = client
+            .post(&format!(
+                "http://{}/proxies/echo/toxics",
+                handle.local_addr()
+            ))
+            .unwrap()
+            .json(&toxic)
+            .unwrap()
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status().as_u16(),
+            400,
+            "strict v2.12 must reject packet_loss with 400 invalid toxic type"
         );
         handle.shutdown();
         handle.wait().await;

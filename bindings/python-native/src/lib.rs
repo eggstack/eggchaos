@@ -229,6 +229,27 @@ impl Fault {
     }
 
     #[staticmethod]
+    #[pyo3(signature = (id, *, direction, loss_rate, correlation, probability=None))]
+    fn stream_loss(
+        id: String,
+        direction: String,
+        loss_rate: f64,
+        correlation: f64,
+        probability: Option<f64>,
+    ) -> Self {
+        Self {
+            direction,
+            id,
+            probability,
+            kind: serde_json::json!({
+                "type": "stream-loss",
+                "loss_rate": loss_rate,
+                "correlation": correlation,
+            }),
+        }
+    }
+
+    #[staticmethod]
     #[pyo3(signature = (id, *, direction, delay_ns, jitter_ns=0, probability=None))]
     fn datagram_delay(
         id: String,

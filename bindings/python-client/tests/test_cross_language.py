@@ -13,6 +13,7 @@ from eggchaos_client import (
     ProxyCreate,
     ScheduleV2,
     ScenarioV1,
+    StreamLossFault,
 )
 
 FIXTURES = json.loads(
@@ -85,6 +86,16 @@ def test_stream_faults_serialize_to_shared_wire():
         lambda client: client.add_fault("redis", "upstream", "cap", BandwidthFault())
     )
     assert body == _wire("stream_fault_bandwidth_defaults")
+
+    _, _, body = _captured(
+        lambda client: client.add_fault(
+            "redis",
+            "upstream",
+            "loss",
+            StreamLossFault(loss_rate=0.25, correlation=0.1),
+        )
+    )
+    assert body == _wire("stream_fault_stream_loss")
 
 
 def test_datagram_fault_serializes_to_shared_wire():

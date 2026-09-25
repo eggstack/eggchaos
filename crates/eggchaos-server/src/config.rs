@@ -150,6 +150,12 @@ pub struct FaultFileConfig {
     /// Hard reset request.
     #[serde(default)]
     pub hard_reset: bool,
+    /// Stream-loss rate in [0, 1].
+    #[serde(default)]
+    pub loss_rate: Option<f64>,
+    /// Stream-loss correlation in [0, 1].
+    #[serde(default)]
+    pub correlation: Option<f64>,
 }
 
 fn default_probability() -> f64 {
@@ -467,6 +473,20 @@ impl FaultFileConfig {
                 after_ns: to_ns(duration(&self.delay, "fault.delay")?, "fault.delay")?,
                 hard_reset: self.hard_reset,
             },
+            "stream-loss" => {
+                let loss_rate = self.loss_rate.ok_or_else(|| NativeConfigError::Field {
+                    field: "fault.loss_rate".into(),
+                    message: "loss_rate is required for stream-loss".into(),
+                })?;
+                let correlation = self.correlation.ok_or_else(|| NativeConfigError::Field {
+                    field: "fault.correlation".into(),
+                    message: "correlation is required for stream-loss".into(),
+                })?;
+                FaultKindV1::StreamLoss {
+                    loss_rate,
+                    correlation,
+                }
+            }
             other => {
                 return Err(NativeConfigError::Field {
                     field: "fault.type".into(),

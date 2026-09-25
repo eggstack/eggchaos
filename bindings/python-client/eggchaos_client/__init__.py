@@ -31,6 +31,7 @@ from .models import (
     ScheduleV2,
     SliceFault,
     SlowCloseFault,
+    StreamLossFault,
     datagram_fault_from_dict,
     stream_fault_from_dict,
 )
@@ -63,6 +64,7 @@ __all__ = [
     "ScheduleV2",
     "SliceFault",
     "SlowCloseFault",
+    "StreamLossFault",
     "datagram_fault_from_dict",
     "stream_fault_from_dict",
 ]

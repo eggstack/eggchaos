@@ -15,6 +15,7 @@ from eggchaos_client import (
     ProxyCreate,
     SliceFault,
     SlowCloseFault,
+    StreamLossFault,
     datagram_fault_from_dict,
     stream_fault_from_dict,
 )
@@ -31,6 +32,8 @@ def test_stream_fault_wire_shapes_match_m032_contract():
         (SliceFault(average_size=10, variation=2, delay_ns=11),
          {"type": "slice", "average_size": 10, "variation": 2, "delay_ns": 11}),
         (DisconnectFault(), {"type": "disconnect", "after_ns": 0, "hard_reset": False}),
+        (StreamLossFault(loss_rate=0.2, correlation=0.4),
+         {"type": "stream-loss", "loss_rate": 0.2, "correlation": 0.4}),
     ]
     for fault, expected in cases:
         assert fault.to_dict() == expected

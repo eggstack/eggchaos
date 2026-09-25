@@ -86,8 +86,8 @@ export const OPERATION_METHODS: Record<string, string> = {
   "validateSchedule": "validateSchedule",
 };
 
-export type StreamFaultTag = "bandwidth" | "blackhole" | "disconnect" | "latency" | "limit-data" | "slice" | "slow-close";
-export const STREAM_FAULT_TAGS: StreamFaultTag[] = ["bandwidth", "blackhole", "disconnect", "latency", "limit-data", "slice", "slow-close"];
+export type StreamFaultTag = "bandwidth" | "blackhole" | "disconnect" | "latency" | "limit-data" | "slice" | "slow-close" | "stream-loss";
+export const STREAM_FAULT_TAGS: StreamFaultTag[] = ["bandwidth", "blackhole", "disconnect", "latency", "limit-data", "slice", "slow-close", "stream-loss"];
 
 export type DatagramFaultTag = "bandwidth" | "delay" | "duplicate" | "loss" | "payload-corrupt" | "reorder";
 export const DATAGRAM_FAULT_TAGS: DatagramFaultTag[] = ["bandwidth", "delay", "duplicate", "loss", "payload-corrupt", "reorder"];

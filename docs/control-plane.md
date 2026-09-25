@@ -44,10 +44,13 @@ Stable fault `type` values and attributes are: `latency` (`delay_ns` required,
 (`bytes_per_second` defaults to 1, `burst_bytes` to 65536), `blackhole`
 (`close_after_ns` defaults to null), `limit-data` (`bytes` defaults to 1),
 `slow-close` (`delay_ns` required), `slice` (`average_size` defaults to 1024,
-`variation` and `delay_ns` to 0), and `disconnect` (`after_ns` defaults to 0,
-`hard_reset` to false). Required sizes/rates must be non-zero; probability
-defaults to 1 and must be finite in `0..=1`. Unknown properties are rejected.
-Direction values are `upstream` and `downstream`.
+`variation` and `delay_ns` to 0), `disconnect` (`after_ns` defaults to 0,
+`hard_reset` to false), and `stream-loss` (`loss_rate` and `correlation`
+both required, finite in `0..=1`; deterministic userspace stream-chunk
+loss in fixed 32 KiB logical grains — explicitly not IP/TCP packet loss).
+Required sizes/rates must be non-zero; probability defaults to 1 and must
+be finite in `0..=1`. Unknown properties are rejected. Direction values
+are `upstream` and `downstream`.
 
 Proxy create and patch use `connect_timeout_ms`; create also accepts `seed`.
 For example:

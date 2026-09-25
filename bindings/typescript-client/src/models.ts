@@ -39,6 +39,11 @@ export interface DisconnectFault {
   after_ns?: number;
   hard_reset?: boolean;
 }
+export interface StreamLossFault {
+  type: "stream-loss";
+  loss_rate: number;
+  correlation: number;
+}
 
 export type StreamFaultKind =
   | LatencyFault
@@ -47,7 +52,8 @@ export type StreamFaultKind =
   | LimitDataFault
   | SlowCloseFault
   | SliceFault
-  | DisconnectFault;
+  | DisconnectFault
+  | StreamLossFault;
 
 const STREAM_FAULT_TYPES: ReadonlySet<string> = new Set([
   "latency",
@@ -57,6 +63,7 @@ const STREAM_FAULT_TYPES: ReadonlySet<string> = new Set([
   "slow-close",
   "slice",
   "disconnect",
+  "stream-loss",
 ]);
 
 export function decodeStreamFault(data: unknown): StreamFaultKind {

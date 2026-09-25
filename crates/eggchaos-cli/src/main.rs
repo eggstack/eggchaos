@@ -124,7 +124,7 @@ enum ProxyCommand {
 #[derive(Args)]
 struct FaultParams {
     /// Fault behavior: latency, bandwidth, blackhole, limit-data,
-    /// slow-close, slice, disconnect.
+    /// slow-close, slice, disconnect, stream-loss.
     #[arg(long)]
     kind: Option<String>,
     #[arg(long)]
@@ -149,6 +149,10 @@ struct FaultParams {
     after_ms: Option<u64>,
     #[arg(long)]
     hard_reset: bool,
+    #[arg(long, allow_hyphen_values = true)]
+    loss_rate: Option<f64>,
+    #[arg(long, allow_hyphen_values = true)]
+    correlation: Option<f64>,
 }
 
 #[derive(Subcommand)]
@@ -813,9 +817,13 @@ fn build_kind(
             after_ns: duration_ns(params.after_ms.unwrap_or(0))?,
             hard_reset: params.hard_reset,
         },
+        "stream-loss" => FaultKindV1::StreamLoss {
+            loss_rate: required("loss-rate", params.loss_rate)?,
+            correlation: required("correlation", params.correlation)?,
+        },
         other => {
             return Err(format!(
-                "unknown --kind {other:?}: latency, bandwidth, blackhole, limit-data, slow-close, slice, disconnect"
+                "unknown --kind {other:?}: latency, bandwidth, blackhole, limit-data, slow-close, slice, disconnect, stream-loss"
             )
             .into());
         }

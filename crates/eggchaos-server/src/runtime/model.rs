@@ -65,6 +65,25 @@ pub struct ConnectionSnapshot {
     pub upstream_bytes: DirectionBytes,
     /// Downstream byte counters.
     pub downstream_bytes: DirectionBytes,
+    /// Upstream stream-loss chunks evaluated (ADR 007 additive counter).
+    #[serde(default)]
+    pub upstream_stream_loss_chunks_evaluated: u64,
+    /// Downstream stream-loss chunks evaluated.
+    #[serde(default)]
+    pub downstream_stream_loss_chunks_evaluated: u64,
+    /// Upstream stream-loss chunks dropped.
+    #[serde(default)]
+    pub upstream_stream_loss_chunks_dropped: u64,
+    /// Downstream stream-loss chunks dropped.
+    #[serde(default)]
+    pub downstream_stream_loss_chunks_dropped: u64,
+    /// Upstream stream-loss bytes discarded (counted once; included in
+    /// `upstream_bytes.discarded`).
+    #[serde(default)]
+    pub upstream_stream_loss_bytes_discarded: u64,
+    /// Downstream stream-loss bytes discarded.
+    #[serde(default)]
+    pub downstream_stream_loss_bytes_discarded: u64,
     /// Connection-active upstream fault identities (bounded, no payloads).
     pub upstream_faults: Vec<ActiveFault>,
     /// Whether the upstream fault list truncated at the evidence bound.
