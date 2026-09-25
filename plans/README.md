@@ -11,7 +11,7 @@ Eggchaos is intended to be a small Rust-native successor to the useful core of T
 | `roadmap.md` | Long-term architecture, sequencing, release stages, and future extensions. |
 | `registry.md` | Current milestone status and dependency source of truth. |
 | `000-architecture-and-scope-baseline.md` | Investigated baseline, reuse decisions, scope boundaries, and initial dependency graph. |
-| `001-*.md` ... `028-*.md` | Bounded implementation, corrective, cleanup, feature, qualification, maintenance, hygiene, and richer-scenario handoffs in execution order. |
+| `001-*.md` ... `031-*.md` | Bounded implementation, corrective, cleanup, feature, qualification, maintenance, richer-scenario, and integration-boundary handoffs in execution order. |
 | `adrs/` | Durable architecture decisions that should not be silently changed by implementation. |
 | `reference/toxiproxy-parity.md` | Compatibility target and semantic mapping. |
 | `reference/verification-matrix.md` | Required evidence across faults, platforms, APIs, and performance. |
@@ -46,6 +46,15 @@ engines. Later schedule work (ramps, predicates, lifecycle actions, cron)
 requires separate planning and must compile to or compose with this bounded
 model rather than bypass it.
 
+ADR 005 now activates the cross-project integration-boundary/harness tranche:
+`M029 (ready) -> M030 (blocked) -> M031 (blocked)`. M029 is the sole ready
+handoff and must first make the EggFetch chaos adapter composable over arbitrary
+Dialers, freeze caller-controlled physical connection identity, and expose
+bounded bidirectional evidence. M030 then adds the consumer-neutral Scenario V2
+experiment harness/shared monotonic start epoch; M031 qualifies the exact
+candidate and records downstream EggReplay/EggProbe handoff seams. No
+EggReplay/EggProbe production dependency belongs in eggchaos.
+
 Historical closure records remain preserved at their real candidate commits. M015 remains valid qualification evidence for `cd88b22`; M019 is the final current release-candidate authority at `ca527db`.
 
 ## Status rules
@@ -74,7 +83,7 @@ The initial architecture is deliberately narrow:
 
 The native admin plane should use the leaf `eggserve-server` + `eggserve-primitives` H1 substrate. The CLI should use a minimal `eggfetch-core` HTTP profile to call it. `eggress-admin` is not used because its state model is specific to Eggress routing, UDP, metrics, and reverse-proxy administration.
 
-The first release is TCP byte-stream focused. UDP/datagram chaos is implemented as the post-release tranche under ADR 003 (M020–M023), with M024/M025 performance and setup-hygiene successors closed, and remains outside the first-release/M019 historical scope. Richer deterministic scenarios are now activated under ADR 004 + M026–M028. Arbitrary outbound proxy chains, language bindings, and cross-project integration with eggreplay/eggprobe remain later roadmap items.
+The first release is TCP byte-stream focused. UDP/datagram chaos is implemented as the post-release tranche under ADR 003 (M020–M023), with M024/M025 performance and setup-hygiene successors closed, and remains outside the first-release/M019 historical scope. Richer deterministic scenarios are complete under ADR 004 + M026–M028. The consumer-neutral cross-project integration substrate is now activated under ADR 005 + M029–M031; EggReplay/EggProbe product-specific adoption remains downstream work after M031. Arbitrary outbound proxy chains and language bindings remain later roadmap items.
 
 ## Research baseline
 
