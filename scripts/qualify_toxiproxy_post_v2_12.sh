@@ -14,7 +14,8 @@ set -eu
 # Reap any stale post-v2.12 oracle from a prior qualification run so the
 # new oracle can bind the same admin port. Strict v2.12 / Toxiproxy
 # qualifiers use different ports and are unaffected.
-pgrep -f 'toxiproxy-server.*-port 18748' 2>/dev/null | xargs -r kill -9 2>/dev/null || true
+pgrep -f 'toxiproxy-post-v2-12.*toxiproxy-server|toxiproxy-server.*-port 18748' 2>/dev/null \
+  | xargs -r kill -9 2>/dev/null || true
 sleep 1
 
 cargo test -p eggchaos-toxiproxy --all-features >/dev/null

@@ -5,6 +5,7 @@ use std::{
 
 use eggchaos_core::{
     ChaosStream, Direction, FaultId, FaultKind, FaultPlan, FaultSpec, LatencyConfig, Probability,
+    StreamLossConfig,
 };
 use eggchaos_eggfetch::ChaosDialer;
 use eggfetch_core::{DialTarget, Dialer};
@@ -33,6 +34,10 @@ async fn main() {
         ("eggchaos_bandwidth_16mib_s", Some(bandwidth_plan())),
         ("eggchaos_slice_16k", Some(slice_plan())),
         ("eggchaos_combined_latency_slice", Some(combined_plan())),
+        ("eggchaos_stream_loss_zero", Some(stream_loss_plan(0.0, 0.0))),
+        ("eggchaos_stream_loss_mid", Some(stream_loss_plan(0.3, 0.2))),
+        ("eggchaos_stream_loss_full", Some(stream_loss_plan(1.0, 0.0))),
+        ("eggchaos_stream_loss_latency", Some(stream_loss_latency_plan())),
     ];
     for (index, (name, plan)) in cases.into_iter().enumerate() {
         let mut samples = Vec::with_capacity(rounds);
@@ -129,6 +134,41 @@ fn combined_plan() -> FaultPlan {
                 average_size: NonZeroU64::new(16 * 1024).expect("non-zero slice"),
                 variation: 4 * 1024,
                 delay: Duration::ZERO,
+            }),
+        },
+    ])
+    .expect("static benchmark plan")
+}
+
+fn stream_loss_plan(rate: f64, correlation: f64) -> FaultPlan {
+    FaultPlan::new(vec![FaultSpec {
+        id: FaultId::new("loss").expect("static fault id"),
+        probability: Probability::new(1.0).expect("static probability"),
+        kind: FaultKind::StreamLoss(StreamLossConfig {
+            loss_rate: Probability::new(rate).expect("static rate"),
+            correlation: Probability::new(correlation).expect("static correlation"),
+        }),
+    }])
+    .expect("static benchmark plan")
+}
+
+fn stream_loss_latency_plan() -> FaultPlan {
+    FaultPlan::new(vec![
+        FaultSpec {
+            id: FaultId::new("loss").expect("static fault id"),
+            probability: Probability::new(1.0).expect("static probability"),
+            kind: FaultKind::StreamLoss(StreamLossConfig {
+                loss_rate: Probability::new(0.3).expect("static rate"),
+                correlation: Probability::new(0.2).expect("static correlation"),
+            }),
+        },
+        FaultSpec {
+            id: FaultId::new("latency").expect("static fault id"),
+            probability: Probability::new(1.0).expect("static probability"),
+            kind: FaultKind::Latency(LatencyConfig {
+                delay: Duration::from_millis(1),
+                jitter: Duration::ZERO,
+                max_buffer_bytes: NonZeroU64::new(BUFFER_SIZE as u64).expect("non-zero buffer"),
             }),
         },
     ])
