@@ -1,8 +1,9 @@
 # M033 — Python and TypeScript Native Control SDKs
 
-Status: ready  
+Status: closed  
 Depends on: M032 (closed at `ed05f68`), ADR 006  
 Role: first cross-language native-control clients
+Closed at: `429d459a7f1154907fe37e3ff961e577406eafef`; evidence in `plans/closure/M033-python-and-typescript-native-control-sdks-closure.md`.
 
 ## Objective
 
