@@ -62,7 +62,7 @@ Qualification scripts (release workflow): `scripts/qualify_fuzz.sh`, `scripts/qu
 - Admin binds loopback by default. Non-loopback requires explicit public-admin opt-in + bearer token; failures return bounded JSON without echoing the token.
 - All limits are bounded (queues, connections, bodies, histories, metrics cardinality). Default overflow is backpressure (`Pending`), never silent loss unless the fault documents discard. `poll_flush` is the delivery barrier; `poll_write` success only means the engine owns the bytes.
 - Determinism: SplitMix64-v1, versioned seeds derived from `(seed namespace, proxy identity, connection key, direction, fault id)`. No process-global or scheduler-order RNG. ScenarioV1 namespaces derive from `(scenario seed, run id, event index)`; scenario-v2 namespaces derive from `(scenario seed, execution key, schedule fingerprint, compiled event index)` with no run_id; replay is exact for policy/per-key decisions, not live timing (connection keys depend on accept order).
-- Never call stream-chunk dropping "packet loss" in native APIs/docs. `reset_peer`/hard-reset is best-effort and platform-qualified (RST vs FIN not asserted); ordinary `poll_shutdown` is never advertised as TCP RST.
+- Native userspace TCP byte-chunk dropping is named `stream-loss`; only the Toxiproxy compatibility presentation may call the post-v2.12 spelling `packet_loss`. It is not IP/TCP packet loss and must never reuse ADR 003 datagram-loss semantics. `reset_peer`/hard-reset is best-effort and platform-qualified (RST vs FIN not asserted); ordinary `poll_shutdown` is never advertised as TCP RST.
 - Dep discipline: `eggress-relay` not `eggress-embed`; `eggserve-server`+`eggserve-primitives` not `eggress-admin`/`eggserve-core`; `eggfetch-core` minimal features; `eggress-outbound` only behind an optional feature with proven demand. Don't copy sibling-repo code when a published Eggstack crate provides the primitive.
 
 ## Planning state
@@ -108,11 +108,21 @@ corrective `M035 (closed at a710cd6)` fixed the hosted language-client
 cleanup false failure, made native-Python qualification host-aware and
 protected by hosted CI, consolidated datagram fault mutation semantics
 below HTTP/embed, reconciled current-state planning, and requalified the
-exact head with a green hosted matrix. No ready or blocked handoff
-remains; M035 activates no successor. Do not rewrite M032–M035 closure
+exact head with a green hosted matrix. Do not rewrite M032–M035 closure
 history. Do not start a generic C ABI, Node native addon, JNI, P/Invoke,
 cgo, UniFFI, or WASM under M035; a generic C ABI still requires
 a separate ADR after demonstrated multi-consumer demand.
+
+ADR 007 is now active for post-v2.12 Toxiproxy stream-loss compatibility:
+`M036 (ready) -> M037 (blocked) -> M038 (blocked) -> M039 (blocked)`.
+M036 is the sole ready implementation handoff. It owns only deterministic
+core `StreamLoss` semantics/evidence and must preserve the existing
+seven-slot activation arrays. M037 cannot start until M036 closes; it owns
+native/config/CLI/Scenario/OpenAPI/SDK/embed propagation. M038 cannot start
+until M037 closes; it owns the opt-in `packet_loss` profile pinned to
+Shopify/Toxiproxy `40f7fd31bee529d824116bd2a11a9e3425e904ec`. Strict
+v2.12 remains the default/frozen profile and retains its current pinned oracle.
+M039 is the final dual-oracle exact-candidate qualification gate.
 
 If the owner asks for new work: `plans/roadmap.md` is the architecture authority, `plans/reference/` holds parity/verification contracts (not status), ADRs live in `plans/adrs/`. Any new numbered plan needs objective, baseline/deps, scope + non-goals, affected crates, ordered work packages, invariants/failure semantics, test commands, acceptance criteria, stop conditions, closure evidence, and follow-on rules — and must update `plans/registry.md` in the same change. Never mark `closed` from source inspection; closure requires running the plan's tests on the exact candidate plus external/differential evidence where declared.
 
