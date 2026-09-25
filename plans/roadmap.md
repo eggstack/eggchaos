@@ -1,6 +1,6 @@
 # Eggchaos Long-Term Roadmap
 
-Status: M008 and M009–M025 are closed work. M019 passed final pre-tag qualification at `ca527db`; the owner may proceed with the v0.1.0 tag and separate publication/release actions. ADR 003's post-release datagram feature tranche M020–M023 is complete, with M024/M025 performance and setup-hygiene successors closed. ADR 004's richer deterministic-scenario/time-varying schedule tranche M026–M028 is complete and qualified; see the M028 closure record for the exact candidate and follow-on rules.
+Status: M008 and M009–M028 are closed work. M019 passed final pre-tag qualification at `ca527db`; the owner may proceed with the v0.1.0 tag and separate publication/release actions. ADR 003's post-release datagram feature tranche M020–M023 is complete, with M024/M025 performance and setup-hygiene successors closed. ADR 004's richer deterministic-scenario/time-varying schedule tranche M026–M028 is complete and qualified. ADR 005 activates the integration-boundary/harness tranche: M029 is ready, with M030/M031 blocked in dependency order.
 
 ## 1. Mission
 
@@ -378,6 +378,22 @@ M028 is closed. It froze golden compiler/fingerprint/namespace fixtures, proved 
 
 The v2 scheduler remains an intra-run deterministic control system. It does not add cron/calendar persistence, arbitrary branches/predicates, callbacks/shell execution, continuous per-packet clock interpolation, or a second data-plane scheduler. Later eggreplay/eggprobe integration should consume this compiled/evidence model rather than bypassing it.
 
+## 11G. Activated cross-project integration-boundary and experiment-harness sequence
+
+ADR 005 activates a consumer-neutral integration tranche before any EggReplay or EggProbe product adapter is implemented:
+
+    M029 composable transport chaos adapter + evidence
+      -> M030 consumer-neutral experiment harness + coordinated start
+      -> M031 exact-candidate qualification + downstream handoff
+
+M029 is ready and is the sole implementation handoff. It refactors the EggFetch physical-stream integration so eggchaos can decorate an arbitrary caller-selected Dialer rather than owning direct resolution/routing, adds caller-controlled deterministic physical connection identity, and exposes bounded bidirectional connection evidence outside the type-erased EggFetch stream. The physical connection remains the fault unit: keep-alive and HTTP/2 multiplexing do not acquire per-request chaos identities.
+
+M030 is blocked on M029. It moves or reuses the pure Scenario V2 semantic/compiler authority behind a narrow consumer-neutral experiment boundary, preserves server public re-exports, adds expected-generation policy-target adapters, and provides an embedded prepare/arm/start lifecycle with one shared Tokio monotonic epoch for schedule and caller workload correlation. This synchronizes the schedule clock; it does not claim deterministic kernel/application traffic timing or cross-process clock synchronization.
+
+M031 is blocked on M030 and is the exact-candidate qualification gate. It freezes dependency direction, public seam compatibility, Dialer composition/error provenance, connection identity/evidence behavior, shared-epoch schedule conformance, performance/security/package regressions, and a closure-backed handoff table for downstream EggReplay/EggProbe planning.
+
+The dependency rule is strict: eggchaos must not depend on `eggreplay-*` or `eggprobe-*`. Route identity and impairment identity remain orthogonal. EggReplay continues to own `.eggr`, semantic replay timing, and regression models; EggProbe continues to own route/probe/report/assertion semantics. Their product integrations begin only after M031 closes.
+
 ## 12. Performance targets
 
 No-fault overhead is a first-class regression metric.
@@ -414,8 +430,9 @@ Potential next lines:
 
 - datagram/UDP impairment is implemented under ADR 003 + M020–M023, hardened by the closed M024 performance/runtime-maintainability pass, and closed through M025 association-setup/closure hygiene; follow-on datagram models require separate planning;
 - optional upstream chains via `eggress-outbound`;
-- eggreplay integration so recorded flows can replay with timing/failure profiles;
-- eggprobe integration for controlled diagnostic experiments;
+- cross-project integration substrate/harness is activated under ADR 005 + M029–M031; it remains consumer-neutral and dependency-inward;
+- eggreplay transport-chaos integration is downstream work after M031 so recorded/regression flows can be exercised under deterministic transport conditions without moving `.eggr` semantics into eggchaos;
+- eggprobe controlled-impairment integration is downstream work after M031, initially for transport-bearing TLS/HTTP paths while route/probe/report semantics remain EggProbe-owned;
 - language bindings around the stable Rust engine;
 - richer time-varying scenarios and deterministic schedule files are activated under ADR 004 + M026–M028;
 - post-v2.12 Toxiproxy extensions where useful;
