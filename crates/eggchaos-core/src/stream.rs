@@ -70,9 +70,15 @@ pub struct StreamEvidence {
     bytes_forwarded: AtomicU64,
     bytes_discarded: AtomicU64,
     high_water_bytes: AtomicU64,
+    injected_delay_ms: AtomicU64,
+    throttled_delay_ms: AtomicU64,
+    segments: AtomicU64,
+    slices: AtomicU64,
+    buffered_bytes: AtomicU64,
     transitions: AtomicU64,
     activations: [AtomicU64; 7],
     active_faults: Mutex<(Vec<ActiveFault>, bool)>,
+    termination: Mutex<Option<TerminationInfo>>,
     /// Bytes moved through the empty-engine direct path, which bypasses
     /// engine counters. Mirroring adds these to accepted/forwarded so
     /// evidence covers no-fault traffic too.
@@ -107,6 +113,61 @@ impl StreamEvidence {
     /// High-water mark of owned queued bytes.
     pub fn high_water_bytes(&self) -> u64 {
         self.high_water_bytes.load(Ordering::Relaxed)
+    }
+    /// Cumulative configured latency delay in milliseconds.
+    pub fn injected_delay_ms(&self) -> u64 {
+        self.injected_delay_ms.load(Ordering::Relaxed)
+    }
+    /// Cumulative bandwidth-throttle delay in milliseconds.
+    pub fn throttled_delay_ms(&self) -> u64 {
+        self.throttled_delay_ms.load(Ordering::Relaxed)
+    }
+    /// Accepted logical segments.
+    pub fn segments(&self) -> u64 {
+        self.segments.load(Ordering::Relaxed)
+    }
+    /// Slicer-produced slices accepted.
+    pub fn slices(&self) -> u64 {
+        self.slices.load(Ordering::Relaxed)
+    }
+    /// Bytes currently owned in the bounded queue.
+    pub fn buffered_bytes(&self) -> u64 {
+        self.buffered_bytes.load(Ordering::Relaxed)
+    }
+    /// Latest termination request, if any.
+    pub fn termination(&self) -> Option<TerminationRequest> {
+        self.termination_info().map(|info| info.request)
+    }
+    /// Latest termination evidence, if any.
+    pub fn termination_info(&self) -> Option<TerminationInfo> {
+        self.termination.lock().expect("evidence lock").clone()
+    }
+    /// Capture the current counters as one bounded snapshot (no payloads).
+    pub fn snapshot(&self, rng_version: RngVersion) -> DirectionEvidenceSnapshot {
+        let (bytes_accepted, bytes_forwarded, bytes_discarded) = self.byte_counts();
+        let (active_faults, active_faults_truncated) = self.active_faults();
+        let termination = self.termination_info();
+        DirectionEvidenceSnapshot {
+            generation: self.observed_generation(),
+            pending_generation: self.pending_generation(),
+            seed_namespace: self.seed_namespace(),
+            bytes_accepted,
+            bytes_forwarded,
+            bytes_discarded,
+            high_water_bytes: self.high_water_bytes(),
+            injected_delay_ms: self.injected_delay_ms(),
+            throttled_delay_ms: self.throttled_delay_ms(),
+            segments: self.segments(),
+            slices: self.slices(),
+            buffered_bytes: self.buffered_bytes(),
+            transitions: self.transitions(),
+            activations: self.activations(),
+            active_faults,
+            active_faults_truncated,
+            termination: termination.as_ref().map(|info| info.request),
+            termination_fault_id: termination.and_then(|info| info.fault_id),
+            rng_version,
+        }
     }
     /// Per-fault-type activation counts.
     pub fn activations(&self) -> [u64; 7] {
@@ -152,8 +213,26 @@ impl StreamEvidence {
             .store(evidence.bytes_discarded, Ordering::Relaxed);
         self.high_water_bytes
             .store(evidence.high_water_bytes, Ordering::Relaxed);
+        self.injected_delay_ms
+            .store(evidence.injected_delay_ms, Ordering::Relaxed);
+        self.throttled_delay_ms
+            .store(evidence.throttled_delay_ms, Ordering::Relaxed);
+        self.segments.store(evidence.segments, Ordering::Relaxed);
+        self.slices.store(evidence.slices, Ordering::Relaxed);
+        self.buffered_bytes
+            .store(evidence.buffered_bytes, Ordering::Relaxed);
         for (slot, value) in self.activations.iter().zip(evidence.activations) {
             slot.store(value, Ordering::Relaxed);
+        }
+        if let Some(request) = evidence.termination {
+            let mut slot = self.termination.lock().expect("evidence lock");
+            if slot.is_none() {
+                *slot = Some(TerminationInfo {
+                    request,
+                    direction: engine.direction(),
+                    fault_id: engine.termination_info().and_then(|info| info.fault_id),
+                });
+            }
         }
     }
     fn note_direct(&self, bytes: u64) {
@@ -555,6 +634,106 @@ fn terminated_error(info: Option<TerminationInfo>) -> io::Error {
     )
 }
 
+/// Bounded per-direction evidence snapshot for one physical connection
+/// direction. Contains counters and identities only; never payload bytes.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct DirectionEvidenceSnapshot {
+    /// Policy generation the direction engine compiled from.
+    pub generation: u64,
+    /// Transition target draining the old generation, if any (0 = none).
+    pub pending_generation: u64,
+    /// Seed namespace the current engine compiled from.
+    pub seed_namespace: u64,
+    /// Bytes accepted from the caller.
+    pub bytes_accepted: u64,
+    /// Bytes forwarded to the wrapped stream.
+    pub bytes_forwarded: u64,
+    /// Bytes intentionally discarded.
+    pub bytes_discarded: u64,
+    /// High-water mark of owned queued bytes.
+    pub high_water_bytes: u64,
+    /// Cumulative configured latency delay in milliseconds.
+    pub injected_delay_ms: u64,
+    /// Cumulative bandwidth-throttle delay in milliseconds.
+    pub throttled_delay_ms: u64,
+    /// Accepted logical segments.
+    pub segments: u64,
+    /// Slicer-produced slices accepted.
+    pub slices: u64,
+    /// Bytes currently owned in the bounded queue.
+    pub buffered_bytes: u64,
+    /// Completed live-policy transitions.
+    pub transitions: u64,
+    /// Per-fault-type activation counts.
+    pub activations: [u64; 7],
+    /// Connection-active fault identities.
+    pub active_faults: Vec<ActiveFault>,
+    /// Whether the active fault list was truncated at
+    /// [`MAX_EVIDENCE_FAULTS`].
+    pub active_faults_truncated: bool,
+    /// Latest termination request, if any.
+    pub termination: Option<TerminationRequest>,
+    /// Stable fault identity that requested termination, if any.
+    pub termination_fault_id: Option<String>,
+    /// Deterministic RNG contract version.
+    pub rng_version: RngVersion,
+}
+
+/// Bounded evidence snapshot for one physical bidirectional connection.
+/// Contains counters and identities only; never payload bytes.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct BidirectionalEvidenceSnapshot {
+    /// Deterministic physical connection key for the connection lifetime.
+    pub connection_key: u64,
+    /// Proxy or integration identity the engines compiled from.
+    pub proxy: String,
+    /// Upstream (write) direction evidence.
+    pub upstream: DirectionEvidenceSnapshot,
+    /// Downstream (read) direction evidence.
+    pub downstream: DirectionEvidenceSnapshot,
+}
+
+/// Shareable live evidence for one physical bidirectional connection.
+///
+/// Cloning this handle is cheap (reference counts only) and never locks
+/// the underlying network stream. It stays safe to inspect after the
+/// network stream is dropped; counters simply stop advancing.
+#[derive(Debug, Clone)]
+pub struct LiveBidirectionalEvidence {
+    connection_key: u64,
+    proxy: Arc<str>,
+    upstream: Arc<StreamEvidence>,
+    downstream: Arc<StreamEvidence>,
+}
+
+impl LiveBidirectionalEvidence {
+    /// Deterministic physical connection key for the connection lifetime.
+    pub const fn connection_key(&self) -> u64 {
+        self.connection_key
+    }
+    /// Proxy or integration identity the engines compiled from.
+    pub fn proxy(&self) -> &str {
+        &self.proxy
+    }
+    /// Live upstream (write) direction evidence.
+    pub fn upstream(&self) -> &Arc<StreamEvidence> {
+        &self.upstream
+    }
+    /// Live downstream (read) direction evidence.
+    pub fn downstream(&self) -> &Arc<StreamEvidence> {
+        &self.downstream
+    }
+    /// Capture both directions as one bounded snapshot.
+    pub fn snapshot(&self) -> BidirectionalEvidenceSnapshot {
+        BidirectionalEvidenceSnapshot {
+            connection_key: self.connection_key,
+            proxy: self.proxy.to_string(),
+            upstream: self.upstream.snapshot(RngVersion::default()),
+            downstream: self.downstream.snapshot(RngVersion::default()),
+        }
+    }
+}
+
 /// A physical stream with independent write/upstream and read/downstream
 /// policies. It is intended for in-process HTTP clients whose dialer owns one
 /// full-duplex connection.
@@ -569,6 +748,8 @@ pub struct BidirectionalChaosStream<T> {
     observed_downstream: u64,
     proxy: String,
     connection_key: u64,
+    upstream_evidence: Arc<StreamEvidence>,
+    downstream_evidence: Arc<StreamEvidence>,
 }
 
 impl<T: AsyncRead + AsyncWrite + Unpin> BidirectionalChaosStream<T> {
@@ -587,6 +768,10 @@ impl<T: AsyncRead + AsyncWrite + Unpin> BidirectionalChaosStream<T> {
         let downstream_snapshot = downstream.snapshot();
         let observed_upstream = upstream_snapshot.generation;
         let observed_downstream = downstream_snapshot.generation;
+        let upstream_evidence = Arc::new(StreamEvidence::default());
+        upstream_evidence.refresh_policy(&upstream_snapshot);
+        let downstream_evidence = Arc::new(StreamEvidence::default());
+        downstream_evidence.refresh_policy(&downstream_snapshot);
         Ok(Self {
             inner,
             upstream: DirectionEngine::new(
@@ -610,7 +795,87 @@ impl<T: AsyncRead + AsyncWrite + Unpin> BidirectionalChaosStream<T> {
             observed_downstream,
             proxy,
             connection_key,
+            upstream_evidence,
+            downstream_evidence,
         })
+    }
+
+    /// Deterministic physical connection key for the connection lifetime.
+    /// Logical requests sharing this stream share this key.
+    pub const fn connection_key(&self) -> u64 {
+        self.connection_key
+    }
+
+    /// Proxy or integration identity the engines compiled from.
+    pub fn proxy_name(&self) -> &str {
+        &self.proxy
+    }
+
+    /// Upstream generation this stream compiled its engine from.
+    pub const fn observed_upstream_generation(&self) -> u64 {
+        self.observed_upstream
+    }
+
+    /// Downstream generation this stream compiled its engine from.
+    pub const fn observed_downstream_generation(&self) -> u64 {
+        self.observed_downstream
+    }
+
+    /// Upstream generation the stream has not yet transitioned to, if any.
+    pub fn pending_upstream_generation(&self) -> Option<u64> {
+        self.upstream_policy.as_ref().and_then(|policy| {
+            let generation = policy.snapshot().generation;
+            (generation != self.observed_upstream).then_some(generation)
+        })
+    }
+
+    /// Downstream generation the stream has not yet transitioned to, if any.
+    pub fn pending_downstream_generation(&self) -> Option<u64> {
+        self.downstream_policy.as_ref().and_then(|policy| {
+            let generation = policy.snapshot().generation;
+            (generation != self.observed_downstream).then_some(generation)
+        })
+    }
+
+    /// Lock-shared live upstream evidence.
+    pub fn upstream_evidence(&self) -> Arc<StreamEvidence> {
+        self.upstream_evidence.clone()
+    }
+
+    /// Lock-shared live downstream evidence.
+    pub fn downstream_evidence(&self) -> Arc<StreamEvidence> {
+        self.downstream_evidence.clone()
+    }
+
+    /// Shareable live evidence for both directions. The handle never locks
+    /// the network stream and stays safe to inspect after it is dropped.
+    pub fn live_evidence(&self) -> LiveBidirectionalEvidence {
+        LiveBidirectionalEvidence {
+            connection_key: self.connection_key,
+            proxy: Arc::from(self.proxy.as_str()),
+            upstream: self.upstream_evidence.clone(),
+            downstream: self.downstream_evidence.clone(),
+        }
+    }
+
+    /// Bounded evidence snapshot for both directions (no payloads).
+    pub fn evidence_snapshot(&self) -> BidirectionalEvidenceSnapshot {
+        self.live_evidence().snapshot()
+    }
+
+    /// Return the wrapped transport.
+    pub fn into_inner(self) -> T {
+        self.inner
+    }
+
+    /// Borrow the wrapped transport.
+    pub fn get_ref(&self) -> &T {
+        &self.inner
+    }
+
+    /// Mutably borrow the wrapped transport.
+    pub fn get_mut(&mut self) -> &mut T {
+        &mut self.inner
     }
 
     /// Latest upstream termination evidence, if any.
@@ -627,6 +892,9 @@ impl<T: AsyncRead + AsyncWrite + Unpin> BidirectionalChaosStream<T> {
         if let Some(policy) = self.upstream_policy.clone() {
             let snapshot = policy.snapshot();
             if snapshot.generation != self.observed_upstream {
+                self.upstream_evidence
+                    .pending_generation
+                    .store(snapshot.generation, Ordering::Relaxed);
                 if !self.upstream.queue_is_empty()
                     && self.upstream.poll_flush(cx, &mut self.inner).is_pending()
                 {
@@ -643,11 +911,22 @@ impl<T: AsyncRead + AsyncWrite + Unpin> BidirectionalChaosStream<T> {
                 )
                 .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
                 self.observed_upstream = snapshot.generation;
+                self.upstream_evidence.refresh_policy(&snapshot);
+                self.upstream_evidence
+                    .pending_generation
+                    .store(0, Ordering::Relaxed);
+                self.upstream_evidence
+                    .transitions
+                    .fetch_add(1, Ordering::Relaxed);
+                self.upstream_evidence.mirror_engine(&self.upstream);
             }
         }
         if let Some(policy) = self.downstream_policy.clone() {
             let snapshot = policy.snapshot();
             if snapshot.generation != self.observed_downstream {
+                self.downstream_evidence
+                    .pending_generation
+                    .store(snapshot.generation, Ordering::Relaxed);
                 if !self.output.is_empty() {
                     return Poll::Ready(Ok(()));
                 }
@@ -670,6 +949,14 @@ impl<T: AsyncRead + AsyncWrite + Unpin> BidirectionalChaosStream<T> {
                 )
                 .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
                 self.observed_downstream = snapshot.generation;
+                self.downstream_evidence.refresh_policy(&snapshot);
+                self.downstream_evidence
+                    .pending_generation
+                    .store(0, Ordering::Relaxed);
+                self.downstream_evidence
+                    .transitions
+                    .fetch_add(1, Ordering::Relaxed);
+                self.downstream_evidence.mirror_engine(&self.downstream);
             }
         }
         Poll::Ready(Ok(()))
@@ -693,9 +980,18 @@ impl<T: AsyncRead + AsyncWrite + Unpin> AsyncRead for BidirectionalChaosStream<T
             // `ChaosStream`: pooled physical connections only make progress
             // on delay faults when reads drive releasable queued writes.
             let _ = this.upstream.poll_flush(cx, &mut this.inner);
+            this.upstream_evidence.mirror_engine(&this.upstream);
         }
         if this.downstream.is_empty() {
-            return Pin::new(&mut this.inner).poll_read(cx, buffer);
+            let filled_before = buffer.filled().len();
+            let outcome = Pin::new(&mut this.inner).poll_read(cx, buffer);
+            if let Poll::Ready(Ok(())) = &outcome {
+                let fresh = buffer.filled().len().saturating_sub(filled_before);
+                // The empty downstream engine is pass-through, but the
+                // bytes still crossed this physical connection.
+                this.downstream_evidence.note_direct(fresh as u64);
+            }
+            return outcome;
         }
         loop {
             if !this.output.is_empty() {
@@ -716,10 +1012,17 @@ impl<T: AsyncRead + AsyncWrite + Unpin> AsyncRead for BidirectionalChaosStream<T
                     .downstream
                     .poll_flush(cx, &mut CaptureWriter(&mut this.output))
                 {
-                    Poll::Pending => return Poll::Pending,
-                    Poll::Ready(Err(error)) => return Poll::Ready(Err(error)),
+                    Poll::Pending => {
+                        this.downstream_evidence.mirror_engine(&this.downstream);
+                        return Poll::Pending;
+                    }
+                    Poll::Ready(Err(error)) => {
+                        this.downstream_evidence.mirror_engine(&this.downstream);
+                        return Poll::Ready(Err(error));
+                    }
                     Poll::Ready(Ok(())) => {}
                 }
+                this.downstream_evidence.mirror_engine(&this.downstream);
                 if !this.output.is_empty() {
                     continue;
                 }
@@ -752,6 +1055,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> AsyncRead for BidirectionalChaosStream<T
                 Poll::Ready(Ok(())) if read.filled().is_empty() => return Poll::Ready(Ok(())),
                 Poll::Ready(Ok(())) => {
                     let accepted = this.downstream.accept(read.filled());
+                    this.downstream_evidence.mirror_engine(&this.downstream);
                     if accepted == 0 {
                         return Poll::Pending;
                     }
@@ -776,15 +1080,22 @@ impl<T: AsyncRead + AsyncWrite + Unpin> AsyncWrite for BidirectionalChaosStream<
             Poll::Pending => return Poll::Pending,
         }
         if this.upstream.is_empty() {
-            return Pin::new(&mut this.inner).poll_write(cx, bytes);
+            let outcome = Pin::new(&mut this.inner).poll_write(cx, bytes);
+            if let Poll::Ready(Ok(written)) = outcome {
+                this.upstream_evidence.note_direct(written as u64);
+                return Poll::Ready(Ok(written));
+            }
+            return outcome;
         }
         if let Poll::Ready(Err(error)) = this.upstream.poll_flush(cx, &mut this.inner) {
+            this.upstream_evidence.mirror_engine(&this.upstream);
             return Poll::Ready(Err(error));
         }
         if bytes.is_empty() {
             return Poll::Ready(Ok(0));
         }
         if this.upstream.termination_request().is_some() && this.upstream.queue_is_empty() {
+            this.upstream_evidence.mirror_engine(&this.upstream);
             return Poll::Ready(Err(terminated_error(this.upstream.termination_info())));
         }
         let accepted = this.upstream.accept(bytes);
@@ -792,6 +1103,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> AsyncWrite for BidirectionalChaosStream<
             // Drive already-due bytes immediately: the embedding relay never
             // flushes mid-stream. See `ChaosStream::poll_write`.
             let _ = this.upstream.poll_flush(cx, &mut this.inner);
+            this.upstream_evidence.mirror_engine(&this.upstream);
             return Poll::Ready(Ok(accepted));
         }
         if this.upstream.termination_request().is_some() && this.upstream.queue_is_empty() {
@@ -806,7 +1118,9 @@ impl<T: AsyncRead + AsyncWrite + Unpin> AsyncWrite for BidirectionalChaosStream<
             Poll::Ready(Err(error)) => return Poll::Ready(Err(error)),
             Poll::Pending => return Poll::Pending,
         };
-        this.upstream.poll_flush(cx, &mut this.inner)
+        let outcome = this.upstream.poll_flush(cx, &mut this.inner);
+        this.upstream_evidence.mirror_engine(&this.upstream);
+        outcome
     }
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         let this = self.as_mut().get_mut();

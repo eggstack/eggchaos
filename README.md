@@ -115,13 +115,18 @@ activation chance, decided from the seed — never from global RNG state.
   ```sh
   cargo run -p eggchaos-toxiproxy --example compat_server -- 127.0.0.1:8474
   ```
-- **In-process HTTP chaos:** `eggchaos-eggfetch::ChaosDialer` implements
-  Eggfetch's `Dialer` seam, wrapping physical connections in live fault
-  policy while Eggfetch keeps HTTP/TLS/pooling:
+- **In-process HTTP chaos:** `eggchaos-eggfetch::ChaosDialer` decorates
+  any Eggfetch `Dialer` (or the direct convenience path), wrapping
+  physical connections in live fault policy while Eggfetch keeps
+  HTTP/TLS/pooling. Connection keys are caller-controlled and
+  deterministic; bounded transport evidence is observable out of band:
   ```rust
   let dialer = ChaosDialer::with_policies(seed, "api", upstream, downstream);
   let client = eggfetch_core::Client::builder().dialer(dialer.clone()).build();
   dialer.publish_downstream(FaultPlan::empty())?; // live update, no reconnect
+  // Or wrap your own route-authoritative dialer:
+  let composed = ChaosDialer::wrap(my_dialer, seed, "api")
+      .with_observer(observer);
   ```
 
 ## Docs

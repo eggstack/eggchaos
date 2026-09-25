@@ -26,7 +26,8 @@ pub use rng::{
     derive_policy_seed, derive_schedule_policy_seed, derive_seed, DeterministicRng, RngEvidence,
 };
 pub use stream::{
-    ActiveFault, BidirectionalChaosStream, ChaosStream, DirectionSummary, EngineError,
+    ActiveFault, BidirectionalChaosStream, BidirectionalEvidenceSnapshot, ChaosStream,
+    DirectionEvidenceSnapshot, DirectionSummary, EngineError, LiveBidirectionalEvidence,
     StreamEvidence, MAX_EVIDENCE_FAULTS,
 };
 

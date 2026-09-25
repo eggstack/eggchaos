@@ -4,85 +4,102 @@ Back to [architecture overview](overview.md) (§ “Eggfetch in-process integrat
 
 ## 1. Purpose
 
-`eggchaos-eggfetch` provides in-process physical-stream chaos for HTTP clients via Eggfetch’s public `Dialer` seam. `ChaosDialer` performs bounded direct TCP dialing and returns the connected socket wrapped as a `BidirectionalChaosStream` carrying a live upstream/downstream fault policy. Eggfetch continues to own everything above the physical stream.
+`eggchaos-eggfetch` provides in-process physical-stream chaos for HTTP clients via Eggfetch’s public `Dialer` seam. `ChaosDialer<D>` decorates an arbitrary caller-selected inner dialer `D` and wraps the returned physical stream as a `BidirectionalChaosStream` carrying a live upstream/downstream fault policy. The direct convenience form `ChaosDialer<DirectDialer>` composes the same single wrapping path over a small built-in direct TCP dialer. Eggfetch continues to own everything above the physical stream.
 
-Canonical contract: `docs/eggfetch.md`. Implementation: `crates/eggchaos-eggfetch/src/lib.rs`. Feature gate: `crates/eggchaos-eggfetch/Cargo.toml`. Regression matrix: `crates/eggchaos-eggfetch/tests/regression.rs`. Qualification entrypoint: `scripts/qualify_eggfetch.sh`.
+Canonical contract: `docs/eggfetch.md`. Implementation: `crates/eggchaos-eggfetch/src/lib.rs` with composition/identity/evidence tests in `crates/eggchaos-eggfetch/src/tests.rs`. Feature gate: `crates/eggchaos-eggfetch/Cargo.toml`. Regression matrix: `crates/eggchaos-eggfetch/tests/regression.rs`. Qualification entrypoint: `scripts/qualify_eggfetch.sh`.
 
-Non-goals (explicit in `docs/eggfetch.md` and `crates/eggchaos-eggfetch/src/lib.rs:1-5`):
+Non-goals (explicit in `docs/eggfetch.md` and `crates/eggchaos-eggfetch/src/lib.rs` header):
 
 - No per-request chaos. Policy is physical-connection scoped; one pooled H2 connection exposes one policy to many logical streams.
 - No HTTP parsing, body inspection, or TLS interception in the adapter.
-- No forward-proxy / CONNECT / SOCKS routing. Dial is direct TCP to the resolved `DialTarget` host/port.
+- No routing grammar or proxy-chain ownership. The inner dialer owns route behavior; only the `DirectDialer` convenience performs direct TCP dialing to the resolved `DialTarget` host/port.
 - No pooling, retry, SNI, or certificate-verification logic in the adapter.
+- No EggReplay/EggProbe dependency or product-specific report type.
 
-## 2. `ChaosDialer` shape
+## 2. `ChaosDialer<D>` shape
 
-Defined in `crates/eggchaos-eggfetch/src/lib.rs:21-29`:
+`ChaosDialer` is generic over the inner dialer with a direct default (`ChaosDialer<DirectDialer>`), so existing `ChaosDialer::new` / `with_policies` call sites keep working:
 
 ```rust
-pub struct ChaosDialer {
+pub struct ChaosDialer<D = DirectDialer> {
+    inner: D,                                    // route authority (DirectDialer or caller-selected)
     upstream: LivePolicy,                        // physical-stream client→server direction
     downstream: LivePolicy,                      // physical-stream server→client direction
     proxy_name: Arc<str>,                        // RNG identity component
-    connection_ordinal: Arc<AtomicU64>,          // starts at 1, fetch_add per dial
-    connect_timeout: Duration,                   // per-address TCP connect bound, default 10s
+    integration_id: Arc<str>,                    // caller identity, ≤128 bytes, key-derivation input
+    key_provider: Arc<dyn ConnectionKeyProvider>,// deterministic connection-key source
+    observer: Option<Arc<dyn ConnectionObserver>>,// optional per-dial evidence sink
+    connection_ordinal: Arc<AtomicU64>,          // starts at 1, fetch_add per successful dial
 }
 ```
 
-`Clone` is cheap (`LivePolicy`, `Arc<str>`, `Arc<AtomicU64>` all shared); clones share the same policy handles and ordinal counter, so pooled clients and manual `dialer.clone()` handles observe the same generations.
+`Clone` (requires `D: Clone`) is cheap (`LivePolicy`, `Arc`s all shared); clones share the same policy handles, provider, observer, and ordinal counter, so pooled clients and manual `dialer.clone()` handles observe the same generations. A manual `Debug` impl reports proxy/integration identity and policies without requiring `D: Debug`.
 
-Constructor / accessor surface (`crates/eggchaos-eggfetch/src/lib.rs:31-82`):
+Constructor / accessor surface:
 
-| Method | Location | Semantics |
-| --- | --- | --- |
-| `new(run_seed, proxy_name)` | `lib.rs:33-35` | Empty upstream + empty downstream plans; both `LivePolicy` namespaces set to `run_seed` (generation 1). |
-| `with_policies(run_seed, proxy_name, upstream, downstream)` | `lib.rs:38-51` | Validated initial directional plans; `run_seed` is the namespace for both initial generations. Ordinal counter starts at `1`. `connect_timeout` defaults to `Duration::from_secs(10)`. |
-| `with_connect_timeout(timeout)` | `lib.rs:53-56` | Builder-style override of the bounded physical connect timeout. Consumes `self`. |
-| `upstream_policy()` / `downstream_policy()` | `lib.rs:58-64` | Return cloned `LivePolicy` handles (shared state, not snapshots). |
-| `publish_upstream(plan)` | `lib.rs:66-71` | Validates `plan`, publishes generation `N+1` retaining `self.upstream.seed_namespace()`. Returns new generation or `ValidationError`. |
-| `publish_downstream(plan)` | `lib.rs:73-81` | Same for the downstream handle. |
+| Method | Semantics |
+| --- | --- |
+| `new(run_seed, proxy_name)` / `with_policies(run_seed, proxy_name, upstream, downstream)` (on `ChaosDialer<DirectDialer>` only) | Direct convenience: empty or validated initial directional plans; both `LivePolicy` namespaces set to `run_seed` (generation 1). Ordinal counter starts at `INITIAL_CONNECTION_ORDINAL = 1`. |
+| `wrap(inner, run_seed, proxy_name)` / `wrap_with_policies(inner, run_seed, proxy_name, upstream, downstream)` | Decorate any `D: Dialer` with empty or initial directional plans. |
+| `with_connect_timeout(timeout)` (on `ChaosDialer<DirectDialer>` only) | Bounded physical connect timeout override; rejects values above `MAX_CONNECT_TIMEOUT` (300 s) with `ChaosConfigError`. |
+| `with_integration_id(id)` | Caller identity mixed into key derivation and reports; rejects values above `MAX_INTEGRATION_ID_BYTES` (128) with `ChaosConfigError`. |
+| `with_key_provider(provider)` | Override the deterministic key source (default: ordinal). |
+| `with_observer(observer)` | Optional synchronous per-dial evidence sink. |
+| `inner()` | Borrow the route-authoritative inner dialer. |
+| `upstream_policy()` / `downstream_policy()` | Return cloned `LivePolicy` handles (shared state, not snapshots). |
+| `publish_upstream(plan)` / `publish_downstream(plan)` | Validate `plan`, publish generation `N+1` retaining the handle's `seed_namespace()`. Returns new generation or `ValidationError`. |
 
-`proxy_name` is carried as `Arc<str>` so every dial can pass `&*proxy_name` into `BidirectionalChaosStream::new_live` without allocation (`lib.rs:107-111`). `connection_ordinal` uses `Ordering::AcqRel` fetch-add (`lib.rs:90`); first dial observes ordinal `1`, second `2`, and so on.
+`connection_ordinal` uses `Ordering::AcqRel` fetch-add and is assigned only after the inner dial succeeds, so failed inner dials consume no ordinal and create no evidence. First successful dial observes ordinal `1`, second `2`, and so on.
+
+### 2.1 Connection-key providers
+
+`ConnectionKeyContext { ordinal, target, integration_id }` is the only derivation input. The default `DefaultConnectionKeyProvider` returns the ordinal (historical behavior). `KeyError` bounds provider failure messages to `MAX_KEY_ERROR_BYTES` (256, truncated on a character boundary) and fails the dial as `DialErrorKind::Other` before bytes are exposed. A blanket impl covers `Arc<T: ConnectionKeyProvider>`.
+
+### 2.2 Evidence observer
+
+`ConnectionReport { ordinal, connection_key, target_host, target_port, integration_id, evidence: LiveBidirectionalEvidence }` is delivered synchronously to `ConnectionObserver::on_connection` before the stream is handed to Eggfetch, so observer failure can never corrupt a stream Eggfetch already owns. `RecordingObserver` is the bounded test collector: explicit capacity, oldest-first eviction, `records()` in dial order. The adapter itself retains no history and spawns no tasks. `DialTarget` never carries credentials/headers/paths, so reporting host/port retains no secrets.
 
 ## 3. Dial flow
 
-`impl Dialer for ChaosDialer` at `crates/eggchaos-eggfetch/src/lib.rs:84-133`. The returned `DialFuture` owns clones of timeout, proxy name, both policies, and the assigned ordinal.
+`impl<D: Dialer> Dialer for ChaosDialer<D>`: exactly one inner `dial` attempt per call; the inner `DialError` (kind and source) passes through untouched — eggchaos never retries or redials.
 
 Ordered steps:
 
-1. **Resolve.** `lookup_host((target.host(), target.port()))` (`lib.rs:92-100`). Only `target.host()` / `target.port()` are used; no SNI derivation, no proxy routing.
-2. **Per-address bounded connect.** For each resolved `SocketAddr`, `timeout(connect_timeout, TcpStream::connect(address))` (`lib.rs:102-103`):
-   - `Ok(Ok(stream))` → wrap and return (step 3).
-   - `Ok(Err(error))` → stash as `last_error`, try the next address (`lib.rs:115`).
-   - `Err(_)` (elapsed) → immediate `DialErrorKind::Timeout` with message `"direct route connect timed out"` (`lib.rs:116-121`). Later addresses are not tried.
-3. **Wrap.** `BidirectionalChaosStream::new_live(stream, upstream, downstream, &*proxy_name, ordinal)` (`lib.rs:105-112`). Construction compiles two `DirectionEngine`s from atomic policy snapshots (see §5). An `EngineError` here maps to `DialErrorKind::Other` (`lib.rs:112`).
-4. **Return.** `Ok(Box::new(stream) as DialStream)` (`lib.rs:113`). From this point Eggfetch owns framing/TLS/pooling above the stream.
+1. **Inner dial.** `self.inner.dial(target.clone()).await?`. Route/connect behavior, including resolution, authentication, timeout, and multi-hop routing, is entirely the inner dialer's. A route-authoritative fixture dialer that ignores the logical host proves eggchaos neither resolves nor redials (`tests.rs: routed_inner_dialer_is_never_resolved_or_redialed`).
+2. **Identity.** `fetch_add` the ordinal, then `key_provider.connection_key(&ctx)`. Provider failure maps to `DialErrorKind::Other` with a bounded message; no evidence is recorded.
+3. **Wrap (single path).** `BidirectionalChaosStream::new_live(stream, upstream, downstream, &*proxy_name, connection_key)`. Construction compiles two `DirectionEngine`s from atomic policy snapshots (see §5). An `EngineError` maps to `DialErrorKind::Other`.
+4. **Observe.** If configured, `observer.on_connection(&report)` with the live evidence handle.
+5. **Return.** `Ok(Box::new(stream) as DialStream)`. From this point Eggfetch owns framing/TLS/pooling above the stream.
 
-Error mapping (all messages prefixed `"direct route …"` so dial-origin failures are distinguishable in client error surfaces; asserted in `tests/regression.rs:405-426`):
+Direct-mode error mapping (all messages prefixed `"direct route …"` so dial-origin failures are distinguishable in client error surfaces; asserted in `tests/regression.rs:405-426`):
 
-| Failure | `DialErrorKind` | Message | Location |
-| --- | --- | --- | --- |
-| `lookup_host` fails | `Connection` (with `io` source) | `"direct route resolution failed"` | `lib.rs:94-99` |
-| Per-address connect times out | `Timeout` | `"direct route connect timed out"` | `lib.rs:117-120` |
-| All addresses refuse/fail | `Connection` (with last `io` source, or `NotFound` when zero addresses) | `"direct route connection failed"` | `lib.rs:124-130` |
-| `new_live` engine construction fails | `Other` | `error.to_string()` | `lib.rs:112` |
+| Failure | `DialErrorKind` | Message |
+| --- | --- | --- |
+| `lookup_host` fails | `Connection` (with `io` source) | `"direct route resolution failed"` |
+| Per-address connect times out | `Timeout` | `"direct route connect timed out"` |
+| All addresses refuse/fail | `Connection` (with last `io` source, or `NotFound` when zero addresses) | `"direct route connection failed"` |
+| `new_live` engine construction fails | `Other` | `error.to_string()` |
 
-Deliberately absent: any HTTP status handling, TLS handshake, SNI selection, certificate validation, pool lookup, or retry. Unit proof that the dialer does not own HTTP/TLS is `lib.rs:141-158` (`dialer_connects_without_owning_http_or_tls`, raw TCP `ok` bytes) versus `lib.rs:160-194` (`eggfetch_owns_http_over_the_physical_chaos_stream`, real `eggfetch_core::Client` GET ×2 over the same dialer type).
+Composed-mode failures (inner dialer errors of any `DialErrorKind`, provider `KeyError`) are asserted in `src/tests.rs` (`inner_error_kinds_pass_through_with_observer_silence`, `provider_failure_fails_dial_with_bounded_error`).
+
+Deliberately absent: any HTTP status handling, TLS handshake, SNI selection, certificate validation, pool lookup, or retry.
 
 ## 4. Ownership split
 
 | Concern | Adapter (`ChaosDialer`) owns | Eggfetch owns |
 | --- | --- | --- |
-| DNS / address iteration | `lookup_host` + per-address loop (`lib.rs:92-102`) | Nothing (receives one `DialStream`) |
-| TCP connect bound | `connect_timeout`, default 10 s (`lib.rs:49,53-56,103`) | Client-level request timeouts above the stream |
-| Physical-stream faults | `LivePolicy` pair + `BidirectionalChaosStream` wrapper (`lib.rs:105-112`) | Observes faults as slow/failed reads/writes |
-| Connection identity | `proxy_name` + `connection_ordinal` → RNG seed (`lib.rs:88-90,109-110`) | Connection pooling / reuse decisions |
-| HTTP framing (H1/H2) | Nothing | Request encoding, response parsing, H2 multiplexing (`lib.rs:160-194`, `lib.rs:197-281` under `http2`) |
+| DNS / address iteration | `DirectDialer` only: `lookup_host` + per-address loop | Nothing (receives one `DialStream`) |
+| TCP connect bound | `DirectDialer.connect_timeout`, default 10 s, max 300 s | Client-level request timeouts above the stream |
+| Route/auth/timeout/errors | Inner dialer `D` (sole authority; errors pass through) | Receives one impaired `DialStream` |
+| Physical-stream faults | `LivePolicy` pair + `BidirectionalChaosStream` wrapper (single `wrap_stream` path) | Observes faults as slow/failed reads/writes |
+| Connection identity | `proxy_name` + ordinal + caller `integration_id` + `ConnectionKeyProvider` → RNG seed | Connection pooling / reuse decisions |
+| Transport evidence | `LiveBidirectionalEvidence` + optional `ConnectionObserver` (no retained history) | Correlates observations out of band |
+| HTTP framing (H1/H2) | Nothing | Request encoding, response parsing, H2 multiplexing (`tests.rs: H1/H2 cases`, `http2` feature) |
 | TLS, SNI, cert verification | Nothing | Handshake above the returned stream; `TlsConfig`, `danger_accept_invalid_certs`, added-CA trust (`tests/regression.rs:131-174,176-218`) |
-| Pooling, keep-alive, redial | Nothing (each `dial` = one fresh TCP connection) | Keep-alive reuse, idle-close redial (`tests/regression.rs:96-128,381-402`) |
-| Retry policy | Nothing | Client send/retry behavior |
+| Pooling, keep-alive, redial | Nothing (each `dial` = one inner dial + wrap) | Keep-alive reuse, idle-close redial (`tests/regression.rs:96-128,381-402`) |
+| Retry policy | Nothing (never redials after inner success) | Client send/retry behavior |
 
-The header comment (`lib.rs:1-5`) states the split normatively: “Eggfetch remains the authority for HTTP framing, pooling, TLS, SNI, and certificate verification.”
+The header comment states the split normatively: “Eggfetch remains the authority for HTTP framing, pooling, TLS, SNI, and certificate verification.”
 
 ## 5. Live-policy publishing model
 
@@ -146,13 +163,29 @@ All `tests/regression.rs` cases additionally wrap client sends/body reads in `ti
 
 ## 7. Regression coverage map
 
-All in `crates/eggchaos-eggfetch/tests/regression.rs` (matrix header at `regression.rs:1-6`); unit layer in `lib.rs:135-282`.
+HTTP regression matrix in `crates/eggchaos-eggfetch/tests/regression.rs`; composition/identity/evidence/pooling layer in `crates/eggchaos-eggfetch/src/tests.rs` (M029).
 
 | Test | Location | What it pins |
 | --- | --- | --- |
-| `dialer_connects_without_owning_http_or_tls` | `lib.rs:141-158` | Raw TCP dial + read through chaos stream, no HTTP/TLS in adapter. |
-| `eggfetch_owns_http_over_the_physical_chaos_stream` | `lib.rs:160-194` | Real H1 GET ×2 through `eggfetch_core::Client` over chaos dialer. |
-| `eggfetch_owns_tls_and_http2_over_the_physical_chaos_stream` (`http2`) | `lib.rs:196-281` | TLS + ALPN-h2 + H2 body over chaos dialer; bounded teardown discipline. |
+| `direct_convenience_mode_still_resolves_and_connects` | `tests.rs` | Raw TCP dial + read through chaos stream, no HTTP/TLS in adapter. |
+| `eggfetch_owns_http_over_the_physical_chaos_stream` | `tests.rs` | Real H1 GET ×2 through `eggfetch_core::Client` over chaos dialer. |
+| `eggfetch_owns_tls_and_http2_over_the_physical_chaos_stream` (`http2`) | `tests.rs` | TLS + ALPN-h2 + 2 sequential H2 bodies over one physical connection (observer: exactly 1 record); bounded teardown discipline. |
+| `custom_dialer_target_forwarded_with_single_attempt` | `tests.rs` | Inner dial target forwarded exactly; exactly one inner attempt. |
+| `routed_inner_dialer_is_never_resolved_or_redialed` | `tests.rs` | Route-authoritative inner dialer decides the destination; requested target preserved. |
+| `inner_error_kinds_pass_through_with_observer_silence` | `tests.rs` | All five `DialErrorKind`s pass through; failed dials create no evidence. |
+| `provider_receives_expected_ordinal_target_and_identity` | `tests.rs` | Provider sees `(ordinal 1, target, integration id)`. |
+| `identical_provider_inputs_give_identical_keys` | `tests.rs` | Deterministic derivation; default provider returns the ordinal. |
+| `default_keys_follow_successful_dial_ordinals` | `tests.rs` | Failed dials consume no ordinal; successful dials key `1, 2, …`. |
+| `caller_selected_collision_is_explicit_and_stable` | `tests.rs` | Constant provider collides keys while ordinals stay distinct. |
+| `h1_keepalive_reuse_observes_one_physical_key` | `tests.rs` | 2 sequential H1 GETs → 1 dial, 1 evidence record. |
+| `forced_separate_h1_connections_receive_distinct_keys` | `tests.rs` | Separate pools → distinct keys. |
+| `live_policy_update_reaches_pooled_connection` | `tests.rs` | Published upstream latency engages pooled conn: generation 2, 1 transition, injected delay, active fault id. |
+| `evidence_records_bytes_and_survives_stream_drop` | `tests.rs` | Empty-plan byte counts both directions; handle readable after drop. |
+| `evidence_records_termination_without_payload` | `tests.rs` | Graceful disconnect evidence with fault id, no payload. |
+| `observer_called_once_per_wrapped_dial` | `tests.rs` | Exactly-once observer invocation with ordinals `1, 2`. |
+| `provider_failure_fails_dial_with_bounded_error` | `tests.rs` | `Other` error, bounded message, no evidence. |
+| `recording_observer_evicts_oldest_first` | `tests.rs` | Capacity 2 over 3 dials retains ordinals `2, 3`. |
+| `configuration_bounds_are_rejected` | `tests.rs` | Integration-id, connect-timeout, and key-error bounds. |
 | `h1_keepalive_survives_live_policy_update` | `regression.rs:96-128` | `publish_downstream(latency 150 ms)` engages on a pooled keep-alive connection (≥100 ms observed). |
 | `https_valid_added_ca_is_trusted` | `regression.rs:130-174` | Added-CA trust succeeds; Eggfetch owns cert validation. |
 | `https_invalid_certificate_is_rejected` | `regression.rs:176-218` | Default trust rejects self-signed; error text leaks no key material. |
@@ -170,11 +203,11 @@ Shared helpers: `fault` / `downstream_plan` (`regression.rs:22-33`), `h1_origin`
 
 For any change touching `crates/eggchaos-eggfetch/`:
 
-1. **Boundary.** Does the diff parse HTTP, inspect bodies, terminate TLS, select SNI, verify certs, pool, or retry? If yes, it belongs in Eggfetch, not here (`lib.rs:1-5`, `docs/eggfetch.md:1-16`).
-2. **Dial errors.** Do new failure modes keep the `resolution / connection / timeout` mapping with `"direct route …"` messages (`lib.rs:92-130`)? Is a new closed-port-style case covered like `regression.rs:404-426`?
-3. **Ordinal.** Is `connection_ordinal` still `fetch_add` from `1` with `AcqRel` and passed as `connection_key` (`lib.rs:48,90,109-110`)? Cloned dialers must share the counter.
-4. **Namespace.** Do `publish_upstream` / `publish_downstream` retain `seed_namespace()` (`lib.rs:66-81`, `policy.rs:87-104`)? Fresh namespaces come only from scenario derivation (`rng.rs:46-63`).
-5. **Identity.** Does any RNG-affecting change preserve the `(run_seed, proxy, ordinal, direction, fault.id)` derivation (`rng.rs:17-36`, `engine.rs:373`)?
+1. **Boundary.** Does the diff parse HTTP, inspect bodies, terminate TLS, select SNI, verify certs, pool, retry, or redial after inner success? If yes, it belongs in Eggfetch, not here (`docs/eggfetch.md`).
+2. **Dial errors.** Do direct-mode failures keep the `resolution / connection / timeout` mapping with `"direct route …"` messages? Do composed-mode failures pass the inner `DialError` through untouched (`tests.rs: inner_error_kinds…`)?
+3. **Ordinal.** Is `connection_ordinal` still `fetch_add` from `INITIAL_CONNECTION_ORDINAL` with `AcqRel`, assigned only after inner success, with failed dials creating no evidence? Cloned dialers must share the counter.
+4. **Namespace.** Do `publish_upstream` / `publish_downstream` retain `seed_namespace()` (`policy.rs`)? Fresh namespaces come only from scenario derivation (`rng.rs`).
+5. **Identity.** Does any RNG-affecting change preserve the `(run_seed, proxy, connection_key, direction, fault.id)` derivation (`rng.rs:17-36`, `engine.rs:373`)? Key providers must not observe request order, wall clock, UUIDs, or scheduling.
 6. **H2 scope.** Is per-request chaos claimed? It must not be (`docs/eggfetch.md:12-16`). H2 coverage stays physical-connection scoped (`regression.rs:220-285`).
 7. **Boundedness.** Every new await on network I/O needs a `timeout` with a named phase; unbounded joins stall all CI test binaries serially (`lib.rs:204-210` comment). H2 tests must keep the client-drop-before-join + `graceful_shutdown` + 5 s drain discipline (`lib.rs:238-280`).
 8. **Features.** Does the default build stay H1-only, with H2 strictly behind `http2 = ["eggfetch-core/http2"]` (`Cargo.toml:11-13`)? H2 tests need `#[cfg(feature = "http2")]` (`lib.rs:196`, `regression.rs:220`).
@@ -199,7 +232,8 @@ Wall-clock assertions in this crate use justified windows, not bare sleeps: late
 
 ## 10. References
 
-- `crates/eggchaos-eggfetch/src/lib.rs` — `ChaosDialer`, dial flow, H1 + H2 unit tests.
+- `crates/eggchaos-eggfetch/src/lib.rs` — `ChaosDialer<D>`, `DirectDialer`, key providers, observer contract.
+- `crates/eggchaos-eggfetch/src/tests.rs` — composition/identity/evidence/pooling corpus plus H1 + H2 client tests.
 - `crates/eggchaos-eggfetch/tests/regression.rs` — 10-case HTTP regression matrix.
 - `crates/eggchaos-eggfetch/Cargo.toml` — `http2` feature (`eggfetch-core/http2`).
 - `docs/eggfetch.md` — user-facing contract (ownership split, H1/H2 profiles, no per-request chaos).
