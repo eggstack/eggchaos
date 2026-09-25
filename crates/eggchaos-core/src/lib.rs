@@ -19,11 +19,13 @@ pub use engine::{
 pub use plan::{
     BandwidthConfig, BlackholeConfig, DisconnectConfig, FaultId, FaultKind, FaultPlan, FaultSpec,
     LatencyConfig, LimitDataConfig, Probability, RngVersion, SliceConfig, SlowCloseConfig,
-    ValidationError, FAULT_TYPE_NAMES,
+    StreamLossConfig, ValidationError, FAULT_TYPE_NAMES, STREAM_LOSS_GRAIN_BYTES,
+    STREAM_LOSS_TYPE_NAME,
 };
 pub use policy::{LivePolicy, PolicyConflict, PublishError, PublishedPolicy};
 pub use rng::{
-    derive_policy_seed, derive_schedule_policy_seed, derive_seed, DeterministicRng, RngEvidence,
+    derive_policy_seed, derive_schedule_policy_seed, derive_seed, derive_stream_loss_seed,
+    DeterministicRng, RngEvidence,
 };
 pub use stream::{
     ActiveFault, BidirectionalChaosStream, BidirectionalEvidenceSnapshot, ChaosStream,

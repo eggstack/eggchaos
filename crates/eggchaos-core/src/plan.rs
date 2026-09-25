@@ -131,8 +131,40 @@ pub struct DisconnectConfig {
     pub hard_reset: bool,
 }
 
+/// Deterministic userspace stream-chunk loss configuration (ADR 007).
+///
+/// This is loss of logical byte-stream ranges inside the userspace relay,
+/// not IP/TCP packet loss: there is no packet capture, qdisc/netem, or TCP
+/// retransmission model. Loss decisions are keyed to the absolute accepted
+/// stream offset in fixed [`STREAM_LOSS_GRAIN_BYTES`] grains, so identical
+/// byte streams produce identical decisions under any caller write
+/// fragmentation.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct StreamLossConfig {
+    /// Baseline probability that a logical chunk is discarded.
+    pub loss_rate: Probability,
+    /// Additional drop probability once the previous chunk was dropped;
+    /// the correlated probability is `min(1, loss_rate + correlation)`.
+    pub correlation: Probability,
+}
+
+/// Fixed v1 logical loss grain for [`FaultKind::StreamLoss`].
+///
+/// Byte offset `n` of the accepted stream belongs to logical chunk
+/// `n / STREAM_LOSS_GRAIN_BYTES`. The grain is semantics metadata frozen by
+/// ADR 007; it is not a user-configurable field in the M036-M039 tranche
+/// because changing it would alter replay identity and reverse Toxiproxy
+/// presentation.
+pub const STREAM_LOSS_GRAIN_BYTES: u64 = 32 * 1024;
+
+/// Stable native spelling for [`FaultKind::StreamLoss`].
+///
+/// Only the Toxiproxy compatibility presentation may use the post-v2.12
+/// `packet_loss` spelling (M038); every native surface uses `stream-loss`.
+pub const STREAM_LOSS_TYPE_NAME: &str = "stream-loss";
+
 /// A typed native fault.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum FaultKind {
     /// Delay accepted segments.
     Latency(LatencyConfig),
@@ -148,6 +180,8 @@ pub enum FaultKind {
     Slice(SliceConfig),
     /// Request connection termination.
     Disconnect(DisconnectConfig),
+    /// Deterministically discard fixed-grain logical stream chunks.
+    StreamLoss(StreamLossConfig),
 }
 
 /// Stable low-cardinality fault-type spellings, in `FaultKind` variant
@@ -165,19 +199,38 @@ pub const FAULT_TYPE_NAMES: [&str; 7] = [
 
 impl FaultKind {
     /// Stable low-cardinality type name for metrics and evidence.
+    ///
+    /// The name no longer indexes [`FAULT_TYPE_NAMES`]: `stream-loss` has
+    /// no legacy activation-array slot (ADR 007 keeps the seven-slot
+    /// arrays frozen) and reports through additive named evidence instead.
     pub const fn type_name(self) -> &'static str {
-        FAULT_TYPE_NAMES[self.type_index()]
-    }
-    /// Stable index into `FAULT_TYPE_NAMES` and activation counters.
-    pub const fn type_index(self) -> usize {
         match self {
-            Self::Latency(_) => 0,
-            Self::Bandwidth(_) => 1,
-            Self::Blackhole(_) => 2,
-            Self::LimitData(_) => 3,
-            Self::SlowClose(_) => 4,
-            Self::Slice(_) => 5,
-            Self::Disconnect(_) => 6,
+            Self::Latency(_) => "latency",
+            Self::Bandwidth(_) => "bandwidth",
+            Self::Blackhole(_) => "blackhole",
+            Self::LimitData(_) => "limit-data",
+            Self::SlowClose(_) => "slow-close",
+            Self::Slice(_) => "slice",
+            Self::Disconnect(_) => "disconnect",
+            Self::StreamLoss(_) => STREAM_LOSS_TYPE_NAME,
+        }
+    }
+    /// Stable index into `FAULT_TYPE_NAMES` and activation counters, if the
+    /// fault owns a legacy slot.
+    ///
+    /// `StreamLoss` returns `None`: its decisions are counted in the
+    /// additive `stream_loss_*` evidence fields and must never resize or
+    /// reorder the frozen seven-slot arrays.
+    pub const fn type_index(self) -> Option<usize> {
+        match self {
+            Self::Latency(_) => Some(0),
+            Self::Bandwidth(_) => Some(1),
+            Self::Blackhole(_) => Some(2),
+            Self::LimitData(_) => Some(3),
+            Self::SlowClose(_) => Some(4),
+            Self::Slice(_) => Some(5),
+            Self::Disconnect(_) => Some(6),
+            Self::StreamLoss(_) => None,
         }
     }
 }
@@ -281,6 +334,14 @@ impl FaultSpec {
                 Err(ValidationError::InvalidRate)
             }
             FaultKind::LimitData(c) if c.bytes.get() == 0 => Err(ValidationError::ZeroLimit),
+            FaultKind::StreamLoss(c)
+                if !c.loss_rate.get().is_finite()
+                    || !(0.0..=1.0).contains(&c.loss_rate.get())
+                    || !c.correlation.get().is_finite()
+                    || !(0.0..=1.0).contains(&c.correlation.get()) =>
+            {
+                Err(ValidationError::ProbabilityOutOfRange)
+            }
             _ => Ok(()),
         }
     }

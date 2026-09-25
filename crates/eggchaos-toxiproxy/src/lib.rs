@@ -360,6 +360,16 @@ fn attrs_from_kind(kind: &FaultKind) -> (&'static str, ToxicAttributes) {
                 ..ToxicAttributes::default()
             },
         ),
+        // M036 temporary compile-only arm: native StreamLoss has no
+        // construction path yet (compat input rejects `packet_loss` as an
+        // invalid v2.12 type and native DTOs cannot name `stream-loss`),
+        // so this arm is unreachable. M038 replaces it with the explicit
+        // strict-profile view policy plus the opt-in snapshot-profile
+        // `packet_loss` reverse mapping.
+        FaultKind::StreamLoss(_) => unreachable!(
+            "strict v2.12 StreamLoss presentation is owned by M038; \
+             native StreamLoss cannot reach the compat adapter in M036"
+        ),
     }
 }
 

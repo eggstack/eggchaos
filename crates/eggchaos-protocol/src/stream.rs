@@ -307,6 +307,15 @@ impl FaultKindV1 {
                 after_ns: ns(v.after),
                 hard_reset: v.hard_reset,
             },
+            // M036 temporary compile-only arm: no native `stream-loss` DTO
+            // exists yet, so a core-constructed StreamLoss has no wire
+            // representation. Unreachable through every M036 construction
+            // path (native authoring cannot name the kind); M037 replaces
+            // this arm with the versioned `stream-loss` DTO.
+            FaultKind::StreamLoss(_) => unreachable!(
+                "native stream-loss DTO is owned by M037; \
+                 core StreamLoss cannot round-trip through protocol in M036"
+            ),
         }
     }
 }

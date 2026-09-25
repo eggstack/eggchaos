@@ -115,10 +115,12 @@ Re-exports:
 - `plan.rs`: `BandwidthConfig`, `BlackholeConfig`, `DisconnectConfig`,
   `FaultId`, `FaultKind`, `FaultPlan`, `FaultSpec`, `LatencyConfig`,
   `LimitDataConfig`, `Probability`, `RngVersion`, `SliceConfig`,
-  `SlowCloseConfig`, `ValidationError`, `FAULT_TYPE_NAMES`.
+  `SlowCloseConfig`, `StreamLossConfig`, `ValidationError`,
+  `FAULT_TYPE_NAMES`, `STREAM_LOSS_GRAIN_BYTES`, `STREAM_LOSS_TYPE_NAME`.
 - `policy.rs`: `LivePolicy`, `PolicyConflict`, `PublishError`,
   `PublishedPolicy`.
-- `rng.rs`: `derive_policy_seed`, `derive_seed`, `DeterministicRng`,
+- `rng.rs`: `derive_policy_seed`, `derive_seed`,
+  `derive_stream_loss_seed`, `DeterministicRng`,
   `RngEvidence`.
 - `stream.rs`: `ActiveFault`, `BidirectionalChaosStream`, `ChaosStream`,
   `DirectionSummary`, `EngineError`, `StreamEvidence`,
@@ -148,24 +150,29 @@ Re-exports:
   - `SliceConfig` (`plan.rs:108-115`):
     `{ average_size: NonZeroU64, variation: u64, delay: Duration }`.
     Lower bound remains at least one.
-  - `DisconnectConfig` (`plan.rs:126-132`):
-    `{ after: Duration #[serde(default)], hard_reset: bool }`.
-    `after == ZERO` terminates at the first defined contract boundary (first
-    write/flush poll after activation). Positive `after` defers to that
-    monotonic deadline while preserving bytes accepted before it. Comment
-    records the M009 corrective note: `after` was added pre-1.0 to express
-    Toxiproxy delayed `reset_peer`.
-- `FaultKind` (`plan.rs:136-151`): exactly 7 variants in this order:
-  `Latency(LatencyConfig)`, `Bandwidth(BandwidthConfig)`,
-  `Blackhole(BlackholeConfig)`, `LimitData(LimitDataConfig)`,
-  `SlowClose(SlowCloseConfig)`, `Slice(SliceConfig)`,
-  `Disconnect(DisconnectConfig)`.
-- `FAULT_TYPE_NAMES` (`plan.rs:156-164`):
+   - `DisconnectConfig` (`plan.rs:126-132`):
+     `{ after: Duration #[serde(default)], hard_reset: bool }`.
+     `after == ZERO` terminates at the first defined contract boundary (first
+     write/flush poll after activation). Positive `after` defers to that
+     monotonic deadline while preserving bytes accepted before it. Comment
+     records the M009 corrective note: `after` was added pre-1.0 to express
+     Toxiproxy delayed `reset_peer`.
+ - `StreamLossConfig` (`plan.rs`): `{ loss_rate: Probability, correlation:
+   Probability }`. Deterministic userspace stream-chunk loss (ADR 007),
+   not IP/TCP packet loss. `STREAM_LOSS_GRAIN_BYTES = 32768` is the frozen
+   v1 logical grain; `STREAM_LOSS_TYPE_NAME = "stream-loss"` is the stable
+   native spelling (only the Toxiproxy presentation may say `packet_loss`).
+- `FaultKind` (`plan.rs`): 8 variants: the 7 legacy ones above plus
+  `StreamLoss(StreamLossConfig)`. `FaultKind` is `PartialEq` (not `Eq`:
+  loss probabilities are `f64`-backed).
+- `FAULT_TYPE_NAMES` (`plan.rs`):
   `["latency","bandwidth","blackhole","limit-data","slow-close","slice",
-  "disconnect"]` in `FaultKind` variant order. Order is part of the evidence
-  contract and must not change. `FaultKind::type_name()` and
-  `type_index()` (`plan.rs:166-183`) index it and the `activations: [u64; 7]`
-  counters.
+  "disconnect"]` stays exactly seven entries in legacy order. Order is
+  part of the evidence contract and must not change.
+  `FaultKind::type_name()` matches directly (`stream-loss` included);
+  `FaultKind::type_index()` returns `Option<usize>` — `Some(0..6)` for
+  legacy faults, `None` for `StreamLoss`, which reports through additive
+  named evidence instead of a legacy activation slot.
 - `FaultSpec` (`plan.rs:187-194`):
   `{ id: FaultId, probability: Probability, kind: FaultKind }` plus
   `validate()`.
@@ -192,17 +199,24 @@ Re-exports:
   (resolves immediately if already published). Private `poll_terminated`
   registers the `Notify` waker before checking so a racing publish wakes the
   waiter.
-- `EngineEvidence` (`engine.rs:128-163`): `Copy` counters:
+- `EngineEvidence` (`engine.rs`): `Copy` counters:
   `bytes_accepted`, `bytes_forwarded`, `bytes_discarded`, `segments`,
   `slices`, `buffered_bytes`, `high_water_bytes`, `injected_delay_ms`
   (latency), `throttled_delay_ms` (bandwidth), `termination:
   Option<TerminationRequest>`, `activations: [u64; 7]` indexed by
-  `FaultKind::type_index`, `rng_version: RngVersion`. Activation rule is
-  documented inline: preserving stages (latency, bandwidth, slice) and limit
-  count once per `accept` they engage in; blackhole counts per discarding
-  call; termination-requesting stages (disconnect, limit exhaustion, finite
-  blackhole close) count once on first publish; slow-close counts once when a
-  positive shutdown delay is enforced.
+  `FaultKind::type_index`, `rng_version: RngVersion`, plus additive
+  stream-loss fields `stream_loss_chunks_evaluated`,
+  `stream_loss_chunks_dropped`, `stream_loss_bytes_discarded` (unique
+  chunks / counted-once bytes across all active stream-loss faults; the
+  byte field is included in aggregate `bytes_discarded`). Activation rule
+  is documented inline: preserving stages (latency, bandwidth, slice) and
+  limit count once per `accept` they engage in; blackhole counts per
+  discarding call; termination-requesting stages (disconnect, limit
+  exhaustion, finite blackhole close) count once on first publish;
+  slow-close counts once when a positive shutdown delay is enforced.
+  Stream loss owns no legacy activation slot; in the loss path preserving
+  stages engage once per `accept` call in which they queue at least one
+  byte.
 - `DirectionEngine` (`engine.rs:299-321`, methods `335-991`):
   - constructors: `new(plan, run_seed, proxy, connection_key, direction)`,
     `new_with_termination(..., term_handle)` (shares the durable handle so a
@@ -221,15 +235,35 @@ Re-exports:
     prior stale-`Sleep` reuse bug and the fix), `TokenBucket` (microtoken
     fixed point, see §3), `BlackholeState { deadline, fault_id }`,
     `DisconnectState { deadline, hard_reset, fault_id }`.
-  - compile policy in `new_with_termination` (`engine.rs:356-485`):
-    per-fault `derive_seed(...)` + one `bernoulli(probability)` draw in plan
-    order; inactive faults push `(false, rng)` and contribute no state.
-    Active-fault combination is first-wins except: `max_buffer` is the `min`
-    across active latency bounds over a `64*1024` default (then `.max(1)`);
-    first `LimitData` wins; indefinite blackhole dominates finite, else
-    earliest finite deadline wins; first `Bandwidth` wins; any `Slice`
-    sets `slicer_active`; earliest `Disconnect` deadline wins (ties prefer
-    `hard_reset`); first active `SlowClose` sets the shutdown delay.
+   - compile policy in `new_with_termination` (`engine.rs`):
+     per-fault `derive_seed(...)` + one `bernoulli(probability)` draw in plan
+     order; inactive faults push `(false, rng)` and contribute no state.
+     Active-fault combination is first-wins except: `max_buffer` is the `min`
+     across active latency bounds over a `64*1024` default (then `.max(1)`);
+     first `LimitData` wins; indefinite blackhole dominates finite, else
+     earliest finite deadline wins; first `Bandwidth` wins; any `Slice`
+     sets `slicer_active`; earliest `Disconnect` deadline wins (ties prefer
+     `hard_reset`); first active `SlowClose` sets the shutdown delay.
+     Every active `StreamLoss` fault additionally gets a
+     `StreamLossConnState` holding a dedicated chunk RNG seeded by
+     `derive_stream_loss_seed` (domain-separated from activation and
+     per-segment draws), the newest decided chunk/outcome, and the
+     previous-drop bit. No engine-wide stream-loss combination exists:
+     composition is applied per logical chunk at accept time.
+   - `accept` with stream loss (`accept_with_stream_loss`): classifies the
+     limit-bounded input into chunk-bounded runs keyed to the absolute
+     `stream_loss_offset` (frozen while blackhole owns the prefix).
+     `decide_stream_loss_chunk` evaluates each chunk across every active
+     loss fault in plan order (drop if any drops; per-fault `prev_dropped`
+     advances from the fault's own decision) and counts unique evaluated /
+     dropped chunks once. Dropped runs resolve immediately with no retained
+     payload; preserving runs are truncated to the remaining queue capacity
+     (a longer run must never stall the write with no timer armed) and flow
+     through `push_preserve_run` (slicer/latency/bandwidth, survivor bytes
+     only). Acceptance stops at the first preserving byte the bound cannot
+     own and never skips ahead to later drops. The limit counts discards;
+     `bytes_discarded`/`stream_loss_bytes_discarded` reconcile with
+     `accepted = forwarded + discarded + buffered`.
 
 ### `policy.rs` — live publication
 
@@ -271,9 +305,9 @@ Re-exports:
 
 ### `stream.rs` — Tokio adapters
 
-- `DirectionSummary` (`stream.rs:21-47`): serializable per-direction
+- `DirectionSummary` (`stream.rs`): serializable per-direction
   counters mirroring `EngineEvidence` plus transparent direct-path bytes
-  (see below). No payloads.
+  (see below) and the additive `stream_loss_*` fields. No payloads.
 - `MAX_EVIDENCE_FAULTS` (`stream.rs:50`): `128`.
 - `ActiveFault` (`stream.rs:54-59`): `{ id: String, fault_type: String }`
   (`FAULT_TYPE_NAMES` spelling, no payloads).
@@ -387,9 +421,25 @@ Release-baseline execution, each grounded in `engine.rs` / `stream.rs`:
 - slow-close (`SlowCloseConfig`): delays `poll_shutdown` only, never ordinary
   writes. `poll_shutdown` first drains the queue, then arms
   `shutdown_deadline = now + delay` once and waits via `shutdown_timer`
-  (`engine.rs:965-991`; `shutdown_delivers_pending_latency_queue`). First
-  active delay wins (`engine.rs:444-455`). Activation index 4 once when a
+  (`engine.rs`; `shutdown_delivers_pending_latency_queue`). First
+  active delay wins (`engine.rs`). Activation index 4 once when a
   positive shutdown delay is enforced (`slow_close_shutdown_counts_activation`).
+- stream-loss (`StreamLossConfig`, ADR 007, M036): userspace logical-chunk
+  loss with grain `STREAM_LOSS_GRAIN_BYTES = 32768`; byte offset `n`
+  belongs to chunk `n / 32768`, decided once and reused across writes.
+  Per active fault: `p(drop[0]) = loss_rate`,
+  `p(drop[n]) = min(1, loss_rate + correlation)` after a dropped chunk,
+  drawn from the fault-local chunk stream (`derive_stream_loss_seed`).
+  `FaultSpec::probability` gates per-connection activation first; inactive
+  faults decide nothing. Multiple active loss faults compose by union
+  (drop if any drops; fault-local `prev_dropped`; bytes counted once).
+  Blackhole dominates while discarding (loss state frozen); the limit
+  counts the accepted prefix including discards; latency/bandwidth/slicer
+  see survivors only and never move grain boundaries; disconnect/slow-close
+  semantics are unchanged. `loss_rate = 0` preserves exactly;
+  `loss_rate = 1` discards everything with zero high-water. Golden corpus
+  plus fragmentation proptests live in
+  `crates/eggchaos-core/tests/stream_loss.rs`.
 
 Termination is never a TCP behavior in core: the runtime edge maps
 `Graceful` / `HardReset` to shutdown vs reset using `StreamCapabilities`.
@@ -409,6 +459,10 @@ From `docs/architecture.md:33-38`, ADR 001 §Required AsyncWrite correctness,
 - `accept` returns the owned prefix length only. Zero means: empty input,
   full bound, exhausted limit, or due termination. Blackhole discard path
   reports the accepted (discarded) prefix instead of buffering.
+  Stream-loss discard runs likewise report the discarded prefix without
+  consuming the bound; preserve runs are truncated to remaining capacity
+  so a call either consumes bytes or leaves the pre/post-accept drive's
+  wakeup armed (never a bare `Pending` with an empty queue).
 - when the bound is full, `poll_write` returns `Pending` after arming the
   release timer (`ArmedTimer::poll` keyed by exact deadline). It never
   reports zero-length success for a non-empty write and never allocates
@@ -476,7 +530,10 @@ Barrier generation swap (ADR 002 barrier-transition,
   `refresh_policy` (active-fault list truncated at 128 with flag),
   `pending_generation = 0`, `transitions += 1`, `mirror_engine`.
   Byte limits and RNG state restart per generation; a due termination
-  survives (`live_transition_preserves_due_termination`). All three of
+  survives (`live_transition_preserves_due_termination`). Stream-loss
+  chunk decisions, correlation bits, and the absolute offset cursor
+  restart with the fresh engine (ADR 007: no cross-generation loss-state
+  migration). All three of
   plan/generation/seed-namespace come from one `snapshot()` load so they
   always agree.
 
@@ -508,9 +565,16 @@ From ADR 002 and `rng.rs` / `engine.rs`:
   `bernoulli(p)` for connection activation. Probability semantics
   (ADR 002): `0` never activates, `1` always activates, intermediate values
   make one deterministic Bernoulli choice per connection from the
-  fault-local substream at compile time (`engine.rs:373-379`; test
+  fault-local substream at compile time (`engine.rs`; test
   `probability_zero_never_activates_and_one_always_does` — inactive faults
-  keep the 64 KiB default bound). Per-segment randomness (slice sizes, jitter
+  keep the 64 KiB default bound). Stream-loss chunk draws use the separate
+  `derive_stream_loss_seed` domain (fixed additive constant over
+  `derive_seed`; existing vectors byte-identical), advanced exactly once
+  per absolute logical chunk in visit order, so loss traces are
+  fragmentation-independent even though per-segment draws (slice sizes,
+  jitter) remain fragmentation-sensitive as before. Queue-capacity
+  truncation of preserve runs only re-segments queueing, never chunk
+  identity. Per-segment randomness (slice sizes, jitter
   offsets) uses subsequent draws from the same fault-local substream in plan
   order, so identical `(seed, proxy, key, direction, plan)` reproduces
   identical `accept` results and evidence
@@ -558,8 +622,12 @@ Verify file by file (line refs above are the contract):
   `as_str` stable; `StreamCapabilities` three bools; re-export list matches
   §2 (no missing `FaultId`/`RngVersion`/`PublishError`/evidence types).
 - `plan.rs`: ordered `FaultPlan` preserved by `without_fault` /
-  `replace_fault`; `FAULT_TYPE_NAMES` order unchanged (evidence/metrics
-  dependency); `DisconnectConfig.after` has `#[serde(default)]` for
+  `replace_fault`; `FAULT_TYPE_NAMES` is exactly seven entries in legacy
+  order (evidence/metrics dependency); `FaultKind::type_name` covers all
+  eight kinds while `type_index` returns `None` for `StreamLoss`;
+  `StreamLossConfig` probabilities validate finite `[0, 1]` (including
+  deserialized values); `STREAM_LOSS_GRAIN_BYTES` is `32768`;
+  `DisconnectConfig.after` has `#[serde(default)]` for
   pre-`after` JSON; every `ValidationError` variant reachable and messaged;
   `NonZeroU64` fields plus explicit zero guards agree.
 - `engine.rs`: `ArmedTimer` keyed by exact deadline (no shared-`Sleep`
@@ -567,10 +635,13 @@ Verify file by file (line refs above are the contract):
   burst, Tokio-clock only, ceiling-ms throttle accounting); compile
   first-wins/dominance rules (§2–3) match tests; `accept` reports owned
   prefix only, empty→0, full→0→`Pending` upstream, never over-allocates;
-  activation indices 0–6 match `type_index`; `publish_termination` first-wins
-  end-to-end (handle + local + evidence); `poll_due_termination` arms both
-  disconnect and finite-blackhole deadlines and otherwise parks on the
-  handle.
+  the stream-loss path truncates preserve runs to remaining capacity so a
+  non-full queue always makes progress; activation indices 0–6 match
+  `type_index`, stream loss uses only the additive `stream_loss_*`
+  counters with unique-chunk / counted-once-bytes rules;
+  `publish_termination` first-wins end-to-end (handle + local + evidence);
+  `poll_due_termination` arms both disconnect and finite-blackhole deadlines
+  and otherwise parks on the handle.
 - `stream.rs`: `poll_write` observes live generation before the direct path;
   direct bytes counted via `note_direct` and added in `summary` /
   `mirror_engine`; post-accept immediate drive + read pump present (relay

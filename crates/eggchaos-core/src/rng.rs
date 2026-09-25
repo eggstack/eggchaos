@@ -110,6 +110,26 @@ pub fn derive_schedule_policy_seed(
     h *= Wrapping(0x94d0_49bb_1331_11eb);
     splitmix(h.0 ^ 0x547c_0dec_0dec_0dec)
 }
+/// Derive a domain-separated chunk-decision seed for stream loss.
+///
+/// Stream-loss chunk draws must never share a stream with the connection
+/// activation draw or with per-segment draws (slice sizes, latency jitter):
+/// those draw counts depend on caller write fragmentation, while chunk
+/// decisions must be fragmentation-independent. Mixing a fixed domain
+/// constant into the fault-local [`derive_seed`] output gives each
+/// stream-loss fault an independent deterministic chunk stream without
+/// changing any existing seed vector.
+pub fn derive_stream_loss_seed(
+    run_seed: u64,
+    proxy: &str,
+    connection_key: u64,
+    direction: Direction,
+    fault: &FaultId,
+) -> u64 {
+    derive_seed(run_seed, proxy, connection_key, direction, fault)
+        .wrapping_add(0x5752_4d5f_4348_554e)
+}
+
 #[derive(Debug, Clone)]
 pub struct DeterministicRng {
     state: u64,

@@ -77,6 +77,20 @@ Release-baseline execution:
   requests a hard reset; otherwise graceful. Bytes accepted before the
   deadline still drain.
 - slow_close: delays shutdown only, never ordinary writes.
+- stream-loss (`stream-loss`, ADR 007): deterministic userspace
+  stream-chunk loss, not IP/TCP packet loss. Loss decisions are keyed to
+  the absolute accepted stream offset in fixed 32 KiB logical grains, so
+  identical byte streams decide identically under any caller write
+  fragmentation. Each active fault draws from its own domain-separated
+  chunk RNG stream with burst correlation
+  (`min(1, loss_rate + correlation)` after a dropped chunk); a byte range
+  is discarded when any active stream-loss fault drops it, counted once.
+  Dropped bytes resolve immediately without retaining payload; preserving
+  bytes flow through the latency/bandwidth/slicer pipeline. The limit
+  counts discards toward exact N-byte termination, blackhole stays
+  dominant while active (stream-loss state freezes), and the frozen
+  seven-slot activation arrays are untouched: stream loss reports through
+  additive `stream_loss_*` evidence counters.
 
 Termination is a durable level-triggered `TerminationHandle` shared with the
 embedding runtime: the first published request wins, late waiters still

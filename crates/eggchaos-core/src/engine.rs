@@ -16,8 +16,8 @@ use tokio::{
 };
 
 use crate::{
-    derive_seed, DeterministicRng, Direction, FaultId, FaultKind, FaultPlan, RngVersion,
-    ValidationError,
+    derive_seed, derive_stream_loss_seed, DeterministicRng, Direction, FaultId, FaultKind,
+    FaultPlan, RngVersion, ValidationError, STREAM_LOSS_GRAIN_BYTES,
 };
 
 /// A termination request emitted by an engine.
@@ -157,7 +157,31 @@ pub struct EngineEvidence {
     /// limit exhaustion, finite blackhole close) count once when their
     /// request first publishes; slow-close counts once when a positive
     /// shutdown delay is enforced.
+    ///
+    /// `StreamLoss` owns no legacy slot (its `type_index` is `None`); its
+    /// decisions are counted in the additive `stream_loss_*` fields below.
     pub activations: [u64; 7],
+    /// Logical stream-loss chunks evaluated by this engine.
+    ///
+    /// Exactly one evaluation is counted per absolute logical chunk in
+    /// visit order, no matter how many stream-loss faults are active or
+    /// how the caller fragments writes.
+    #[serde(default)]
+    pub stream_loss_chunks_evaluated: u64,
+    /// Logical stream-loss chunks with a final drop outcome.
+    ///
+    /// With several active stream-loss faults a chunk counts once when any
+    /// fault selects drop; per-fault decisions stay fault-local and are
+    /// not double-counted here.
+    #[serde(default)]
+    pub stream_loss_chunks_dropped: u64,
+    /// Payload bytes discarded by stream loss.
+    ///
+    /// Discarded once per byte even when several active stream-loss faults
+    /// select the same range; included in the aggregate `bytes_discarded`
+    /// authority above.
+    #[serde(default)]
+    pub stream_loss_bytes_discarded: u64,
     /// Deterministic RNG contract version.
     pub rng_version: RngVersion,
 }
@@ -295,6 +319,25 @@ struct DisconnectState {
     fault_id: FaultId,
 }
 
+/// Fault-local stream-loss chunk state for one active `StreamLoss` fault.
+///
+/// Decisions are keyed to the absolute accepted stream offset
+/// (`offset / STREAM_LOSS_GRAIN_BYTES`), never to `poll_write` call counts,
+/// so identical byte streams decide identically under any fragmentation.
+/// Each fault owns an independent chunk RNG stream (domain-separated from
+/// the activation and per-segment draws) plus its own previous-drop bit for
+/// burst correlation.
+#[derive(Debug, Clone)]
+struct StreamLossConnState {
+    /// Dedicated chunk-decision RNG; advanced exactly once per logical
+    /// chunk in absolute chunk order.
+    rng: DeterministicRng,
+    /// Newest decided chunk and its outcome, if any.
+    decided: Option<(u64, bool)>,
+    /// Previous chunk outcome driving the correlation term.
+    prev_dropped: bool,
+}
+
 /// Poll-driven ordered fault state machine.
 pub struct DirectionEngine {
     plan: FaultPlan,
@@ -318,6 +361,22 @@ pub struct DirectionEngine {
     bandwidth: Option<TokenBucket>,
     slicer_active: bool,
     slice_cursor: Instant,
+    /// Per-plan-position stream-loss state (`Some` only for active
+    /// `StreamLoss` faults, parallel to `plan.faults()` and `rngs`).
+    stream_loss: Vec<Option<StreamLossConnState>>,
+    /// Absolute accepted stream offset seen by stream-loss classification.
+    ///
+    /// Advances for every byte accepted outside the dominant blackhole
+    /// path (preserved or stream-loss-discarded alike) and freezes while
+    /// blackhole owns the accepted prefix, so blackholed bytes never
+    /// advance stream-loss chunk identity. Restarts at zero when a new
+    /// policy generation compiles a fresh engine.
+    stream_loss_offset: u64,
+    /// Contiguous evaluated chunk prefix length: chunk `n` is counted in
+    /// `stream_loss_chunks_evaluated` exactly when `n` equals this cursor.
+    /// Visits are contiguous from chunk zero because the offset cursor
+    /// only moves forward over classified bytes.
+    stream_loss_evaluated: u64,
 }
 
 impl std::fmt::Debug for DirectionEngine {
@@ -369,12 +428,14 @@ impl DirectionEngine {
         let mut bandwidth_cfg = None;
         let mut slicer_active = false;
         let mut rngs = Vec::with_capacity(plan.faults().len());
+        let mut stream_loss = Vec::with_capacity(plan.faults().len());
         for fault in plan.faults() {
             let seed = derive_seed(run_seed, proxy, connection_key, direction, &fault.id);
             let mut rng = DeterministicRng::new(seed);
             let active = rng.bernoulli(fault.probability.get());
             if !active {
                 rngs.push((false, rng));
+                stream_loss.push(None);
                 continue;
             }
             match fault.kind {
@@ -437,7 +498,27 @@ impl DirectionEngine {
                         });
                     }
                 }
+                FaultKind::StreamLoss(_) => {
+                    // No engine-wide combination: every active stream-loss
+                    // fault keeps fault-local chunk state/RNG below, and the
+                    // frozen composition rule (drop if any fault drops) is
+                    // applied per logical chunk at accept time.
+                }
             }
+            stream_loss.push(match fault.kind {
+                FaultKind::StreamLoss(_) => Some(StreamLossConnState {
+                    rng: DeterministicRng::new(derive_stream_loss_seed(
+                        run_seed,
+                        proxy,
+                        connection_key,
+                        direction,
+                        &fault.id,
+                    )),
+                    decided: None,
+                    prev_dropped: false,
+                }),
+                _ => None,
+            });
             rngs.push((true, rng));
         }
         // Slow-close delay snapshot (first active wins; plans rarely combine).
@@ -481,6 +562,9 @@ impl DirectionEngine {
             bandwidth: bandwidth_cfg.map(|(rate, burst)| TokenBucket::new(rate, burst, now)),
             slicer_active,
             slice_cursor: now,
+            stream_loss,
+            stream_loss_offset: 0,
+            stream_loss_evaluated: 0,
         })
     }
 
@@ -512,6 +596,9 @@ impl DirectionEngine {
             bandwidth: None,
             slicer_active: false,
             slice_cursor: Instant::now(),
+            stream_loss: Vec::new(),
+            stream_loss_offset: 0,
+            stream_loss_evaluated: 0,
         }
     }
 
@@ -660,6 +747,260 @@ impl DirectionEngine {
         size.min(remaining as u64).max(1) as usize
     }
 
+    /// Evaluate one absolute logical chunk across every active stream-loss
+    /// fault in plan order and return the frozen drop outcome.
+    ///
+    /// Frozen composition rule (ADR 007): every active stream-loss fault
+    /// evaluates each original logical ingress chunk in plan order using
+    /// its own chunk RNG stream and advances its own previous-drop bit
+    /// from its own decision; the byte range is discarded when any active
+    /// fault selects drop. Payload accounting counts the range once, and
+    /// the evaluated/dropped chunk counters count unique chunks, so two
+    /// active faults never double-count aggregate evidence.
+    fn decide_stream_loss_chunk(&mut self, chunk: u64) -> bool {
+        let mut drop_any = false;
+        for (fault, state) in self.plan.faults().iter().zip(self.stream_loss.iter_mut()) {
+            let FaultKind::StreamLoss(config) = fault.kind else {
+                continue;
+            };
+            let Some(conn) = state.as_mut() else {
+                continue;
+            };
+            if let Some((decided_chunk, drop)) = conn.decided {
+                if decided_chunk == chunk {
+                    drop_any |= drop;
+                    continue;
+                }
+                debug_assert!(
+                    decided_chunk < chunk,
+                    "stream-loss visits logical chunks in monotonic order"
+                );
+            }
+            let start = conn
+                .decided
+                .map_or(0, |(decided_chunk, _)| decided_chunk.saturating_add(1));
+            let mut drop = conn.decided.is_some_and(|(_, drop)| drop);
+            for _ in start..=chunk {
+                let rate = config.loss_rate.get();
+                let correlated = (rate + config.correlation.get()).min(1.0);
+                drop = conn
+                    .rng
+                    .bernoulli(if conn.prev_dropped { correlated } else { rate });
+                conn.prev_dropped = drop;
+            }
+            conn.decided = Some((chunk, drop));
+            drop_any |= drop;
+        }
+        if chunk == self.stream_loss_evaluated {
+            self.stream_loss_evaluated += 1;
+            self.evidence.stream_loss_chunks_evaluated += 1;
+            if drop_any {
+                self.evidence.stream_loss_chunks_dropped += 1;
+            }
+        }
+        drop_any
+    }
+
+    /// Queue one contiguous stream-loss survivor run through the preserving
+    /// pipeline (slicer segmentation, latency, bandwidth).
+    ///
+    /// Returns the owned byte count plus whether latency/slice stages
+    /// engaged. Stops at the first slice the bounded queue cannot own; the
+    /// caller must not skip ahead to later dropped ranges.
+    fn push_preserve_run(&mut self, data: &[u8], now: Instant) -> (usize, bool, bool) {
+        let mut offset = 0usize;
+        let mut latency_engaged = false;
+        let mut slice_engaged = false;
+        while offset < data.len() {
+            let remaining = data.len() - offset;
+            let chunk = if self.slicer_active {
+                self.next_slice_size(remaining)
+            } else {
+                remaining
+            }
+            .max(1)
+            .min(remaining);
+            if self.buffered + chunk > self.max_buffer {
+                break;
+            }
+            let mut release = now;
+            let mut slice_delay = Duration::ZERO;
+            for (fault, (active, rng)) in self.plan.faults().iter().zip(&mut self.rngs) {
+                if !*active {
+                    continue;
+                }
+                match fault.kind {
+                    FaultKind::Latency(c) => {
+                        let jitter_range = c.jitter.as_millis().min(u64::MAX as u128) as u64;
+                        let jitter = if jitter_range == 0 {
+                            0
+                        } else {
+                            rng.below(jitter_range.saturating_mul(2).saturating_add(1)) as i128
+                                - jitter_range as i128
+                        };
+                        let millis = (c.delay.as_millis() as i128 + jitter).max(0) as u64;
+                        // Independent per-segment deadline: segments accepted
+                        // together share similar deadlines and drain as a
+                        // burst instead of serializing one delay per write.
+                        release = release.max(now + Duration::from_millis(millis));
+                        self.evidence.injected_delay_ms =
+                            self.evidence.injected_delay_ms.saturating_add(millis);
+                        latency_engaged = true;
+                    }
+                    FaultKind::Slice(c) => {
+                        slice_delay = slice_delay.max(c.delay);
+                        slice_engaged = true;
+                    }
+                    _ => {}
+                }
+            }
+            if let Some(bucket) = &mut self.bandwidth {
+                let (bw_release, throttled_ms) = bucket.consume(chunk, now, release);
+                release = bw_release;
+                self.evidence.throttled_delay_ms = self
+                    .evidence
+                    .throttled_delay_ms
+                    .saturating_add(throttled_ms);
+            }
+            if self.slicer_active && !slice_delay.is_zero() {
+                // Inter-slice delay staggers logical slices rather than
+                // applying once per original caller write.
+                release = release.max(self.slice_cursor);
+                self.slice_cursor = release + slice_delay;
+            }
+            self.queue.push_back(Queued {
+                bytes: Bytes::copy_from_slice(&data[offset..offset + chunk]),
+                release,
+            });
+            self.buffered += chunk;
+            self.high_water = self.high_water.max(self.buffered);
+            self.evidence.segments += 1;
+            if self.slicer_active {
+                self.evidence.slices += 1;
+            }
+            offset += chunk;
+        }
+        (offset, latency_engaged, slice_engaged)
+    }
+
+    /// Accept through the stream-loss classification path.
+    ///
+    /// `limit_available` is the remaining caller-visible byte budget:
+    /// stream-loss discards count toward the limit exactly like the
+    /// blackhole path, so exact N-byte termination is preserved. Dropped
+    /// subranges resolve immediately without retaining payload; preserving
+    /// subranges flow through [`Self::push_preserve_run`]. Acceptance
+    /// always stops at the first preserving byte the bounded queue cannot
+    /// own and never skips ahead to a later dropped range, so the reported
+    /// prefix keeps Tokio prefix ownership.
+    fn accept_with_stream_loss(
+        &mut self,
+        input: &[u8],
+        limit_available: u64,
+        now: Instant,
+    ) -> usize {
+        let limit_cap = (input.len() as u64).min(limit_available) as usize;
+        let mut offset = 0usize;
+        let mut discarded = 0u64;
+        let mut preserved = 0usize;
+        let mut latency_engaged = false;
+        let mut slice_engaged = false;
+        while offset < limit_cap {
+            let chunk = self.stream_loss_offset / STREAM_LOSS_GRAIN_BYTES;
+            let chunk_end = chunk
+                .checked_add(1)
+                .and_then(|next| next.checked_mul(STREAM_LOSS_GRAIN_BYTES))
+                .unwrap_or(u64::MAX);
+            let run = (chunk_end.saturating_sub(self.stream_loss_offset))
+                .min((limit_cap - offset) as u64) as usize;
+            debug_assert!(run > 0, "chunk-bounded runs are never empty");
+            if run == 0 {
+                break;
+            }
+            if self.decide_stream_loss_chunk(chunk) {
+                offset += run;
+                self.stream_loss_offset = self.stream_loss_offset.saturating_add(run as u64);
+                discarded = discarded.saturating_add(run as u64);
+                self.evidence.segments += 1;
+            } else {
+                // Bound the preserve run by the remaining queue capacity.
+                // Without this cap a run longer than the free bound would
+                // queue nothing and stall the write with no timer armed
+                // (the pre-accept drive already ran against an empty
+                // queue). Truncation only re-segments queueing: chunk
+                // identity and loss decisions stay absolute-offset keyed.
+                let capacity = self.max_buffer.saturating_sub(self.buffered);
+                let run = run.min(capacity);
+                if run == 0 {
+                    break;
+                }
+                let (owned, latency, slice) =
+                    self.push_preserve_run(&input[offset..offset + run], now);
+                latency_engaged |= latency;
+                slice_engaged |= slice;
+                offset += owned;
+                self.stream_loss_offset = self.stream_loss_offset.saturating_add(owned as u64);
+                preserved += owned;
+                if owned < run {
+                    break;
+                }
+            }
+        }
+        if offset == 0 {
+            return 0;
+        }
+        self.evidence.bytes_accepted += offset as u64;
+        self.evidence.bytes_discarded += discarded;
+        self.evidence.stream_loss_bytes_discarded += discarded;
+        // Per-call stage engagement: preserving stages count once per
+        // accept call in which they queued at least one byte; the limit
+        // stage engaged whenever it bounded this call, including
+        // all-dropped calls whose discards count toward the limit.
+        {
+            let mut engaged = [false; 7];
+            if latency_engaged {
+                engaged[0] = true;
+            }
+            if self.bandwidth.is_some() && preserved > 0 {
+                engaged[1] = true;
+            }
+            if self.remaining_limit.is_some() {
+                engaged[3] = true;
+            }
+            if slice_engaged {
+                engaged[5] = true;
+            }
+            for (index, engaged) in engaged.iter().enumerate() {
+                if *engaged {
+                    self.evidence.activations[index] += 1;
+                }
+            }
+        }
+        if self.remaining_limit.is_some() {
+            if let Some((remaining, _)) = &mut self.remaining_limit {
+                *remaining = remaining.saturating_sub(offset as u64);
+                if *remaining == 0 {
+                    let id = self
+                        .remaining_limit
+                        .as_ref()
+                        .map(|(_, id)| id.clone())
+                        .expect("limit checked");
+                    if self.publish_termination(TerminationInfo {
+                        request: TerminationRequest::Graceful,
+                        direction: self.direction,
+                        fault_id: Some(id.to_string()),
+                    }) {
+                        // limit-data exhaustion activation.
+                        self.evidence.activations[3] += 1;
+                    }
+                }
+            }
+        }
+        // Report only the owned prefix. The caller retains any suffix,
+        // whether it was excluded by the byte limit or by bounded capacity.
+        offset
+    }
+
     /// Accept a caller-visible prefix into the bounded pipeline.
     ///
     /// Returns the number of bytes now owned by the engine. Ownership means:
@@ -734,6 +1075,10 @@ impl DirectionEngine {
             // Report only the accepted prefix; a limit-induced suffix is
             // never claimed as owned.
             return accepted_cap;
+        }
+
+        if self.stream_loss.iter().any(Option::is_some) {
+            return self.accept_with_stream_loss(input, limit_available, now);
         }
 
         if accepted_cap == 0 {

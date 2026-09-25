@@ -229,6 +229,15 @@ fn write_stream_fault_kind(out: &mut Vec<u8>, kind: &eggchaos_core::FaultKind) {
             out.extend_from_slice(b";hard_reset=");
             out.extend_from_slice(if c.hard_reset { b"true" } else { b"false" });
         }
+        FaultKind::StreamLoss(c) => {
+            // M036 compile propagation of the ADR 007 primitive; M037 owns
+            // the Scenario-facing fixtures. Probabilities render with the
+            // same fixed-precision float format as connection probability.
+            out.extend_from_slice(b"stream-loss;loss_rate=");
+            out.extend_from_slice(format!("{:.17}", c.loss_rate.get()).as_bytes());
+            out.extend_from_slice(b";correlation=");
+            out.extend_from_slice(format!("{:.17}", c.correlation.get()).as_bytes());
+        }
     }
 }
 

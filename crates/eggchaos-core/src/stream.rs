@@ -13,7 +13,7 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 use crate::{
     Direction, DirectionEngine, FaultPlan, LivePolicy, PublishedPolicy, RngVersion,
-    TerminationHandle, TerminationInfo, TerminationRequest, FAULT_TYPE_NAMES,
+    TerminationHandle, TerminationInfo, TerminationRequest,
 };
 
 /// Serializable counters for one wrapped stream direction.
@@ -40,6 +40,17 @@ pub struct DirectionSummary {
     /// Per-fault-type activation counts, indexed by
     /// `FaultKind::type_index`.
     pub activations: [u64; 7],
+    /// Logical stream-loss chunks evaluated (unique chunks, never
+    /// double-counted across active stream-loss faults).
+    #[serde(default)]
+    pub stream_loss_chunks_evaluated: u64,
+    /// Logical stream-loss chunks with a final drop outcome.
+    #[serde(default)]
+    pub stream_loss_chunks_dropped: u64,
+    /// Payload bytes discarded by stream loss (included in
+    /// `bytes_discarded`, counted once per byte).
+    #[serde(default)]
+    pub stream_loss_bytes_discarded: u64,
     /// Latest termination request, if any.
     pub termination: Option<TerminationRequest>,
     /// Deterministic RNG contract version.
@@ -77,6 +88,9 @@ pub struct StreamEvidence {
     buffered_bytes: AtomicU64,
     transitions: AtomicU64,
     activations: [AtomicU64; 7],
+    stream_loss_chunks_evaluated: AtomicU64,
+    stream_loss_chunks_dropped: AtomicU64,
+    stream_loss_bytes_discarded: AtomicU64,
     active_faults: Mutex<(Vec<ActiveFault>, bool)>,
     termination: Mutex<Option<TerminationInfo>>,
     /// Bytes moved through the empty-engine direct path, which bypasses
@@ -162,6 +176,9 @@ impl StreamEvidence {
             buffered_bytes: self.buffered_bytes(),
             transitions: self.transitions(),
             activations: self.activations(),
+            stream_loss_chunks_evaluated: self.stream_loss_chunks_evaluated.load(Ordering::Relaxed),
+            stream_loss_chunks_dropped: self.stream_loss_chunks_dropped.load(Ordering::Relaxed),
+            stream_loss_bytes_discarded: self.stream_loss_bytes_discarded.load(Ordering::Relaxed),
             active_faults,
             active_faults_truncated,
             termination: termination.as_ref().map(|info| info.request),
@@ -193,7 +210,9 @@ impl StreamEvidence {
             }
             faults.push(ActiveFault {
                 id: fault.id.as_str().to_owned(),
-                fault_type: FAULT_TYPE_NAMES[fault.kind.type_index()].to_owned(),
+                // `type_name` covers every fault kind including
+                // `stream-loss`, which owns no legacy activation slot.
+                fault_type: fault.kind.type_name().to_owned(),
             });
         }
         *self.active_faults.lock().expect("evidence lock") = (faults, truncated);
@@ -224,6 +243,12 @@ impl StreamEvidence {
         for (slot, value) in self.activations.iter().zip(evidence.activations) {
             slot.store(value, Ordering::Relaxed);
         }
+        self.stream_loss_chunks_evaluated
+            .store(evidence.stream_loss_chunks_evaluated, Ordering::Relaxed);
+        self.stream_loss_chunks_dropped
+            .store(evidence.stream_loss_chunks_dropped, Ordering::Relaxed);
+        self.stream_loss_bytes_discarded
+            .store(evidence.stream_loss_bytes_discarded, Ordering::Relaxed);
         if let Some(request) = evidence.termination {
             let mut slot = self.termination.lock().expect("evidence lock");
             if slot.is_none() {
@@ -405,6 +430,9 @@ impl<T> ChaosStream<T> {
             injected_delay_ms: e.injected_delay_ms,
             throttled_delay_ms: e.throttled_delay_ms,
             activations: e.activations,
+            stream_loss_chunks_evaluated: e.stream_loss_chunks_evaluated,
+            stream_loss_chunks_dropped: e.stream_loss_chunks_dropped,
+            stream_loss_bytes_discarded: e.stream_loss_bytes_discarded,
             termination: e.termination,
             rng_version: e.rng_version,
         }
@@ -666,6 +694,15 @@ pub struct DirectionEvidenceSnapshot {
     pub transitions: u64,
     /// Per-fault-type activation counts.
     pub activations: [u64; 7],
+    /// Logical stream-loss chunks evaluated (unique chunks).
+    #[serde(default)]
+    pub stream_loss_chunks_evaluated: u64,
+    /// Logical stream-loss chunks with a final drop outcome.
+    #[serde(default)]
+    pub stream_loss_chunks_dropped: u64,
+    /// Payload bytes discarded by stream loss.
+    #[serde(default)]
+    pub stream_loss_bytes_discarded: u64,
     /// Connection-active fault identities.
     pub active_faults: Vec<ActiveFault>,
     /// Whether the active fault list was truncated at
@@ -1782,6 +1819,9 @@ mod tests {
             injected_delay_ms: 10,
             throttled_delay_ms: 0,
             activations: [0; 7],
+            stream_loss_chunks_evaluated: 0,
+            stream_loss_chunks_dropped: 0,
+            stream_loss_bytes_discarded: 0,
             termination: Some(crate::TerminationRequest::Graceful),
             rng_version: crate::RngVersion::V1,
         };
