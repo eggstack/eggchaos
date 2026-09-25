@@ -1,21 +1,21 @@
-//! Deterministic bounded scenario v2 source language, compiler, and
-//! portable replay identity.
+//! Deterministic bounded scenario v2 source language, compiler, portable
+//! replay identity, and shared schedule driver.
 //!
-//! This module is the M026 deliverable. The runtime/control integration
-//! in M027 reuses `compile_schedule` and `compiled_fingerprint`; the
-//! qualifier M028 builds the golden corpus on top of this surface.
+//! The pure semantic authority (source language, compiler, fingerprint,
+//! run evidence) and the schedule driver now live in
+//! `eggchaos_experiment`, the consumer-neutral crate both the server
+//! and embedded harnesses build on. This module keeps the server's
+//! `ControlState` driver wiring (`runtime`), its test suites, and
+//! source-compatible re-exports of every previously public symbol.
 //!
-//! The module is a pure control-plane addition. It does not touch the
-//! stream or datagram engines and never addresses `ControlState`,
-//! Tokio wall time, sockets, or runtime `run_id`s.
+//! The module remains a pure control-plane addition on top of the
+//! stream/datagram policy publication machinery. The driver never
+//! addresses sockets or runtime `run_id`s.
 
-mod compiler;
-mod error;
-mod fingerprint;
-pub mod run;
 pub(crate) mod runtime;
-mod source;
 
+#[cfg(test)]
+mod conformance_tests;
 #[cfg(test)]
 mod property_tests;
 #[cfg(test)]
@@ -23,18 +23,12 @@ mod runtime_tests;
 #[cfg(test)]
 mod tests;
 
-pub use compiler::{
-    compile_schedule, expanded_event_count, CompiledEventV2, CompiledPhaseIdentity,
-    CompiledScenarioV2, COMPILER_SEMANTICS_VERSION,
-};
-pub use error::ScheduleError;
-pub use fingerprint::{compiled_fingerprint, encode_compiled_for_fingerprint, fingerprint_hex};
-pub use run::{
-    CleanupOutcome, CleanupResourceOutcome, CleanupResourceRecord, ScenarioScheduleRunRecord,
-    ScheduleEventResult, ScheduleResource, ScheduleRunStatus, ScheduleTransport,
-};
-pub use source::{
-    CleanupPolicyV2, IsolationPolicyV2, ScenarioScheduleV2, SchedulePhaseV2, ScheduleRepeatV2,
-    MAX_COMPILED_EVENTS, MAX_PHASES, MAX_PHASE_ACTIONS, MAX_PHASE_NAME_BYTES, MAX_REPEAT_COUNT,
-    SCHEDULE_SCHEMA_VERSION,
+pub use eggchaos_experiment::{
+    compile_schedule, compiled_fingerprint, encode_compiled_for_fingerprint, expanded_event_count,
+    fingerprint_hex, CleanupOutcome, CleanupPolicyV2, CleanupResourceOutcome,
+    CleanupResourceRecord, CompiledEventV2, CompiledPhaseIdentity, CompiledScenarioV2,
+    IsolationPolicyV2, ScenarioScheduleRunRecord, ScenarioScheduleV2, ScheduleError,
+    ScheduleEventResult, SchedulePhaseV2, ScheduleRepeatV2, ScheduleResource, ScheduleRunStatus,
+    ScheduleTransport, COMPILER_SEMANTICS_VERSION, MAX_COMPILED_EVENTS, MAX_PHASES,
+    MAX_PHASE_ACTIONS, MAX_PHASE_NAME_BYTES, MAX_REPEAT_COUNT, SCHEDULE_SCHEMA_VERSION,
 };

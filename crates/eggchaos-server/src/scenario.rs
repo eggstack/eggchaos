@@ -1,8 +1,6 @@
 use std::time::Duration;
 
-use eggchaos_core::{
-    derive_policy_seed, DatagramFaultSpec, DatagramPlan, Direction, FaultId, FaultPlan, FaultSpec,
-};
+use eggchaos_core::{derive_policy_seed, DatagramPlan, Direction, FaultId, FaultPlan};
 use serde::{Deserialize, Serialize};
 use tokio::time::sleep;
 
@@ -29,34 +27,11 @@ pub struct ScenarioEvent {
     pub action: ScenarioAction,
 }
 
-/// Supported scenario v1 actions.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum ScenarioAction {
-    /// Replace one directional plan as a barrier generation.
-    SetPlan {
-        proxy: String,
-        direction: Direction,
-        faults: Vec<FaultSpec>,
-    },
-    /// Remove one fault from a directional plan.
-    RemoveFault {
-        proxy: String,
-        direction: Direction,
-        id: String,
-    },
-    /// Replace one directional datagram fault plan.
-    SetDatagramPlan {
-        proxy: String,
-        direction: Direction,
-        faults: Vec<DatagramFaultSpec>,
-    },
-    /// Remove one directional datagram fault by identity.
-    RemoveDatagramFault {
-        proxy: String,
-        direction: Direction,
-        id: String,
-    },
-}
+/// Supported scenario actions, shared with Scenario V2 schedules.
+///
+/// The single authority lives in `eggchaos_experiment`; this re-export
+/// keeps existing `crate::scenario::ScenarioAction` paths working.
+pub use eggchaos_experiment::ScenarioAction;
 
 /// Observable scenario run lifecycle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -8,14 +8,14 @@
 //! target generations, and post-run cleanup outcome.
 //!
 //! Nothing in this file executes; the driver lives in
-//! [`super::runtime`]. These types stay JSON/TOML-free so they can
-//! serialize through the explicit wire DTOs in [`crate::native_v2`].
+//! [`crate::driver`]. These types stay JSON/TOML-free so consumers can
+//! serialize them through their own explicit wire DTOs.
 
 use eggchaos_core::Direction;
 use serde::{Deserialize, Serialize};
 
 use super::compiler::CompiledPhaseIdentity;
-use crate::scenario_v2::{CleanupPolicyV2, IsolationPolicyV2};
+use crate::{CleanupPolicyV2, IsolationPolicyV2};
 
 /// Transport that a v2 schedule event targeted. Stream and datagram
 /// faults have separate publication paths and so are recorded
@@ -52,7 +52,7 @@ pub enum ScheduleRunStatus {
 /// publication will go through.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ScheduleResource {
-    /// Target proxy name.
+    /// Target proxy or experiment resource name.
     pub proxy: String,
     /// Target direction.
     pub direction: Direction,
@@ -139,7 +139,7 @@ pub struct ScenarioScheduleRunRecord {
     /// 32-byte SHA-256 schedule fingerprint.
     pub schedule_fingerprint: [u8; 32],
     /// Frozen compiler semantics version. See
-    /// [`crate::scenario_v2::COMPILER_SEMANTICS_VERSION`].
+    /// [`crate::COMPILER_SEMANTICS_VERSION`].
     pub compiler_semantics_version: u32,
     /// Isolation mode.
     pub isolation: IsolationPolicyV2,

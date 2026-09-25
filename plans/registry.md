@@ -35,8 +35,8 @@ This file is the compact source of truth for active milestone state. Detailed sc
 | M026 | `026-deterministic-scenario-schedule-model-and-compiler.md` | closed | M025 + ADR 004 | Closed on exact candidate `e0507d1`; evidence in `plans/closure/M026-deterministic-scenario-schedule-model-and-compiler-closure.md`. ScenarioScheduleV2 source language, deterministic compiler, SHA-256 fingerprint, and run_id-independent v2 namespace helper are frozen; wire DTOs round-trip JSON+ TOML to identical compiled tapes. |
 | M027 | `027-scenario-schedule-runtime-control-and-lifecycle.md` | closed | M026 | Closed on exact candidate `5d85d15`; evidence in `plans/closure/M027-scenario-schedule-runtime-control-and-lifecycle-closure.md`. V2 schedules execute through the owned supervisor with epoch-anchored deadlines, strict/live ownership, CAS-safe cleanup, version-aware native routes, and CLI JSON/TOML support. |
 | M028 | `028-deterministic-schedule-qualification-and-hardening.md` | closed | M027 | Closed cleanly on exact candidate `ceb3bae`; evidence in `plans/closure/M028-deterministic-schedule-qualification-and-hardening-closure.md`. Golden corpus frozen, paused-time/race/fuzz/security/API/CLI/regression/performance gates green; no new language feature. |
-| M029 | `029-composable-transport-chaos-adapter-and-evidence.md` | **ready** | M028 + ADR 005 | First integration-boundary handoff: arbitrary-inner EggFetch Dialer composition, caller-controlled physical connection identity, and bounded bidirectional evidence. No EggReplay/EggProbe dependency. |
-| M030 | `030-consumer-neutral-experiment-harness-and-coordinated-start.md` | blocked | M029 | Reuse/extract Scenario V2 semantics behind a narrow experiment boundary, add expected-generation target adapters and one shared Tokio monotonic start epoch. |
+| M029 | `029-composable-transport-chaos-adapter-and-evidence.md` | closed | M028 + ADR 005 | Closed on exact candidate `add40b0`; evidence in `plans/closure/M029-composable-transport-chaos-adapter-and-evidence-closure.md`. Arbitrary-inner EggFetch Dialer composition, caller-controlled physical connection identity, and bounded bidirectional evidence. No EggReplay/EggProbe dependency. |
+| M030 | `030-consumer-neutral-experiment-harness-and-coordinated-start.md` | **ready** | M029 | Reuse/extract Scenario V2 semantics behind a narrow experiment boundary, add expected-generation target adapters and one shared Tokio monotonic start epoch. |
 | M031 | `031-integration-boundary-qualification-and-downstream-handoff.md` | blocked | M030 | Exact-candidate qualification, dependency/performance/security gates, and closure-backed EggReplay/EggProbe downstream handoff. |
 
 ## Execution state
@@ -91,15 +91,16 @@ qualification. ScenarioV1 remains a compatibility surface throughout.
 
 ADR 005 now activates the next post-release integration-boundary/harness chain:
 
-`M029 (ready) -> M030 (blocked) -> M031 (blocked)`
+`M029 (closed) -> M030 (ready) -> M031 (blocked)`
 
-M029 is the only implementation-ready item. It must first make the EggFetch
-physical-stream chaos adapter composable over arbitrary Dialers, freeze
-caller-controlled physical connection identity, and expose bounded
-bidirectional evidence. M030 may then add the consumer-neutral Scenario V2
-experiment harness/shared monotonic start epoch. M031 is the exact-candidate
-qualification and downstream-handoff gate. EggReplay/EggProbe product adapters
-remain downstream work and are not part of this chain.
+M029 closed on `add40b0`, making the EggFetch physical-stream chaos
+adapter composable over arbitrary Dialers with caller-controlled
+physical connection identity and bounded bidirectional evidence.
+M030 is now the implementation-ready item: the consumer-neutral
+Scenario V2 experiment harness/shared monotonic start epoch. M031 is
+the exact-candidate qualification and downstream-handoff gate.
+EggReplay/EggProbe product adapters remain downstream work and are not
+part of this chain.
 
 ## Post-release roadmap state
 
@@ -118,13 +119,13 @@ The completed UDP/datagram tranche is listed below; the remaining items are post
 
 ## Dependency-ready view
 
-Completed work: M000–M028 and M008 are closed.
+Completed work: M000–M029 and M008 are closed.
 
-Ready: M029.
+Ready: M030.
 
 Active: none.
 
-Blocked: M030, M031.
+Blocked: M031.
 
 Historical pre-tag execution order: `M016 (closed) -> M017 (closed) -> M018 (closed) -> M019 (closed)`. The owner may proceed with the v0.1.0 tag, crates.io publication, and GitHub release as separate release actions.
 
@@ -142,7 +143,7 @@ Closed scenario-v2 qualification gate: `M028 (closed at ceb3bae)`.
 
 Completed richer-scenario execution order: `ADR 004 -> M026 (closed) -> M027 (closed) -> M028 (closed)`.
 
-Active integration-boundary execution order: `ADR 005 -> M029 (ready) -> M030 (blocked) -> M031 (blocked)`. M029 is the sole ready handoff. Downstream EggReplay/EggProbe product work must wait for closure-backed seams rather than being pulled into these eggchaos milestones.
+Active integration-boundary execution order: `ADR 005 -> M029 (closed at add40b0) -> M030 (ready) -> M031 (blocked)`. M030 is the sole ready handoff. Downstream EggReplay/EggProbe product work must wait for closure-backed seams rather than being pulled into these eggchaos milestones.
 
 ## Closure requirements
 

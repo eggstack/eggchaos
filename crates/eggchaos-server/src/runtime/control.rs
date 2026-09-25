@@ -1510,12 +1510,12 @@ impl ControlState {
     pub async fn start_schedule_v2(
         &self,
         source: crate::scenario_v2::ScenarioScheduleV2,
-    ) -> Result<crate::scenario_v2::run::ScenarioScheduleRunRecord, EggchaosError> {
+    ) -> Result<crate::scenario_v2::ScenarioScheduleRunRecord, EggchaosError> {
         let compiled = crate::scenario_v2::compile_schedule(&source)
             .map_err(|error| EggchaosError::Control(ControlError::Invalid(error.to_string())))?;
         let fingerprint = crate::scenario_v2::compiled_fingerprint(&compiled);
         let run_id = self.runtime.next_run_id.fetch_add(1, Ordering::AcqRel);
-        let record = crate::scenario_v2::run::ScenarioScheduleRunRecord {
+        let record = crate::scenario_v2::ScenarioScheduleRunRecord {
             run_id,
             seed: source.seed,
             execution_key: source.execution_key,
@@ -1523,7 +1523,7 @@ impl ControlState {
             compiler_semantics_version: compiled.compiler_semantics_version,
             isolation: source.isolation,
             cleanup_policy: source.cleanup,
-            status: crate::scenario_v2::run::ScheduleRunStatus::Pending,
+            status: crate::scenario_v2::ScheduleRunStatus::Pending,
             applied: 0,
             failure: None,
             events: Vec::new(),
@@ -1536,9 +1536,9 @@ impl ControlState {
                 .filter(|record| {
                     matches!(
                         record.status,
-                        crate::scenario_v2::run::ScheduleRunStatus::Pending
-                            | crate::scenario_v2::run::ScheduleRunStatus::Running
-                            | crate::scenario_v2::run::ScheduleRunStatus::Cancelling
+                        crate::scenario_v2::ScheduleRunStatus::Pending
+                            | crate::scenario_v2::ScheduleRunStatus::Running
+                            | crate::scenario_v2::ScheduleRunStatus::Cancelling
                     )
                 })
                 .count();
@@ -1553,9 +1553,9 @@ impl ControlState {
                     .find(|(_, record)| {
                         !matches!(
                             record.status,
-                            crate::scenario_v2::run::ScheduleRunStatus::Pending
-                                | crate::scenario_v2::run::ScheduleRunStatus::Running
-                                | crate::scenario_v2::run::ScheduleRunStatus::Cancelling
+                            crate::scenario_v2::ScheduleRunStatus::Pending
+                                | crate::scenario_v2::ScheduleRunStatus::Running
+                                | crate::scenario_v2::ScheduleRunStatus::Cancelling
                         )
                     })
                     .map(|(id, _)| *id);
@@ -1587,7 +1587,7 @@ impl ControlState {
     pub async fn get_schedule_v2(
         &self,
         run_id: u64,
-    ) -> Option<crate::scenario_v2::run::ScenarioScheduleRunRecord> {
+    ) -> Option<crate::scenario_v2::ScenarioScheduleRunRecord> {
         self.runtime
             .schedule_v2_runs
             .lock()
@@ -1602,17 +1602,17 @@ impl ControlState {
     pub async fn cancel_schedule_v2(
         &self,
         run_id: u64,
-    ) -> Option<crate::scenario_v2::run::ScenarioScheduleRunRecord> {
+    ) -> Option<crate::scenario_v2::ScenarioScheduleRunRecord> {
         let token = self.runtime.schedule_v2_tokens.lock().await.remove(&run_id);
         if let Some(token) = token {
             token.cancel();
             self.update_schedule_v2_run(run_id, |record| {
                 if matches!(
                     record.status,
-                    crate::scenario_v2::run::ScheduleRunStatus::Pending
-                        | crate::scenario_v2::run::ScheduleRunStatus::Running
+                    crate::scenario_v2::ScheduleRunStatus::Pending
+                        | crate::scenario_v2::ScheduleRunStatus::Running
                 ) {
-                    record.status = crate::scenario_v2::run::ScheduleRunStatus::Cancelling;
+                    record.status = crate::scenario_v2::ScheduleRunStatus::Cancelling;
                 }
             })
             .await;
@@ -1624,7 +1624,7 @@ impl ControlState {
     pub async fn update_schedule_v2_run(
         &self,
         run_id: u64,
-        update: impl FnOnce(&mut crate::scenario_v2::run::ScenarioScheduleRunRecord),
+        update: impl FnOnce(&mut crate::scenario_v2::ScenarioScheduleRunRecord),
     ) {
         if let Some(record) = self.runtime.schedule_v2_runs.lock().await.get_mut(&run_id) {
             update(record);
@@ -1638,7 +1638,7 @@ impl ControlState {
     pub async fn append_schedule_v2_event(
         &self,
         run_id: u64,
-        event: crate::scenario_v2::run::ScheduleEventResult,
+        event: crate::scenario_v2::ScheduleEventResult,
     ) {
         let late = event.late_by_ns > 0;
         if let Some(record) = self.runtime.schedule_v2_runs.lock().await.get_mut(&run_id) {

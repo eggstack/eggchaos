@@ -11,8 +11,10 @@ evidence/snapshot/metrics types it publishes through.
 ## 1. Scenario model
 
 Owner: `crates/eggchaos-server/src/scenario.rs`
-(v1) and `crates/eggchaos-server/src/scenario_v2/` (v2 source
-language and compiler).
+(v1), `crates/eggchaos-experiment/` (v2 semantics, shared driver,
+experiment harness), and `crates/eggchaos-server/src/scenario_v2/`
+(v2 server wiring: `ControlState` target adapter, run records,
+compat re-exports).
 
 ### 1.1 Document types
 
@@ -24,11 +26,15 @@ language and compiler).
   - `events: Vec<ScenarioEvent>` is capped at 1024 entries.
 - `ScenarioEvent { at_ms, action }` (`scenario.rs:23-28`): one
   monotonic-time event. `at_ms` is milliseconds from scenario start.
-- `ScenarioAction` (`scenario.rs:32-45`): the only two v1 actions:
+- `ScenarioAction` (authority: `eggchaos-experiment/src/action.rs`,
+  re-exported from `scenario.rs` for compatibility): the shared
+  stream/datagram actions:
   - `SetPlan { proxy, direction, faults }` — replace one directional plan
     as a barrier generation.
   - `RemoveFault { proxy, direction, id }` — remove one fault from a
     directional plan.
+  - `SetDatagramPlan { proxy, direction, faults }` /
+    `RemoveDatagramFault { proxy, direction, id }` — datagram twins.
 
 The `/v1/scenarios/apply` body uses `ScenarioV1` from `native.rs`, not the
 internal Serde layout. Each event has `at_ms` plus a nested `action` object
@@ -198,9 +204,14 @@ cap; runs are bounded by the 32-record retention cap. Serialization never
 contains payload bytes (`connection_evidence_contains_no_payload_bytes`,
 `runtime.rs:4714-4734`, asserts the same for connection/history JSON).
 
-### 1.8 Scenario v2 source language and compiler (M026)
+### 1.8 Scenario v2 source language and compiler (M026; extracted to `eggchaos-experiment` in M030)
 
-Owner: `crates/eggchaos-server/src/scenario_v2/`.
+Owner: `crates/eggchaos-experiment/src/{source,compiler,fingerprint,run,action}.rs`.
+The server keeps source-compatible re-exports under
+`crates/eggchaos-server/src/scenario_v2/mod.rs`. Compiler,
+fingerprint bytes, namespace vectors, and golden corpus are unchanged
+by the extraction (proven by `schedule_corpus` and `scenario_v2`
+suites running against the re-exports).
 
 `ScenarioScheduleV2` is the bounded piecewise-constant source language
 ADR 004 introduced. A schedule is a `version: 2` document with explicit
@@ -307,11 +318,17 @@ M027 (below) wires the compiled tape into the owned scenario
 supervisor via `ControlState` and the existing publication paths.
 M028 qualifies the combined surface on an exact candidate.
 
-### 1.9 Scenario v2 runtime, isolation, and lifecycle (M027)
+### 1.9 Scenario v2 runtime, isolation, and lifecycle (M027; driver shared via `eggchaos-experiment` in M030)
 
-Owner: `crates/eggchaos-server/src/scenario_v2/runtime.rs`,
-`run.rs`, plus `ControlState::start_schedule_v2` and friends
+Owner: `crates/eggchaos-experiment/src/driver.rs` (shared driver),
+`crates/eggchaos-server/src/scenario_v2/runtime.rs` (`ControlState`
+target adapter + run-record sink), plus
+`ControlState::start_schedule_v2` and friends
 (`runtime/control.rs`), routes (`admin.rs`), and CLI (`main.rs`).
+Server behavior is unchanged: the same driver executes through the
+same `ControlState` publication methods, and the run record remains
+the single source of truth (proven by unchanged `runtime_tests` and
+the new `conformance_tests`).
 
 `ControlState::start_schedule_v2` compiles the source entirely
 upfront — a compile failure creates no run and consumes no run ID —
@@ -395,6 +412,47 @@ and scheduler lateness are not replayed; lateness is diagnostic
 evidence recorded per event, never an RNG input. Strict-mode
 conflict/cleanup-conflict evidence distinguishes "the world moved"
 from "the schedule is wrong".
+
+### 1.10 Consumer-neutral experiment harness and coordinated start (M030)
+
+Owner: `crates/eggchaos-experiment/` (`target.rs`, `driver.rs`,
+`gate.rs`, `experiment.rs`, `stream_target.rs`); server adapter in
+`crates/eggchaos-server/src/scenario_v2/runtime.rs`; conformance in
+`scenario_v2/conformance_tests.rs`.
+
+`PolicyTarget` is the one narrow publication contract the shared
+driver requires: `capabilities()`, `snapshot(resource)`,
+`current_generation(resource)`, expected-generation
+`publish(resource, expected, plan, seed_namespace)`, and
+`global_generation()`. `TargetError` has bounded stable categories
+(`MissingResource`, `UnsupportedCapability`,
+`GenerationConflict { expected, found }`, `Validation`, `Internal`);
+no payload or consumer product model enters the contract, and no
+lock is held across schedule sleeps.
+
+`PreparedExperiment::prepare` compiles, validates target
+capabilities, resolves touched resources, and snapshots initial
+state — publishing nothing and starting no clock. `EpochGate`
+captures one Tokio monotonic `Instant` exactly once and releases it
+to both the schedule driver and the caller workload
+(`run`/`run_from_epoch`/`run_with_workload`); every deadline stays
+`epoch + compiled_offset`. Cancellation before start publishes
+nothing; cancellation while sleeping wakes promptly; cancellation
+after publications runs the selected cleanup. The driver future is
+caller-owned; dropping a prepared experiment publishes nothing and
+spawns nothing. Evidence (`ExperimentEvidence`) carries compiler
+version, fingerprint hex, seed, execution key, optional caller
+integration identity (≤128 bytes), applied count, outcome, and
+cleanup — portable reports use relative offsets only, never the raw
+epoch.
+
+`StreamPolicyTarget` maps one logical resource name to an M029
+`LivePolicy` upstream/downstream pair (register by name, stream-only:
+datagram actions are typed `UnsupportedCapability`, never silently
+translated). The server adapts `ControlState` without a second state
+store; `conformance_tests` proves the two targets produce equivalent
+event/generation outcomes for the supported stream subset. Downstream
+EggReplay/EggProbe adoption remains downstream work after M031.
 
 ## 2. Observability
 

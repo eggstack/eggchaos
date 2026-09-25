@@ -314,7 +314,7 @@ pub struct RuntimeInner {
     /// V2 schedule run records by run ID, bounded like v1 (finished
     /// runs prune FIFO). Separate map because the record shape differs,
     /// but the same MAX_SCENARIO_RUNS bound and JoinSet apply.
-    schedule_v2_runs: Mutex<BTreeMap<u64, crate::scenario_v2::run::ScenarioScheduleRunRecord>>,
+    schedule_v2_runs: Mutex<BTreeMap<u64, crate::scenario_v2::ScenarioScheduleRunRecord>>,
     /// Cancellation tokens for active v2 schedule runs.
     schedule_v2_tokens: Mutex<HashMap<u64, CancellationToken>>,
     /// Next scenario run ID.

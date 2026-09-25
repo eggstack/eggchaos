@@ -1,7 +1,8 @@
 # M029 — Composable Transport Chaos Adapter and Evidence
 
-Status: ready  
+Status: closed  
 Depends on: M028, ADR 005  
+Closed at: `add40b0c6659c68270c4b0b971b8a1187e22a340`; evidence in `plans/closure/M029-composable-transport-chaos-adapter-and-evidence-closure.md`.
 Role: cross-project integration transport substrate
 
 ## Objective

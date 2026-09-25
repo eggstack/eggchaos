@@ -1,10 +1,10 @@
 //! Pure scenario-v2 compiler.
 //!
 //! `compile_schedule` is a deterministic function of `(source,
-//! COMPILER_SEMANTICS_VERSION)`. It must not access `ControlState`, Tokio
+//! COMPILER_SEMANTICS_VERSION)`. It must not access policy state, Tokio
 //! wall time, sockets, or daemon `run_id`. The output is an immutable
-//! `CompiledScenarioV2` event tape the runtime then plays through the
-//! existing scenario supervisor in M027.
+//! `CompiledScenarioV2` event tape the driver then plays through a
+//! [`crate::PolicyTarget`].
 
 use crate::ScenarioAction;
 
