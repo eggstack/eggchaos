@@ -33,16 +33,43 @@ Deliberate, documented divergences (see
   (plain-text 404 without metrics flags).
 
 Toxicity is a deterministic per-connection activation probability. Slicer
-behavior is stream segmentation, not IP packet loss. The adapter does not
-claim current-Toxiproxy `main` extensions such as `packet_loss`.
+behavior is stream segmentation, not IP packet loss. The adapter exposes
+two opt-in compatibility profiles:
 
-Run a standalone compat server with
+- `strict-v2.12` (default): the frozen v2.12 toxic surface above. Rejects
+  the post-v2.12 `packet_loss` toxic as `400 invalid toxic type`. `GET
+  /version` returns exactly `{"version":"2.12.0"}`.
+- `post-v2.12-2026-09-25`: an opt-in profile pinned to the upstream
+  source commit `40f7fd31bee529d824116bd2a11a9e3425e904ec` from
+  `Shopify/toxiproxy`. Adds `packet_loss` (with `loss_rate` and
+  `correlation`) translated into the native `stream-loss` primitive,
+  reports `{"version":"git"}` (the source-build oracle identity), and
+  never claims equivalence with a moving upstream `main`.
+
+Under both profiles the adapter remains stream/TCP-only; UDP datagram
+resources are a separate native API.
+
+Run a standalone compat server with the strict profile with
 `cargo run -p eggchaos-toxiproxy --example compat_server -- 127.0.0.1:8474`
-(loopback by default). Qualification:
-`scripts/fetch_toxiproxy_v2_12.sh` acquires the official architecture-matched
-binary and verifies its pinned SHA-256. For a mandatory run, set
-`TOXIPROXY_SERVER` to that path and run
-`EGGCHAOS_REQUIRE_TOXIPROXY_ORACLE=1 ./scripts/qualify_toxiproxy_v2_12.sh`.
+(loopback by default). The example accepts an explicit profile as the
+second positional argument (`strict-v2.12` or `post-v2.12-2026-09-25`).
+Qualification:
+
+- Strict: `scripts/fetch_toxiproxy_v2_12.sh` acquires the official
+  architecture-matched binary and verifies its pinned SHA-256; for a
+  mandatory run, set `TOXIPROXY_SERVER` to that path and run
+  `EGGCHAOS_REQUIRE_TOXIPROXY_ORACLE=1
+  ./scripts/qualify_toxiproxy_v2_12.sh`.
+- Post-v2.12: `scripts/fetch_toxiproxy_post_v2_12.sh` fetches the
+  pinned `40f7fd31` source archive, verifies its committed SHA-256, and
+  builds the oracle from source with the recorded Go toolchain; for a
+  mandatory run, set `TOXIPROXY_POST_V2_12_SERVER` to that path and run
+  `EGGCHAOS_REQUIRE_POST_V2_12_ORACLE=1
+  ./scripts/qualify_toxiproxy_post_v2_12.sh`. Recorded divergences from
+  the live oracle (verbatim out-of-range `loss_rate`/`correlation`
+  storage, mixed int/float JSON acceptance, `{"version":"git"}` instead
+  of a numbered release tag) are classified in
+  `plans/closure/M038-pinned-post-v2-12-toxiproxy-packet-loss-profile-closure.md`.
 
 Native fixed-target UDP datagram resources are a separate API and do not extend
 Toxiproxy v2.12; the compatibility adapter remains stream/TCP-only.

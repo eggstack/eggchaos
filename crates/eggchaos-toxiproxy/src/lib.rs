@@ -18,6 +18,7 @@ use std::{collections::BTreeMap, num::NonZeroU64, time::Duration};
 use eggchaos_core::{
     BandwidthConfig, BlackholeConfig, Direction, DisconnectConfig, FaultId, FaultKind, FaultPlan,
     FaultSpec, LatencyConfig, LimitDataConfig, Probability, SliceConfig, SlowCloseConfig,
+    StreamLossConfig,
 };
 use eggchaos_server::{
     ControlError, ControlState, FaultPatch, FaultUpsert, ProxyPatch, ProxySpec, ProxyView,
@@ -204,6 +205,10 @@ pub struct ToxicAttributes {
     pub timeout: Option<u64>,
     /// Limit bytes.
     pub bytes: Option<u64>,
+    /// Post-v2.12 packet loss baseline probability in [0, 1].
+    pub loss_rate: Option<f64>,
+    /// Post-v2.12 packet loss burst-correlation addend in [0, 1].
+    pub correlation: Option<f64>,
 }
 
 /// Compatibility translation failures.
@@ -260,7 +265,18 @@ fn clamp_toxicity(toxicity: f64) -> Result<f64, CompatError> {
 /// bandwidth rate 0 -> 1 KiB/s, slicer average_size 0 -> 1, limit_data bytes
 /// 0 -> 1. Timeout 0 means indefinite blackhole (`close_after: None`),
 /// matching the oracle.
-fn kind_from_attrs(kind: &str, attrs: &ToxicAttributes) -> Result<FaultKind, CompatError> {
+///
+/// `loss_rate`/`correlation` (M038) are accepted only under the post-v2.12
+/// snapshot profile; strict v2.12 rejects `packet_loss` as an unknown
+/// toxic before reaching this helper. Out-of-range finite values are
+/// clamped into `[0, 1]` for native validation, while the recorded oracle
+/// accepts them verbatim — recorded divergence.
+fn kind_from_attrs(
+    kind: &str,
+    attrs: &ToxicAttributes,
+    profile: CompatProfile,
+) -> Result<FaultKind, CompatError> {
+    let clamp_probability = |value: f64| value.clamp(0.0, 1.0);
     match kind {
         "latency" => Ok(FaultKind::Latency(LatencyConfig {
             delay: Duration::from_millis(attrs.latency.unwrap_or(0)),
@@ -295,30 +311,50 @@ fn kind_from_attrs(kind: &str, attrs: &ToxicAttributes) -> Result<FaultKind, Com
             bytes: NonZeroU64::new(attrs.bytes.unwrap_or(1).max(1))
                 .expect("bytes is non-zero after max(1)"),
         })),
+        "packet_loss" => {
+            if !profile.accepts_packet_loss() {
+                return Err(CompatError::invalid_type());
+            }
+            let loss_rate = clamp_probability(attrs.loss_rate.unwrap_or(0.0));
+            let correlation = clamp_probability(attrs.correlation.unwrap_or(0.0));
+            Ok(FaultKind::StreamLoss(StreamLossConfig {
+                loss_rate: Probability::new(loss_rate)
+                    .map_err(|error| CompatError::new(400, error.to_string()))?,
+                correlation: Probability::new(correlation)
+                    .map_err(|error| CompatError::new(400, error.to_string()))?,
+            }))
+        }
         _ => Err(CompatError::invalid_type()),
     }
 }
 
 /// Split a native fault back into its v2.12 toxic type plus fully populated
-/// attributes (zero-filled, matching oracle echo shape).
-fn attrs_from_kind(kind: &FaultKind) -> (&'static str, ToxicAttributes) {
+/// attributes (zero-filled, matching oracle echo shape). Native
+/// `FaultKind::StreamLoss` is reverse-mapped to `packet_loss` only when the
+/// active profile accepts it; under strict v2.12 a native `StreamLoss` is
+/// a documentation/configuration error and the adapter surfaces an
+/// `Unsupported` `CompatError` rather than silently aliasing it.
+fn attrs_from_kind(
+    kind: &FaultKind,
+    profile: CompatProfile,
+) -> Result<(&'static str, ToxicAttributes), CompatError> {
     match *kind {
-        FaultKind::Latency(config) => (
+        FaultKind::Latency(config) => Ok((
             "latency",
             ToxicAttributes {
                 latency: Some(config.delay.as_millis().min(u64::MAX as u128) as u64),
                 jitter: Some(config.jitter.as_millis().min(u64::MAX as u128) as u64),
                 ..ToxicAttributes::default()
             },
-        ),
-        FaultKind::Bandwidth(config) => (
+        )),
+        FaultKind::Bandwidth(config) => Ok((
             "bandwidth",
             ToxicAttributes {
                 rate: Some(config.bytes_per_second.get() / 1024),
                 ..ToxicAttributes::default()
             },
-        ),
-        FaultKind::Blackhole(config) => (
+        )),
+        FaultKind::Blackhole(config) => Ok((
             "timeout",
             ToxicAttributes {
                 timeout: Some(
@@ -329,22 +365,22 @@ fn attrs_from_kind(kind: &FaultKind) -> (&'static str, ToxicAttributes) {
                 ),
                 ..ToxicAttributes::default()
             },
-        ),
-        FaultKind::LimitData(config) => (
+        )),
+        FaultKind::LimitData(config) => Ok((
             "limit_data",
             ToxicAttributes {
                 bytes: Some(config.bytes.get()),
                 ..ToxicAttributes::default()
             },
-        ),
-        FaultKind::SlowClose(config) => (
+        )),
+        FaultKind::SlowClose(config) => Ok((
             "slow_close",
             ToxicAttributes {
                 delay: Some(config.delay.as_millis().min(u64::MAX as u128) as u64),
                 ..ToxicAttributes::default()
             },
-        ),
-        FaultKind::Slice(config) => (
+        )),
+        FaultKind::Slice(config) => Ok((
             "slicer",
             ToxicAttributes {
                 average_size: Some(config.average_size.get()),
@@ -352,22 +388,31 @@ fn attrs_from_kind(kind: &FaultKind) -> (&'static str, ToxicAttributes) {
                 delay: Some(config.delay.as_micros().min(u64::MAX as u128) as u64),
                 ..ToxicAttributes::default()
             },
-        ),
-        FaultKind::Disconnect(config) => (
+        )),
+        FaultKind::Disconnect(config) => Ok((
             "reset_peer",
             ToxicAttributes {
                 timeout: Some(config.after.as_millis().min(u64::MAX as u128) as u64),
                 ..ToxicAttributes::default()
             },
-        ),
-        // Strict v2.12 must not name stream loss. The Toxiproxy v2.12 toxic
-        // set is frozen by M012 and has no `packet_loss` spelling. M037
-        // keeps strict v2.12 unchanged; M038 adds the explicit opt-in
-        // snapshot-profile presentation.
-        FaultKind::StreamLoss(_) => unreachable!(
-            "strict v2.12 StreamLoss presentation is owned by M038; \
-             native StreamLoss cannot reach the compat adapter in M037"
-        ),
+        )),
+        FaultKind::StreamLoss(config) => {
+            // Reverse mapping must be profile-aware so a native
+            // `stream-loss` never silently becomes another toxic in the
+            // strict v2.12 frozen profile.
+            if profile.accepts_packet_loss() {
+                Ok((
+                    "packet_loss",
+                    ToxicAttributes {
+                        loss_rate: Some(config.loss_rate.get()),
+                        correlation: Some(config.correlation.get()),
+                        ..ToxicAttributes::default()
+                    },
+                ))
+            } else {
+                Err(CompatError::invalid_type())
+            }
+        }
     }
 }
 
@@ -375,6 +420,7 @@ fn attrs_from_kind(kind: &FaultKind) -> (&'static str, ToxicAttributes) {
 /// (zero-filled), matching oracle echo shape.
 fn attributes_object(kind: &str, attrs: &ToxicAttributes) -> Value {
     let get = |value: Option<u64>| value.unwrap_or(0);
+    let get_f64 = |value: Option<f64>| value.unwrap_or(0.0);
     match kind {
         "latency" => json!({"latency": get(attrs.latency), "jitter": get(attrs.jitter)}),
         "bandwidth" => json!({"rate": get(attrs.rate)}),
@@ -384,22 +430,33 @@ fn attributes_object(kind: &str, attrs: &ToxicAttributes) -> Value {
             json!({"average_size": get(attrs.average_size), "size_variation": get(attrs.size_variation), "delay": get(attrs.delay)})
         }
         "limit_data" => json!({"bytes": get(attrs.bytes)}),
+        "packet_loss" => json!({
+            "loss_rate": get_f64(attrs.loss_rate),
+            "correlation": get_f64(attrs.correlation),
+        }),
         _ => json!({}),
     }
 }
 
 /// Render one native fault as a v2.12 toxic object. Stream echoes lowercase;
 /// the oracle preserves exotic input case, which cannot round-trip through
-/// the native direction (recorded divergence).
-pub fn fault_to_toxic(direction: Direction, fault: &FaultSpec) -> Value {
-    let (kind, attrs) = attrs_from_kind(&fault.kind);
-    json!({
+/// the native direction (recorded divergence). The active compatibility
+/// profile decides whether native `StreamLoss` is reverse-mapped to
+/// `packet_loss`; under strict v2.12 the helper surfaces a JSON `invalid
+/// toxic type` error rather than aliasing.
+pub fn fault_to_toxic(
+    direction: Direction,
+    fault: &FaultSpec,
+    profile: CompatProfile,
+) -> Result<Value, CompatError> {
+    let (kind, attrs) = attrs_from_kind(&fault.kind, profile)?;
+    Ok(json!({
         "name": fault.id.as_str(),
         "type": kind,
         "stream": direction.as_str(),
         "toxicity": fault.probability.get(),
         "attributes": attributes_object(kind, &attrs),
-    })
+    }))
 }
 
 /// Merge a toxic update's attributes over the toxic's own type: only keys
@@ -411,6 +468,7 @@ fn merge_attributes(
     patch: &ToxicAttributes,
 ) -> ToxicAttributes {
     let pick = |current: Option<u64>, incoming: Option<u64>| incoming.or(current);
+    let pick_f = |current: Option<f64>, incoming: Option<f64>| incoming.or(current);
     match kind {
         "latency" => ToxicAttributes {
             latency: pick(base.latency, patch.latency),
@@ -439,6 +497,11 @@ fn merge_attributes(
             bytes: pick(base.bytes, patch.bytes),
             ..ToxicAttributes::default()
         },
+        "packet_loss" => ToxicAttributes {
+            loss_rate: pick_f(base.loss_rate, patch.loss_rate),
+            correlation: pick_f(base.correlation, patch.correlation),
+            ..ToxicAttributes::default()
+        },
         _ => ToxicAttributes::default(),
     }
 }
@@ -447,7 +510,18 @@ impl Toxic {
     /// Translate one toxic into a native fault in the declared stream.
     /// Stream is validated before type (oracle precedence); the name
     /// defaults to `<type>_<stream>`; toxicity is clamped into [0, 1].
+    /// Defaults to the strict v2.12 profile; pass a profile that accepts
+    /// `packet_loss` to translate the post-v2.12 toxic spelling.
     pub fn to_fault(&self) -> Result<(Direction, FaultSpec), CompatibilityError> {
+        self.to_fault_with_profile(&CompatProfile::default())
+    }
+
+    /// Profile-aware variant: post-v2.12 profiles can translate
+    /// `packet_loss`; strict v2.12 rejects it as an unsupported toxic.
+    pub fn to_fault_with_profile(
+        &self,
+        profile: &CompatProfile,
+    ) -> Result<(Direction, FaultSpec), CompatibilityError> {
         let direction = if self.stream.eq_ignore_ascii_case("upstream") {
             Direction::Upstream
         } else if self.stream.eq_ignore_ascii_case("downstream") {
@@ -469,7 +543,7 @@ impl Toxic {
         ) {
             return Err(CompatibilityError::Unsupported(self.r#type.clone()));
         }
-        let kind = kind_from_attrs(&self.r#type, &self.attributes)
+        let kind = kind_from_attrs(&self.r#type, &self.attributes, profile.clone())
             .map_err(|error| CompatibilityError::Invalid(error.message))?;
         let name = self
             .name
@@ -526,15 +600,25 @@ pub fn translate_proxy(proxy: &Proxy) -> Result<ProxySpec, CompatibilityError> {
 
 /// Render a canonical proxy view as the oracle-shaped proxy object: actual
 /// bound address when running (resolving port 0), configured listener
-/// otherwise, plus an empty `Logger` and reverse-translated toxics.
-pub fn proxy_json(view: &ProxyView) -> Value {
+/// otherwise, plus an empty `Logger` and reverse-translated toxics. The
+/// active profile decides whether native `StreamLoss` is shown as
+/// `packet_loss`; under strict v2.12 any native `StreamLoss` is a
+/// documentation/configuration error and the response surfaces an
+/// `invalid toxic type` rather than silently aliasing.
+pub fn proxy_json(view: &ProxyView, profile: CompatProfile) -> Value {
     let listen = view.bound_addr.unwrap_or(view.listen);
     let mut toxics = Vec::new();
     for fault in view.upstream_faults.faults() {
-        toxics.push(fault_to_toxic(Direction::Upstream, fault));
+        match fault_to_toxic(Direction::Upstream, fault, profile.clone()) {
+            Ok(value) => toxics.push(value),
+            Err(error) => toxics.push(json!({"error": error.message})),
+        }
     }
     for fault in view.downstream_faults.faults() {
-        toxics.push(fault_to_toxic(Direction::Downstream, fault));
+        match fault_to_toxic(Direction::Downstream, fault, profile.clone()) {
+            Ok(value) => toxics.push(value),
+            Err(error) => toxics.push(json!({"error": error.message})),
+        }
     }
     json!({
         "name": view.name,
@@ -552,12 +636,21 @@ pub fn proxy_json(view: &ProxyView) -> Value {
 #[derive(Clone)]
 pub struct ToxiproxyAdapter {
     state: ControlState,
+    profile: CompatProfile,
 }
 
 impl ToxiproxyAdapter {
-    /// Create a compatibility facade.
+    /// Create a compatibility facade with the strict-v2.12 default profile.
     pub fn new(state: ControlState) -> Self {
-        Self { state }
+        Self::with_profile(state, CompatProfile::default())
+    }
+    /// Create a compatibility facade with an explicit profile.
+    pub fn with_profile(state: ControlState, profile: CompatProfile) -> Self {
+        Self { state, profile }
+    }
+    /// Active compatibility profile.
+    pub fn profile(&self) -> CompatProfile {
+        self.profile.clone()
     }
 
     /// Borrow the underlying native authority.
@@ -572,17 +665,22 @@ impl ToxiproxyAdapter {
 
     /// List oracle-shaped proxies keyed by name.
     pub async fn list_json(&self) -> BTreeMap<String, Value> {
+        let profile = self.profile.clone();
         self.state
             .list()
             .await
             .into_iter()
-            .map(|view| (view.name.clone(), proxy_json(&view)))
+            .map(|view| (view.name.clone(), proxy_json(&view, profile.clone())))
             .collect()
     }
 
     /// Get one oracle-shaped proxy.
     pub async fn proxy_json(&self, name: &str) -> Option<Value> {
-        self.state.get(name).await.map(|view| proxy_json(&view))
+        let profile = self.profile.clone();
+        self.state
+            .get(name)
+            .await
+            .map(|view| proxy_json(&view, profile))
     }
 
     /// Resolve `name`/`listen`/`upstream` for create/populate entries.
@@ -625,9 +723,10 @@ impl ToxiproxyAdapter {
         let enabled = input.enabled.unwrap_or(true);
         let mut spec = ProxySpec::new(name.clone(), listen, upstream);
         spec.enabled = enabled;
+        let profile = self.profile.clone();
         if enabled {
             match self.state.create_proxy(spec).await {
-                Ok((view, _)) => Ok(proxy_json(&view)),
+                Ok((view, _)) => Ok(proxy_json(&view, profile)),
                 Err(ControlError::Conflict(_)) => Err(CompatError::proxy_exists()),
                 Err(ControlError::BindFailed { reason, .. }) => Err(CompatError::new(
                     500,
@@ -744,7 +843,7 @@ impl ToxiproxyAdapter {
         let enabled = input.enabled.unwrap_or(true);
         if let Some(view) = self.state.get(&name).await {
             if view.listen == listen && view.upstream == upstream {
-                return Some(proxy_json(&view));
+                return Some(proxy_json(&view, CompatProfile::StrictV2_12));
             }
             // Changed addresses: delete and recreate (toxics drop by
             // construction), matching observed oracle replace behavior.
@@ -754,7 +853,7 @@ impl ToxiproxyAdapter {
         spec.enabled = enabled;
         if enabled {
             match self.state.create_proxy(spec).await {
-                Ok((view, _)) => Some(proxy_json(&view)),
+                Ok((view, _)) => Some(proxy_json(&view, CompatProfile::StrictV2_12)),
                 Err(_) => None,
             }
         } else {
@@ -772,7 +871,8 @@ impl ToxiproxyAdapter {
             return Err(CompatError::proxy_not_found());
         }
         let direction = parse_stream(&toxic.stream)?;
-        let kind = kind_from_attrs(&toxic.r#type, &toxic.attributes)?;
+        let profile = self.profile.clone();
+        let kind = kind_from_attrs(&toxic.r#type, &toxic.attributes, profile.clone())?;
         // Empty-string names auto-generate like absent names: the pinned Go
         // client serializes an unset name as `""`, not null.
         let name = toxic
@@ -800,7 +900,7 @@ impl ToxiproxyAdapter {
             )
             .await
         {
-            Ok((direction, spec, _)) => Ok(fault_to_toxic(direction, &spec)),
+            Ok((direction, spec, _)) => fault_to_toxic(direction, &spec, profile),
             Err(ControlError::NotFound(_)) => Err(CompatError::proxy_not_found()),
             Err(ControlError::Conflict(_)) => Err(CompatError::toxic_exists()),
             Err(ControlError::Invalid(message)) => Err(CompatError::new(400, message)),
@@ -814,20 +914,26 @@ impl ToxiproxyAdapter {
         let Some((upstream, downstream)) = self.state.list_faults(proxy).await else {
             return Err(CompatError::proxy_not_found());
         };
+        let profile = self.profile.clone();
         let mut toxics = Vec::with_capacity(upstream.len() + downstream.len());
         for fault in &upstream {
-            toxics.push(fault_to_toxic(Direction::Upstream, fault));
+            toxics.push(fault_to_toxic(Direction::Upstream, fault, profile.clone())?);
         }
         for fault in &downstream {
-            toxics.push(fault_to_toxic(Direction::Downstream, fault));
+            toxics.push(fault_to_toxic(
+                Direction::Downstream,
+                fault,
+                profile.clone(),
+            )?);
         }
         Ok(toxics)
     }
 
     /// Get one toxic from live native snapshots.
     pub async fn get_toxic(&self, proxy: &str, name: &str) -> Result<Value, CompatError> {
+        let profile = self.profile.clone();
         match self.state.get_fault(proxy, name).await {
-            Some((direction, spec)) => Ok(fault_to_toxic(direction, &spec)),
+            Some((direction, spec)) => fault_to_toxic(direction, &spec, profile),
             None => {
                 if self.state.get(proxy).await.is_none() {
                     Err(CompatError::proxy_not_found())
@@ -846,18 +952,19 @@ impl ToxiproxyAdapter {
         name: &str,
         patch: ToxicUpdate,
     ) -> Result<Value, CompatError> {
+        let profile = self.profile.clone();
         let Some((_direction, existing)) = self.state.get_fault(proxy, name).await else {
             if self.state.get(proxy).await.is_none() {
                 return Err(CompatError::proxy_not_found());
             }
             return Err(CompatError::toxic_not_found());
         };
-        let (kind_name, base_attrs) = attrs_from_kind(&existing.kind);
+        let (kind_name, base_attrs) = attrs_from_kind(&existing.kind, profile.clone())?;
         let merged = match patch.attributes {
             Some(attrs) => merge_attributes(kind_name, &base_attrs, &attrs),
             None => base_attrs,
         };
-        let kind = kind_from_attrs(kind_name, &merged)?;
+        let kind = kind_from_attrs(kind_name, &merged, profile.clone())?;
         let probability = match patch.toxicity {
             Some(toxicity) => clamp_toxicity(toxicity)?,
             None => existing.probability.get(),
@@ -874,7 +981,7 @@ impl ToxiproxyAdapter {
             )
             .await
         {
-            Ok((direction, spec, _)) => Ok(fault_to_toxic(direction, &spec)),
+            Ok((direction, spec, _)) => fault_to_toxic(direction, &spec, profile),
             Err(ControlError::NotFound(_)) => Err(CompatError::toxic_not_found()),
             Err(ControlError::Invalid(message)) => Err(CompatError::new(400, message)),
             Err(error) => Err(CompatError::new(400, error.to_string())),
@@ -908,8 +1015,50 @@ impl ToxiproxyAdapter {
 
     /// Return the oracle-exact version identifier. Eggchaos identity belongs
     /// in native surfaces, not in this compatibility field.
-    pub fn version() -> &'static str {
-        "2.12.0"
+    ///
+    /// The strict profile reports the frozen `"2.12.0"` oracle response. The
+    /// post-v2.12 snapshot profile reports the oracle `40f7fd31` source-
+    /// build response (currently `{"version":"git"}`, see M038 closure).
+    pub fn version(&self) -> &'static str {
+        match self.profile {
+            CompatProfile::StrictV2_12 => "2.12.0",
+            CompatProfile::PostV2_12_2026_09_25 => "git",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CompatProfile {
+    /// Strict Toxiproxy v2.12 (frozen default). Rejects every toxic outside
+    /// the v2.12 set; preserves the existing pinned oracle gate unchanged.
+    #[serde(rename = "strict-v2.12")]
+    StrictV2_12,
+    /// Opt-in post-v2.12 snapshot pinned to
+    /// `40f7fd31bee529d824116bd2a11a9e3425e904ec`. Adds `packet_loss` with
+    /// `loss_rate` and `correlation` while keeping the v2.12 route family
+    /// and the existing strict profile unchanged.
+    #[serde(rename = "post-v2.12-2026-09-25")]
+    PostV2_12_2026_09_25,
+}
+
+impl Default for CompatProfile {
+    fn default() -> Self {
+        Self::StrictV2_12
+    }
+}
+
+impl CompatProfile {
+    /// Stable lower-kebab-case spelling.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::StrictV2_12 => "strict-v2.12",
+            Self::PostV2_12_2026_09_25 => "post-v2.12-2026-09-25",
+        }
+    }
+    /// Whether this profile exposes the post-v2.12 `packet_loss` toxic.
+    pub const fn accepts_packet_loss(self) -> bool {
+        matches!(self, Self::PostV2_12_2026_09_25)
     }
 }
 
@@ -1059,7 +1208,7 @@ async fn compatibility_request(
     let segments: Vec<&str> = path.trim_matches('/').split('/').collect();
     let response = match (method.as_str(), segments.as_slice()) {
         ("GET", ["version"]) => {
-            let body = serde_json::to_vec(&json!({"version": ToxiproxyAdapter::version()}))
+            let body = serde_json::to_vec(&json!({"version": adapter.version()}))
                 .unwrap_or_else(|_| b"{}".to_vec());
             eggserve_primitives::Response::builder()
                 .status(status(200))
@@ -1264,7 +1413,8 @@ mod tests {
         assert_eq!(spec.probability.get(), 1.0);
         // Reverse translation echoes the normalized stream and zero-filled
         // attributes.
-        let rendered = fault_to_toxic(Direction::Upstream, &spec);
+        let rendered = fault_to_toxic(Direction::Upstream, &spec, CompatProfile::StrictV2_12)
+            .expect("strict profile reverses native latency fault");
         assert_eq!(rendered["stream"], json!("upstream"));
         assert_eq!(rendered["attributes"], json!({"latency": 0, "jitter": 0}));
     }
@@ -1287,7 +1437,8 @@ mod tests {
                 spec.kind,
                 FaultKind::Blackhole(BlackholeConfig { close_after: None })
             ));
-            let rendered = fault_to_toxic(Direction::Downstream, &spec);
+            let rendered = fault_to_toxic(Direction::Downstream, &spec, CompatProfile::StrictV2_12)
+                .expect("strict profile reverses native blackhole fault");
             assert_eq!(rendered["attributes"], json!({"timeout": 0}));
         }
     }
@@ -1424,6 +1575,135 @@ mod tests {
         );
         handle.shutdown();
         handle.wait().await;
+    }
+
+    #[tokio::test]
+    async fn snapshot_profile_accepts_packet_loss_and_echoes_post_v212_version() {
+        let adapter = ToxiproxyAdapter::with_profile(
+            ControlState::default(),
+            CompatProfile::PostV2_12_2026_09_25,
+        );
+        let handle = ToxiproxyHttp::start("127.0.0.1:0".parse().unwrap(), adapter)
+            .await
+            .unwrap();
+        let client = eggfetch_core::Client::builder().build();
+        let mut response = client
+            .get(&format!("http://{}/version", handle.local_addr()))
+            .unwrap()
+            .send()
+            .await
+            .unwrap();
+        let body = response.bytes().await.unwrap();
+        let version: Value = serde_json::from_slice(&body).unwrap();
+        // Source-build oracle reports `git` rather than a release tag.
+        assert_eq!(version["version"], json!("git"));
+        // Create proxy + packet_loss toxic; the snapshot profile must accept
+        // the post-v2.12 toxic with loss_rate / correlation and echo the
+        // attributes as a numeric object.
+        let proxy = serde_json::json!({
+            "name": "echo",
+            "listen": "127.0.0.1:0",
+            "upstream": "127.0.0.1:1",
+            "enabled": true,
+            "toxics": []
+        });
+        let created = client
+            .post(&format!("http://{}/proxies", handle.local_addr()))
+            .unwrap()
+            .json(&proxy)
+            .unwrap()
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(created.status().as_u16(), 201);
+        let toxic = serde_json::json!({
+            "name": "loss",
+            "type": "packet_loss",
+            "stream": "downstream",
+            "toxicity": 1.0,
+            "attributes": {"loss_rate": 0.5, "correlation": 0.2}
+        });
+        let mut added = client
+            .post(&format!(
+                "http://{}/proxies/echo/toxics",
+                handle.local_addr()
+            ))
+            .unwrap()
+            .json(&toxic)
+            .unwrap()
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(added.status().as_u16(), 200);
+        let added_body: Value = serde_json::from_slice(&added.bytes().await.unwrap()).unwrap();
+        assert_eq!(added_body["type"], json!("packet_loss"));
+        assert_eq!(added_body["attributes"]["loss_rate"], json!(0.5));
+        assert_eq!(added_body["attributes"]["correlation"], json!(0.2));
+        // Out-of-range finite values are clamped into [0, 1] (recorded
+        // divergence vs the source-build oracle which echoes verbatim).
+        let oor = serde_json::json!({
+            "name": "loss-oor",
+            "type": "packet_loss",
+            "stream": "downstream",
+            "toxicity": 1.0,
+            "attributes": {"loss_rate": 1.5, "correlation": -0.5}
+        });
+        let mut oor_resp = client
+            .post(&format!(
+                "http://{}/proxies/echo/toxics",
+                handle.local_addr()
+            ))
+            .unwrap()
+            .json(&oor)
+            .unwrap()
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(oor_resp.status().as_u16(), 200);
+        let oor_body: Value = serde_json::from_slice(&oor_resp.bytes().await.unwrap()).unwrap();
+        assert_eq!(oor_body["attributes"]["loss_rate"], json!(1.0));
+        assert_eq!(oor_body["attributes"]["correlation"], json!(0.0));
+        handle.shutdown();
+        handle.wait().await;
+    }
+
+    #[tokio::test]
+    async fn strict_v212_native_stream_loss_fails_to_reverse_map() {
+        // A native `stream-loss` fault is invalid under strict v2.12; the
+        // adapter surfaces it as an `invalid toxic type` rather than
+        // silently aliasing it to timeout / `packet_loss`/etc. The
+        // strict-profile reverse mapping is the boundary that enforces
+        // this so the proxy view never lies about the wire shape.
+        let native_view = ProxyView {
+            name: "x".into(),
+            listen: "127.0.0.1:9".parse().unwrap(),
+            upstream: "127.0.0.1:1".parse().unwrap(),
+            bound_addr: None,
+            running: false,
+            enabled: true,
+            upstream_faults: eggchaos_core::FaultPlan::new(vec![eggchaos_core::FaultSpec {
+                id: eggchaos_core::FaultId::new("loss").unwrap(),
+                probability: eggchaos_core::Probability::new(1.0).unwrap(),
+                kind: eggchaos_core::FaultKind::StreamLoss(eggchaos_core::StreamLossConfig {
+                    loss_rate: eggchaos_core::Probability::new(0.5).unwrap(),
+                    correlation: eggchaos_core::Probability::new(0.0).unwrap(),
+                }),
+            }])
+            .unwrap(),
+            downstream_faults: eggchaos_core::FaultPlan::empty(),
+            upstream_generation: 0,
+            downstream_generation: 0,
+            upstream_seed_namespace: 0,
+            downstream_seed_namespace: 0,
+            max_connections: None,
+            connect_timeout_ms: 0,
+            seed: 0,
+        };
+        let json = proxy_json(&native_view, CompatProfile::StrictV2_12);
+        let toxics = json["toxics"].as_array().unwrap();
+        assert_eq!(toxics.len(), 1);
+        assert!(toxics[0]["error"].is_string());
+        assert!(toxics[0]["type"].is_null());
     }
 
     #[tokio::test]
