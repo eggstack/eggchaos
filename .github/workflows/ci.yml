@@ -36,3 +36,31 @@ jobs:
       - run: cargo doc --workspace --all-features --no-deps
       - run: cargo audit --deny warnings
       - run: cargo deny check advisories licenses bans sources
+  language-clients:
+    # M033 native-control SDKs: derivation drift + unit gates + real-server
+    # cross-language qualification + package artifact builds (no publication).
+    timeout-minutes: 25
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ["3.11", "3.12"]
+        node-version: ["20", "22"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.89.0
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+      - run: pip install build pytest pyyaml
+      - run: ./scripts/check_openapi.sh
+      - run: ./scripts/check_python_client.sh
+      - run: ./scripts/check_typescript_client.sh
+      - run: ./scripts/qualify_language_clients.sh

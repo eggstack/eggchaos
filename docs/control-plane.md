@@ -191,3 +191,21 @@ Datagrams use a separate `/v1/datagram-proxies` family: list/create/get/patch/de
 Datagram fault DTOs are separate from stream `FaultKindV1`; `type` is one of `delay`, `loss`, `duplicate`, `reorder`, `payload-corrupt`, or `bandwidth`. Durations use unsigned integer nanoseconds. Association responses include addresses, counters, directional engine evidence, generations, and queue bounds; payload bytes are never captured. Association/client/run/fault IDs never become Prometheus labels. `POST /v1/reset` resets both TCP and UDP definitions: it clears plans, terminates active work, and re-enables listeners; the report separates failed TCP and datagram re-enables. Toxiproxy v2.12 remains TCP/stream-only.
 
 The `datagram` CLI namespace includes `proxy list|get|add|enable|disable|remove`, `fault list|get|add|set|remove`, and `association list|get|kill`. JSON mode remains one document per operation. Scenario v1 adds `set-datagram-plan` and `remove-datagram-fault`; the action carries direction-explicit datagram faults and publishes the scenario-derived seed namespace with an expected-generation guard.
+
+## Remote control SDKs
+
+Python (`bindings/python-client`, `from eggchaos_client import Client,
+AsyncClient`) and TypeScript (`bindings/typescript-client`,
+`@eggstack/eggchaos-client`, `EggchaosClient`) remote clients drive the
+complete native surface above — stream and datagram resources, Scenario
+V1/V2, evidence/history/reset/metrics, bearer auth, and typed native
+errors — without embedding Rust. Both derive from the exact M032
+OpenAPI/protocol authority (`scripts/sync_sdk_contract.py`; drift
+fails CI on regeneration diffs). They never manage the daemon
+lifecycle: start `eggchaos serve` (or embed it) and pass the admin URL.
+
+This is distinct from Toxiproxy compatibility (`docs/toxiproxy.md`),
+which serves the legacy TCP subset for existing Toxiproxy clients, and
+from future in-process bindings (a Python native embedding pilot is
+planned separately; it reuses the same validation/default semantics
+but runs the service in-process instead of over HTTP).

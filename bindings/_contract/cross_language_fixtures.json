@@ -1,0 +1,40 @@
+{
+  "cases": [
+    {
+      "name": "proxy_create",
+      "method": "createProxy",
+      "path": "/v1/proxies",
+      "wire": {"name": "redis", "listen": "127.0.0.1:0", "upstream": "127.0.0.1:6379"}
+    },
+    {
+      "name": "stream_fault_latency",
+      "method": "addFault",
+      "path": "/v1/proxies/redis/faults",
+      "wire": {"direction": "downstream", "id": "lag", "probability": 0.5, "kind": {"type": "latency", "delay_ns": 200000000, "jitter_ns": 0, "max_buffer_bytes": 65536}}
+    },
+    {
+      "name": "stream_fault_bandwidth_defaults",
+      "method": "addFault",
+      "path": "/v1/proxies/redis/faults",
+      "wire": {"direction": "upstream", "id": "cap", "kind": {"type": "bandwidth"}}
+    },
+    {
+      "name": "datagram_fault_loss",
+      "method": "addDatagramFault",
+      "path": "/v1/datagram-proxies/dns/faults",
+      "wire": {"direction": "upstream", "id": "loss", "probability": 0.25, "kind": {"type": "loss"}}
+    },
+    {
+      "name": "scenario_v1_apply",
+      "method": "applyScenario",
+      "path": "/v1/scenarios/apply",
+      "wire": {"version": 1, "seed": 7, "events": [{"at_ms": 25, "action": {"type": "remove-fault", "proxy": "cache", "direction": "upstream", "id": "delay"}}]}
+    },
+    {
+      "name": "schedule_v2_validate",
+      "method": "validateSchedule",
+      "path": "/v1/scenarios/validate",
+      "wire": {"version": 2, "seed": 7, "execution_key": 11, "isolation": "strict", "cleanup": "restore-initial", "phases": []}
+    }
+  ]
+}

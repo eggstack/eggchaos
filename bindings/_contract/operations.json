@@ -1,0 +1,208 @@
+{
+  "datagram_fault_tags": [
+    "bandwidth",
+    "delay",
+    "duplicate",
+    "loss",
+    "payload-corrupt",
+    "reorder"
+  ],
+  "openapi_version": "1.0.0",
+  "operations": [
+    {
+      "method": "GET",
+      "operation_id": "getMetrics",
+      "path": "/metrics"
+    },
+    {
+      "method": "GET",
+      "operation_id": "listConnections",
+      "path": "/v1/connections"
+    },
+    {
+      "method": "DELETE",
+      "operation_id": "killConnection",
+      "path": "/v1/connections/{id}"
+    },
+    {
+      "method": "GET",
+      "operation_id": "getConnection",
+      "path": "/v1/connections/{id}"
+    },
+    {
+      "method": "GET",
+      "operation_id": "listDatagramAssociations",
+      "path": "/v1/datagram-associations"
+    },
+    {
+      "method": "DELETE",
+      "operation_id": "killDatagramAssociation",
+      "path": "/v1/datagram-associations/{id}"
+    },
+    {
+      "method": "GET",
+      "operation_id": "getDatagramAssociation",
+      "path": "/v1/datagram-associations/{id}"
+    },
+    {
+      "method": "GET",
+      "operation_id": "listDatagramProxies",
+      "path": "/v1/datagram-proxies"
+    },
+    {
+      "method": "POST",
+      "operation_id": "createDatagramProxy",
+      "path": "/v1/datagram-proxies"
+    },
+    {
+      "method": "DELETE",
+      "operation_id": "deleteDatagramProxy",
+      "path": "/v1/datagram-proxies/{name}"
+    },
+    {
+      "method": "GET",
+      "operation_id": "getDatagramProxy",
+      "path": "/v1/datagram-proxies/{name}"
+    },
+    {
+      "method": "PATCH",
+      "operation_id": "patchDatagramProxy",
+      "path": "/v1/datagram-proxies/{name}"
+    },
+    {
+      "method": "GET",
+      "operation_id": "listDatagramFaults",
+      "path": "/v1/datagram-proxies/{name}/faults"
+    },
+    {
+      "method": "POST",
+      "operation_id": "addDatagramFault",
+      "path": "/v1/datagram-proxies/{name}/faults"
+    },
+    {
+      "method": "DELETE",
+      "operation_id": "deleteDatagramFault",
+      "path": "/v1/datagram-proxies/{name}/faults/{id}"
+    },
+    {
+      "method": "GET",
+      "operation_id": "getDatagramFault",
+      "path": "/v1/datagram-proxies/{name}/faults/{id}"
+    },
+    {
+      "method": "PATCH",
+      "operation_id": "patchDatagramFault",
+      "path": "/v1/datagram-proxies/{name}/faults/{id}"
+    },
+    {
+      "method": "GET",
+      "operation_id": "getHealth",
+      "path": "/v1/health"
+    },
+    {
+      "method": "GET",
+      "operation_id": "getHistory",
+      "path": "/v1/history"
+    },
+    {
+      "method": "GET",
+      "operation_id": "listProxies",
+      "path": "/v1/proxies"
+    },
+    {
+      "method": "POST",
+      "operation_id": "createProxy",
+      "path": "/v1/proxies"
+    },
+    {
+      "method": "DELETE",
+      "operation_id": "deleteProxy",
+      "path": "/v1/proxies/{name}"
+    },
+    {
+      "method": "GET",
+      "operation_id": "getProxy",
+      "path": "/v1/proxies/{name}"
+    },
+    {
+      "method": "PATCH",
+      "operation_id": "patchProxy",
+      "path": "/v1/proxies/{name}"
+    },
+    {
+      "method": "GET",
+      "operation_id": "listFaults",
+      "path": "/v1/proxies/{name}/faults"
+    },
+    {
+      "method": "POST",
+      "operation_id": "addFault",
+      "path": "/v1/proxies/{name}/faults"
+    },
+    {
+      "method": "DELETE",
+      "operation_id": "deleteFault",
+      "path": "/v1/proxies/{name}/faults/{id}"
+    },
+    {
+      "method": "GET",
+      "operation_id": "getFault",
+      "path": "/v1/proxies/{name}/faults/{id}"
+    },
+    {
+      "method": "PATCH",
+      "operation_id": "patchFault",
+      "path": "/v1/proxies/{name}/faults/{id}"
+    },
+    {
+      "method": "POST",
+      "operation_id": "resetService",
+      "path": "/v1/reset"
+    },
+    {
+      "method": "POST",
+      "operation_id": "applyScenario",
+      "path": "/v1/scenarios/apply"
+    },
+    {
+      "method": "POST",
+      "operation_id": "compileSchedule",
+      "path": "/v1/scenarios/compile"
+    },
+    {
+      "method": "POST",
+      "operation_id": "validateSchedule",
+      "path": "/v1/scenarios/validate"
+    },
+    {
+      "method": "DELETE",
+      "operation_id": "cancelScenario",
+      "path": "/v1/scenarios/{id}"
+    },
+    {
+      "method": "GET",
+      "operation_id": "getScenario",
+      "path": "/v1/scenarios/{id}"
+    },
+    {
+      "method": "GET",
+      "operation_id": "getVersion",
+      "path": "/v1/version"
+    }
+  ],
+  "scenario_action_tags": [
+    "remove-datagram-fault",
+    "remove-fault",
+    "set-datagram-plan",
+    "set-plan"
+  ],
+  "stream_fault_tags": [
+    "bandwidth",
+    "blackhole",
+    "disconnect",
+    "latency",
+    "limit-data",
+    "slice",
+    "slow-close"
+  ]
+}

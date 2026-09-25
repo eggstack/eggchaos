@@ -1,0 +1,26 @@
+{
+  "name": "@eggstack/eggchaos-client",
+  "version": "0.1.0",
+  "description": "Native control client for eggchaos (/v1, derived from the M032 OpenAPI contract)",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc",
+    "test": "npm run build && node --test dist/tests/contract.test.js dist/tests/live.test.js",
+    "prepack": "npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "22.10.2",
+    "typescript": "5.7.2"
+  }
+}

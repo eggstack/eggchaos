@@ -528,6 +528,28 @@ When reviewing this surface, confirm:
   substitute inspection for execution (per `AGENTS.md` verification
   discipline).
 
+## 7. Remote control SDKs (M033)
+
+`bindings/python-client/` (stdlib-only `eggchaos_client`: sync `Client`
+plus `AsyncClient` sharing one model/transport layer via
+`asyncio.to_thread`) and `bindings/typescript-client/`
+(`@eggstack/eggchaos-client`: `EggchaosClient` over injectable `fetch`
+with `AbortSignal` support) cover all 36 `NATIVE_OPERATIONS`. Both ship
+a generated operation/method table (`_generated.py`, `generated.ts`)
+produced by `scripts/sync_sdk_contract.py` from the M032 OpenAPI
+document; contract tests assert table equality with the shared
+`bindings/_contract/operations.json` snapshot and that every operation
+resolves to a real client method. `bindings/_contract/
+cross_language_fixtures.json` proves equivalent inputs serialize to
+identical native JSON in both languages. Qualification:
+`scripts/check_python_client.sh`, `scripts/check_typescript_client.sh`
+(drift + unit, no server), `scripts/qualify_language_clients.sh`
+(loopback server: equivalent sync/async/TS flows incl. auth
+failure/token redaction, then `python -m build` sdist/wheel and
+`npm pack` artifacts without publication). No FFI, no daemon lifecycle
+management, no implicit mutation retries; metrics stay text; bearer
+tokens never enter repr/errors/models.
+
 ## Datagram v1 operator surface (M022)
 
 Datagrams are explicit sibling resources, not `transport` fields on TCP
