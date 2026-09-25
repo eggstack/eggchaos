@@ -83,8 +83,18 @@ ADR 004's execution chain is complete: `M026 (closed) -> M027 (closed) ->
 M028 (closed)`. The bounded scenario-v2 compiler, canonical fingerprint,
 run_id-independent namespace vectors, runtime/control wiring, and
 exact-candidate qualification are implemented and qualified. ScenarioV1
-remains supported;
-do not implement v2 by adding clock/schedule branches to eggchaos-core.
+remains supported; do not implement v2 by adding clock/schedule branches to
+eggchaos-core.
+
+ADR 005 is accepted and activates the current handoff chain: `M029 (ready) ->
+M030 (blocked) -> M031 (blocked)`. M029 is the only ready item. It makes the
+EggFetch physical-stream chaos integration composable over arbitrary Dialers,
+adds caller-controlled deterministic physical connection identity, and exposes
+bounded bidirectional evidence. M030 may begin only after M029 closes and adds
+the consumer-neutral Scenario V2 experiment harness/shared monotonic start
+epoch. M031 is the exact-candidate qualification/downstream-handoff gate. Do
+not add `eggreplay-*` or `eggprobe-*` production dependencies to eggchaos;
+product-specific adoption remains downstream.
 
 If the owner asks for new work: `plans/roadmap.md` is the architecture authority, `plans/reference/` holds parity/verification contracts (not status), ADRs live in `plans/adrs/`. Any new numbered plan needs objective, baseline/deps, scope + non-goals, affected crates, ordered work packages, invariants/failure semantics, test commands, acceptance criteria, stop conditions, closure evidence, and follow-on rules — and must update `plans/registry.md` in the same change. Never mark `closed` from source inspection; closure requires running the plan's tests on the exact candidate plus external/differential evidence where declared.
 
