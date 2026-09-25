@@ -1,6 +1,6 @@
 # Eggchaos Long-Term Roadmap
 
-Status: M008 and M009–M028 are closed work. M019 passed final pre-tag qualification at `ca527db`; the owner may proceed with the v0.1.0 tag and separate publication/release actions. ADR 003's post-release datagram feature tranche M020–M023 is complete, with M024/M025 performance and setup-hygiene successors closed. ADR 004's richer deterministic-scenario/time-varying schedule tranche M026–M028 is complete and qualified. ADR 005 activates the integration-boundary/harness tranche: M029 is ready, with M030/M031 blocked in dependency order.
+Status: M008 and M009–M031 are closed work. M019 passed final pre-tag qualification at `ca527db`; the owner may proceed with the v0.1.0 tag and separate publication/release actions. ADR 003's post-release datagram feature tranche M020–M023 is complete, with M024/M025 performance and setup-hygiene successors closed. ADR 004's richer deterministic-scenario/time-varying schedule tranche M026–M028 is complete and qualified. ADR 005's integration-boundary/harness tranche M029–M031 is complete and qualified at `fa189b9`, with the downstream handoff table in the M031 closure.
 
 ## 1. Mission
 
@@ -390,7 +390,7 @@ M029 is closed (`add40b0`). It refactored the EggFetch physical-stream integrati
 
 M030 is closed (`0bc45f0`). It moved the pure Scenario V2 semantic/compiler authority into the narrow consumer-neutral `eggchaos-experiment` crate, preserved server public re-exports, added expected-generation policy-target adapters, and provided an embedded prepare/arm/start lifecycle with one shared Tokio monotonic epoch for schedule and caller workload correlation. This synchronizes the schedule clock; it does not claim deterministic kernel/application traffic timing or cross-process clock synchronization.
 
-M031 is blocked on M030 and is the exact-candidate qualification gate. It freezes dependency direction, public seam compatibility, Dialer composition/error provenance, connection identity/evidence behavior, shared-epoch schedule conformance, performance/security/package regressions, and a closure-backed handoff table for downstream EggReplay/EggProbe planning.
+M031 is closed (`fa189b9`) as the exact-candidate qualification gate. It froze dependency direction, public seam compatibility, Dialer composition/error provenance, connection identity/evidence behavior, shared-epoch schedule conformance, performance/security/package regressions, and a closure-backed handoff table for downstream EggReplay/EggProbe planning.
 
 The dependency rule is strict: eggchaos must not depend on `eggreplay-*` or `eggprobe-*`. Route identity and impairment identity remain orthogonal. EggReplay continues to own `.eggr`, semantic replay timing, and regression models; EggProbe continues to own route/probe/report/assertion semantics. Their product integrations begin only after M031 closes.
 
@@ -430,7 +430,7 @@ Potential next lines:
 
 - datagram/UDP impairment is implemented under ADR 003 + M020–M023, hardened by the closed M024 performance/runtime-maintainability pass, and closed through M025 association-setup/closure hygiene; follow-on datagram models require separate planning;
 - optional upstream chains via `eggress-outbound`;
-- cross-project integration substrate/harness is activated under ADR 005 + M029–M031; it remains consumer-neutral and dependency-inward;
+- cross-project integration substrate/harness is implemented under ADR 005 + M029–M031 (closed at `fa189b9`); it remains consumer-neutral and dependency-inward;
 - eggreplay transport-chaos integration is downstream work after M031 so recorded/regression flows can be exercised under deterministic transport conditions without moving `.eggr` semantics into eggchaos;
 - eggprobe controlled-impairment integration is downstream work after M031, initially for transport-bearing TLS/HTTP paths while route/probe/report semantics remain EggProbe-owned;
 - language bindings around the stable Rust engine;

@@ -1,6 +1,6 @@
 # Eggchaos Plan Registry
 
-Last reconciled: 2026-09-25 (ADR 005 accepted; M029–M031 integration-boundary/harness tranche registered)
+Last reconciled: 2026-09-25 (ADR 005 tranche M029–M031 closed; downstream handoff handed to EggReplay/EggProbe planning)
 
 This file is the compact source of truth for active milestone state. Detailed scope lives in the numbered plans. Historical closure evidence belongs in `plans/closure/`.
 
@@ -37,7 +37,7 @@ This file is the compact source of truth for active milestone state. Detailed sc
 | M028 | `028-deterministic-schedule-qualification-and-hardening.md` | closed | M027 | Closed cleanly on exact candidate `ceb3bae`; evidence in `plans/closure/M028-deterministic-schedule-qualification-and-hardening-closure.md`. Golden corpus frozen, paused-time/race/fuzz/security/API/CLI/regression/performance gates green; no new language feature. |
 | M029 | `029-composable-transport-chaos-adapter-and-evidence.md` | closed | M028 + ADR 005 | Closed on exact candidate `add40b0`; evidence in `plans/closure/M029-composable-transport-chaos-adapter-and-evidence-closure.md`. Arbitrary-inner EggFetch Dialer composition, caller-controlled physical connection identity, and bounded bidirectional evidence. No EggReplay/EggProbe dependency. |
 | M030 | `030-consumer-neutral-experiment-harness-and-coordinated-start.md` | closed | M029 | Closed on exact candidate `0bc45f0`; evidence in `plans/closure/M030-consumer-neutral-experiment-harness-and-coordinated-start-closure.md`. Consumer-neutral Scenario V2 semantic/execution boundary in `eggchaos-experiment`, expected-generation target adapters, shared Tokio monotonic start epoch. |
-| M031 | `031-integration-boundary-qualification-and-downstream-handoff.md` | **ready** | M030 | Exact-candidate qualification, dependency/performance/security gates, and closure-backed EggReplay/EggProbe downstream handoff. |
+| M031 | `031-integration-boundary-qualification-and-downstream-handoff.md` | closed | M030 | Closed on exact candidate `fa189b9`; evidence in `plans/closure/M031-integration-boundary-qualification-and-downstream-handoff-closure.md`. Cross-project substrate qualified with downstream handoff table; no EggReplay/EggProbe product work. |
 
 ## Execution state
 
@@ -91,15 +91,15 @@ qualification. ScenarioV1 remains a compatibility surface throughout.
 
 ADR 005 now activates the next post-release integration-boundary/harness chain:
 
-`M029 (closed) -> M030 (closed) -> M031 (ready)`
+`M029 (closed) -> M030 (closed) -> M031 (closed)`
 
 M029 closed on `add40b0`, making the EggFetch physical-stream chaos
 adapter composable over arbitrary Dialers with caller-controlled
 physical connection identity and bounded bidirectional evidence.
 M030 closed on `0bc45f0`, adding the consumer-neutral Scenario V2
 experiment harness/shared monotonic start epoch behind
-`eggchaos-experiment`. M031 is now the implementation-ready item:
-the exact-candidate qualification and downstream-handoff gate.
+`eggchaos-experiment`. M031 closed on exact candidate `fa189b9`,
+qualifying the tranche with the downstream handoff table.
 EggReplay/EggProbe product adapters remain downstream work and are not
 part of this chain.
 
@@ -111,18 +111,18 @@ The completed UDP/datagram tranche is listed below; the remaining items are post
 | --- | --- | --- |
 | UDP/datagram impairment engine | completed / maintenance complete | ADR 003 semantics and M020–M025 feature/performance/hygiene work closed; follow-on datagram models require separate planning. |
 | Optional `eggress-outbound` chained upstreams | future | M008 closed; prove demand without turning eggchaos into a second proxy framework. |
-| cross-project integration boundary / experiment harness | active planning | ADR 005; M029 ready, M030/M031 blocked in order. |
-| eggreplay timing/fault integration | future downstream | M031 closure + EggReplay-owned adoption plan; `.eggr`/semantic timing remain EggReplay authority. |
-| eggprobe controlled impairment experiments | future downstream | M031 closure + EggProbe-owned adoption plan; route/probe/report semantics remain EggProbe authority. |
+| cross-project integration boundary / experiment harness | completed | ADR 005 tranche M029–M031 closed and qualified at `fa189b9`; follow-on substrate work requires separate planning. |
+| eggreplay timing/fault integration | ready downstream | M031 closure + EggReplay-owned adoption plan; `.eggr`/semantic timing remain EggReplay authority. |
+| eggprobe controlled impairment experiments | ready downstream | M031 closure + EggProbe-owned adoption plan; route/probe/report semantics remain EggProbe authority. |
 | Python/FFI bindings | future | stable Rust API after first release; no parallel networking implementation. |
 | richer deterministic scenarios / time-varying schedule files | completed | ADR 004 tranche M026–M028 closed and qualified at `ceb3bae`; ScenarioV1 remains a compatibility surface. Follow-on schedule work requires separate planning. |
 | current-Toxiproxy post-2.12 extensions such as stream-chunk `packet_loss` | future | M012 v2.12 parity requalified and M008 closed. |
 
 ## Dependency-ready view
 
-Completed work: M000–M030 and M008 are closed.
+Completed work: M000–M031 and M008 are closed.
 
-Ready: M031.
+Ready: none.
 
 Active: none.
 
@@ -144,7 +144,7 @@ Closed scenario-v2 qualification gate: `M028 (closed at ceb3bae)`.
 
 Completed richer-scenario execution order: `ADR 004 -> M026 (closed) -> M027 (closed) -> M028 (closed)`.
 
-Active integration-boundary execution order: `ADR 005 -> M029 (closed at add40b0) -> M030 (closed at 0bc45f0) -> M031 (ready)`. M031 is the sole ready handoff. Downstream EggReplay/EggProbe product work must wait for closure-backed seams rather than being pulled into these eggchaos milestones.
+Completed integration-boundary execution order: `ADR 005 -> M029 (closed at add40b0) -> M030 (closed at 0bc45f0) -> M031 (closed at fa189b9)`. Downstream EggReplay/EggProbe product work may now register implementation milestones against the closure-backed seams in the M031 handoff table.
 
 ## Closure requirements
 
