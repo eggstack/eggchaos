@@ -93,15 +93,19 @@ candidate `a27a67a`, hosted run `36255454409` 13/13). These plans authorize
 no public API, wire, RNG, fault-semantic, fixed-target, or compatibility
 regression.
 
-A narrow post-closure evidence-provenance corrective is now registered:
+A narrow post-closure evidence-provenance corrective is now closed:
 
 `M046 performance evidence provenance / closure lineage`
 
-M046 is `ready`. It does not reopen M042–M045 implementation or performance
+M046 is `closed`. It does not reopen M042–M045 implementation or performance
 thresholds. Its scope is to reconstruct the exact M042/M045 artifact lineage,
 replace non-resolving or ambiguous exact-candidate wording with evidence-backed
 production/execution/evidence revisions, preserve historical raw data
-additively, and reconcile the performance documentation.
+additively, and reconcile the performance documentation. Evidence is in
+`plans/closure/M046-performance-evidence-provenance-and-closure-lineage-corrective-closure.md`;
+the M042–M045 provenance map is in `qualification/performance/README.md`.
+M046 activates no successor; further performance work requires a new measured
+finding and numbered plan.
 
 ## Status rules
 

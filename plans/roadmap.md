@@ -1,6 +1,6 @@
 # Eggchaos Long-Term Roadmap
 
-Status: M008 and M009–M041 are historical closed work. M019 remains the final pre-tag authority at `ca527db`. ADR 003 datagram, ADR 004 scenario, ADR 005 integration, ADR 006 cross-language, and ADR 007 post-v2.12 compatibility tranches are complete. M041 closed on exact candidate `724b967da04579282dd8bfc7a81dc4fe55d034a2` (hosted run `36219464594`, 13/13 jobs) as the latest ADR 007 repository-level authority. The post-M041 performance implementation tranche M042–M045 is complete; M046 is now the sole ready handoff for evidence-provenance/closure-lineage correction only. It may not change production/benchmark code or retune M042 thresholds. Strict Toxiproxy v2.12 remains frozen/default.
+Status: M008 and M009–M041 are historical closed work. M019 remains the final pre-tag authority at `ca527db`. ADR 003 datagram, ADR 004 scenario, ADR 005 integration, ADR 006 cross-language, and ADR 007 post-v2.12 compatibility tranches are complete. M041 closed on exact candidate `724b967da04579282dd8bfc7a81dc4fe55d034a2` (hosted run `36219464594`, 13/13 jobs) as the latest ADR 007 repository-level authority. The post-M041 performance implementation tranche M042–M045 is complete; M046 is closed as the evidence-provenance/closure-lineage corrective (production/benchmark unchanged, thresholds unretuned; see its closure and the performance README provenance map). Strict Toxiproxy v2.12 remains frozen/default.
 
 ## 1. Mission
 
@@ -573,23 +573,28 @@ production/runtime defect:
   commit, so the current JSON represents a later `a27a67a` run while the
   original committed version represented `e8ff753`.
 
-M046 is registered as a narrow corrective:
+M046 is closed as a narrow corrective:
 
 ```text
 M042–M045 closed performance tranche
-  -> M046 evidence provenance / closure-lineage corrective (ready)
+  -> M046 evidence provenance / closure-lineage corrective (closed)
 ```
 
-M046 must reconstruct production revision, benchmark-harness revision,
+M046 reconstructed production revision, benchmark-harness revision,
 execution base HEAD, artifact evidence commit, later artifact refresh commit,
-and hosted qualification revision as distinct concepts. Historical JSON must
-not be rewritten merely to make its embedded SHA look cleaner. If needed, both
-M045 datagram generations should be preserved under additive immutable names.
+and hosted qualification revision as distinct concepts. Historical JSON was
+not rewritten merely to make its embedded SHA look cleaner. Both
+M045 datagram generations are preserved under additive immutable names
+(`...-m045-datagram-e8ff753.json` for the original `e8ff753` run committed
+in `a27a67a`, `...-m045-datagram-a27a67a.json` for the later `a27a67a`
+refresh committed in `37acc6b`).
 
-M046 is not authorized to change runtime/benchmark source, M042 classifications
+M046 changed no runtime/benchmark source, M042 classifications
 or thresholds, M043/M044 no-op dispositions, M008/M023/M024 budgets, or M045's
-substantive qualification verdict unless the provenance audit finds concrete
-evidence requiring a separate requalification successor.
+substantive qualification verdict: the provenance audit found only the
+already-understood dirty-worktree/base-HEAD pattern plus the M045 refresh,
+with no evidence requiring a separate requalification successor. It activates
+no successor.
 
 ## 12. Performance targets
 
@@ -633,7 +638,7 @@ Potential next lines:
 - cross-language bindings are implemented under ADR 006 + M032–M034 and correctively qualified under M035 (closed at `a710cd6`). A generic C ABI remains deferred pending a separate ADR and demand;
 - richer time-varying scenarios and deterministic schedule files are activated under ADR 004 + M026–M028;
 - post-v2.12 Toxiproxy stream-loss/`packet_loss` compatibility is implemented by ADR 007 + M036–M041; M041 closed at `724b967` as the latest narrow metrics/tooling closure corrective; later upstream extensions or a tagged successor require separate reconciliation against the pinned snapshot;
-- the M042–M045 post-M041 performance implementation tranche is closed; M046 is the current provenance-only corrective and may not reduce public API/capability, alter deterministic fault semantics, retune thresholds, or change historical performance budgets;
+ - the M042–M045 post-M041 performance implementation tranche is closed; M046 is closed as the provenance-only corrective (production/benchmark unchanged, thresholds and no-op dispositions retained, both M045 datagram generations preserved additively) and may not reduce public API/capability, alter deterministic fault semantics, retune thresholds, or change historical performance budgets;
 - target-class SBC qualification and service-management integration through Eggstack shared updater/service machinery if operational demand exists.
 
 None of these may weaken the fixed-target, protocol-neutral core boundary.

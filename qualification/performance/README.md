@@ -141,3 +141,42 @@ tightness, and hot-with-idle parity hold; same-host A/B runs show
 parity where file-baseline deltas reflect host load (a load-limited
 stream run was discarded and re-evidence under a controlled rerun —
 bare-relay parity is the validity check).
+
+## M042–M045 provenance map (M046 authority)
+
+M046 freezes six distinct concepts per artifact family; do not collapse
+them into one generic "candidate" when they differ. `candidate_sha`
+is stamped by `scripts/benchmark_datagram.sh` as `git rev-parse HEAD`
+at run time, so a dirty-worktree run records its **base HEAD**, not a
+content-addressed harness tree. The stream harness emits no
+`candidate_sha`; stream/probe rows below therefore infer the base HEAD
+from the co-committed datagram session and the parent commit, marked
+as inferred. `unknown / not reconstructable` is written where history
+cannot prove more.
+
+| Artifact family | `candidate_sha` embedded | Production revision measured | Benchmark-harness revision (clean commit, if any) | Execution base HEAD | Artifact evidence commit | Artifact refresh commit | Hosted qualification revision |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `m042-stream.json` / `m042-stream-probes.json` | none (stream harness emits none) | `2ce0c232`-based dirty worktree incl. uncommitted M042 harness (inferred; exact dirty content not recoverable) | `fb2c8fc` (harness first committed there) | `2ce0c232` (inferred from co-committed datagram session) | `fb2c8fc` | none | n/a (local only) |
+| `m042-datagram.json` | `2ce0c232` | `2ce0c232`-based dirty worktree incl. uncommitted M042 harness (production code unchanged by M042; harness is the delta) | `fb2c8fc` | `2ce0c232` (proven: embedded SHA + `2ce0c232..fb2c8fc` harness diff) | `fb2c8fc` | none | n/a (local only) |
+| `m043-stream.json` / `m043-stream-probes.json` | none | `fb2c8fc`-based dirty worktree whose prod content equals `67ce4ab` (M043 stream-only prod delta) | `67ce4ab` (stream files committed with prod) | `fb2c8fc` (inferred: parent of `67ce4ab`; JSON proves nothing alone) | `67ce4ab` | none | n/a (local only) |
+| `m043-datagram.json` | `fb2c8fc` | datagram-path production identical at `fb2c8fc` and `67ce4ab` (M043 prod delta is stream-only: `engine.rs`/`stream.rs`); measured tree's datagram production revision is `fb2c8fc`-equivalent | `fb2c8fc` (no datagram-harness change `fb2c8fc..df81ea4`) | `fb2c8fc` (proven embedded; file first stored one commit later in `df81ea4`) | `df81ea4` (M043 closure commit) | none | n/a (local only) |
+| `m044-datagram.json` | `df81ea4` | `df81ea4`-based dirty worktree whose prod content equals `7a6dbb8` (M044 datagram prod delta committed there) | `7a6dbb8` | `df81ea4` (proven embedded) | `7a6dbb8` | none | n/a (local only) |
+| `m045-stream.json` / `m045-stream-probes.json` | none | `e8ff753` (== `a27a67a` production; `e8ff753..a27a67a` is docs + JSON only) | unchanged from M042–M044 harness | `e8ff753` (inferred from parent + co-committed generation-1 datagram) | `a27a67a` | none (stream files untouched by `37acc6b`) | `a27a67a` via run `36255454409` (13/13 green) |
+| `m045-datagram.json` generation 1 | `e8ff753` | `e8ff753` (== `a27a67a` production) | unchanged | `e8ff753` (proven embedded) | `a27a67a` | superseded by generation 2 in `37acc6b` | `a27a67a` via run `36255454409` (13/13 green) |
+| `m045-datagram.json` generation 2 (current canonical) | `a27a67a` | `a27a67a` (production-identical to `e8ff753`) | unchanged | `a27a67a` | `37acc6b` | n/a (latest) | `a27a67a` via run `36255454409` (13/13 green) |
+
+Preserved immutable copies (byte-for-byte, embedded metadata untouched):
+
+- `2026-09-26-macos-arm64-m045-datagram-e8ff753.json` — copy of the
+  `a27a67a` blob (generation 1, `candidate_sha = e8ff753…`).
+- `2026-09-26-macos-arm64-m045-datagram-a27a67a.json` — copy of the
+  `37acc6b`/HEAD blob (generation 2, `candidate_sha = a27a67a…`).
+
+Naming rule for future refreshes: never overwrite a retained raw file
+to change its embedded `candidate_sha`. Add a new file suffixed with
+the execution SHA (`-datagram-<short-sha>.json`) copied byte-for-byte
+from the source blob, and update this table to say which generation
+the canonical filename points to. The M042 closure's original
+non-resolving `2ce0c238…` SHA is corrected additively in the M042
+closure (transcription error; base HEAD `2ce0c232`, evidence commit
+`fb2c8fc`) — see the M046 closure for the before/after record.

@@ -14,6 +14,44 @@ Exact candidates:
   only, zero production delta). Hosted CI run `36255454409` is
   green 13/13 on this SHA.
 
+> **M046 provenance clarification (additive; no numbers changed).**
+> The datagram artifact has two legitimate evidence generations in
+> Git history, and the wording above is clarified as follows:
+>
+> - **Generation 1 (original local run):** measured against the
+>   combined production head `e8ff753`, first stored as
+>   `qualification/performance/2026-09-26-macos-arm64-m045-datagram.json`
+>   in commit `a27a67a` with embedded
+>   `candidate_sha = e8ff753…`. The stream (`m045-stream.json`) and
+>   stream-probe (`m045-stream-probes.json`) artifacts, which carry no
+>   embedded SHA, were likewise first stored in `a27a67a`
+>   (execution base HEAD `e8ff753`, evidence commit `a27a67a`;
+>   `e8ff753..a27a67a` is docs + JSON only, so the production tree
+>   measured is identical either way).
+> - **Generation 2 (controlled refresh):** the canonical
+>   `m045-datagram.json` was later refreshed against the
+>   production-identical evidence tree `a27a67a` and committed as part
+>   of `37acc6b`, with embedded `candidate_sha = a27a67a…` and
+>   refreshed measurements. It is **not** byte-identical to the
+>   generation-1 blob.
+> - Both generations are now directly auditable from HEAD without
+>   digging through history:
+>   `2026-09-26-macos-arm64-m045-datagram-e8ff753.json` is a
+>   byte-for-byte copy of the `a27a67a` blob (generation 1);
+>   `2026-09-26-macos-arm64-m045-datagram-a27a67a.json` is a
+>   byte-for-byte copy of the refreshed `37acc6b`/HEAD blob
+>   (generation 2). Neither copy's embedded metadata was edited.
+> - The current canonical `m045-datagram.json` therefore represents
+>   the later `a27a67a` refresh, not the earlier `e8ff753` run
+>   described by the original "gathered on this SHA" prose. All
+>   same-host A/B and no-op-disposition conclusions stand as stated;
+>   the controlling regression evidence was same-host parity, not
+>   cross-session file identity.
+>
+> See `plans/closure/M046-performance-evidence-provenance-and-closure-lineage-corrective-closure.md`
+> and `qualification/performance/README.md` for the full provenance
+> map. M046 changes no threshold, disposition, budget, or verdict.
+
 Closure date: 2026-09-26
 
 Depends on: M042 (closed), M043 (closed at `67ce4ab`), M044 (closed

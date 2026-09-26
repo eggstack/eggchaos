@@ -2,9 +2,59 @@
 
 Status: closed
 
-Exact implementation candidate: `2ce0c2388e3c2645e9b85969b8a96c39d2c89c45`
-(plus benchmark harness + qualification artifacts; see `git log --oneline`
-at closure for the full candidate set)
+Exact implementation candidate: see M046 provenance correction below
+(original text named `2ce0c2388e3c2645e9b85969b8a96c39d2c89c45`,
+which does not resolve; corrected additively by M046 — do not cite
+the original SHA as a Git candidate).
+
+> **M046 provenance correction (additive; original statement preserved
+> below for audit).** The SHA
+> `2ce0c2388e3c2645e9b85969b8a96c39d2c89c45` named in the original
+> closure does not resolve to any commit in `eggstack/eggchaos`
+> (`git rev-parse --verify` fails). Git history supports the following
+> reconstruction, and no more:
+>
+> - **Production / execution base HEAD:**
+>   `2ce0c232c20898ddb7728d45130791ff1db53a27` (the registered
+>   pre-M042 planning commit; this is the value the retained
+>   `m042-datagram.json` records as `candidate_sha`).
+> - **Evidence / implementation commit containing the changed
+>   benchmark harness plus the raw artifacts:**
+>   `fb2c8fc740717cc17ba2cdf45aff8e8c1c8544a1`.
+> - `git diff 2ce0c232..fb2c8fc` touches `benchmarks/src/main.rs`,
+>   `benchmarks/src/bin/datagram.rs`, the three `m042-*` raw
+>   artifacts, the M042 closure, the registry, and the performance
+>   README — i.e. the harness that produced the results did not exist
+>   as committed source at `2ce0c232`.
+> - The retained datagram artifact first appears as a committed blob
+>   in `fb2c8fc` while recording `candidate_sha = 2ce0c232`. The only
+>   reconstruction Git history supports is that the benchmark was
+>   executed from a dirty working tree based on `2ce0c232` containing
+>   the then-uncommitted harness changes, so `candidate_sha` identifies
+>   the **base HEAD**, not a clean content-addressed harness tree.
+> - The exact dirty worktree content cannot be recovered as a Git
+>   commit from retained evidence. Whether the invalid
+>   `2ce0c238…` token was a transcription error or a mis-copied
+>   worktree identifier cannot be proven from history; it is recorded
+>   here as an **unresolvable transcription error** rather than
+>   replaced with a guessed SHA.
+> - The stream (`m042-stream.json`) and stream-probe
+>   (`m042-stream-probes.json`) artifacts carry no embedded
+>   `candidate_sha` (stream harness emits no `candidate_sha` field;
+>   only `scripts/benchmark_datagram.sh` stamps one). They first appear
+>   in `fb2c8fc` alongside the datagram artifact, so they share the
+>   same evidence commit; their execution base HEAD is inferred to be
+>   the same `2ce0c232`-based dirty worktree session, but the JSON
+>   alone does not prove this — recorded as inferred, not proven.
+>
+> Original invalid statement (superseded, retained for lineage):
+> `Exact implementation candidate:
+> 2ce0c2388e3c2645e9b85969b8a96c39d2c89c45`.
+>
+> See `plans/closure/M046-performance-evidence-provenance-and-closure-lineage-corrective-closure.md`
+> and `qualification/performance/README.md` (M042–M045 provenance map)
+> for the full before/after table. No production code, benchmark
+> source, threshold, or classification changes in M046.
 
 Closure date: 2026-09-26
 
