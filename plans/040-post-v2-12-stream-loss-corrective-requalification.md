@@ -1,9 +1,10 @@
 # M040 — Post-v2.12 Stream-Loss Corrective Requalification
 
-Status: active  
+Status: closed  
 Depends on: M039 (historical closure record), ADR 007  
 Role: post-ADR-007 correctness, qualification, and planning closure corrective  
-Baseline: `3b405af7684a681ffcf73709d6b6c90b10267a9a`
+Baseline: `3b405af7684a681ffcf73709d6b6c90b10267a9a`  
+Closed implementation candidate: `48fe0dd8dfc1f995c53a3b1661fe704dbdc5bce0`; see `plans/closure/M040-post-v2-12-stream-loss-corrective-requalification-closure.md`. M041 is the post-closure corrective successor.
 
 ## Objective
 
