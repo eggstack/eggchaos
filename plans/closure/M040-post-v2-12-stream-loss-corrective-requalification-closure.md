@@ -111,3 +111,15 @@ separately registered plan that compares the release with the pinned
 No unresolved medium-or-higher correctness or security finding remains from
 the M040 scope. This closure does not change ADR 007 semantics, datagram
 semantics, or historical M036–M039 evidence.
+
+> Additive correction (M041): a post-M040 audit found a narrow
+> metrics/tooling/closure regression (duplicate stream-loss Prometheus
+> exposition with a literal `\\n`, an incompatible post-v2.12 fetcher
+> stdout default, and remaining planning/doc drift). M041 closed that
+> corrective pass at `724b967da04579282dd8bfc7a81dc4fe55d034a2` with
+> hosted run `36219464594` green (13/13 jobs); see
+> `plans/closure/M041-stream-loss-metrics-and-closure-hygiene-corrective-closure.md`.
+> M041 supersedes M040 only as the latest repository-level authority
+> for those narrow items; ADR 007 semantics, the M040 stochastic
+> qualification, and historical M036–M039 evidence remain
+> authoritative.

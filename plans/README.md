@@ -65,16 +65,17 @@ qualification, consolidated duplicated datagram fault mutation semantics between
 HTTP and embed, reconciled current-state planning, and obtained a green exact-head
 hosted qualification result. M035 does not rewrite M032–M034 history.
 
-ADR 007's M036–M039 implementation chain and M040 corrective
+ADR 007's M036–M041 implementation chain and M040 corrective
 qualification are historical. M040 closed on exact candidate
 `48fe0dd8dfc1f995c53a3b1661fe704dbdc5bce0` with green local/oracle/hosted
-evidence. A post-closure audit found one narrow operator-facing regression in
-the M040 metrics renderer (duplicate stream-loss series plus a literal
+evidence. A post-closure audit found one narrow operator-facing regression
+in the M040 metrics renderer (duplicate stream-loss series plus a literal
 `\\n` separator), along with oracle-fetch stdout-contract and planning
-hygiene drift.
+hygiene drift. M041 closed on exact candidate
+`724b967da04579282dd8bfc7a81dc4fe55d034a2` with green local/oracle/hosted
+evidence (hosted run `36219464594`, 13/13 jobs).
 
-M041 is now the sole ready handoff. It fixes only those metrics/tooling/closure
-issues and must requalify one exact candidate before becoming the latest ADR
+M041 fixes only those metrics/tooling/closure issues and is the latest ADR
 007 repository-level authority. M040 remains preserved as historical evidence.
 M015 remains valid qualification evidence for `cd88b22`; M019 is the final
 pre-tag release-candidate authority at `ca527db`.

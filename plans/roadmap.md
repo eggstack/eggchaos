@@ -1,6 +1,6 @@
 # Eggchaos Long-Term Roadmap
 
-Status: M008 and M009–M040 are historical closed work. M019 remains the final pre-tag authority at `ca527db`. ADR 003 datagram, ADR 004 scenario, ADR 005 integration, and ADR 006 cross-language tranches are complete. ADR 007's core/compatibility implementation and M040 qualification are historical; a post-M040 audit found a narrow Prometheus/tooling/closure regression, so M041 is the sole ready corrective handoff. Strict Toxiproxy v2.12 remains frozen/default.
+Status: M008 and M009–M041 are historical closed work. M019 remains the final pre-tag authority at `ca527db`. ADR 003 datagram, ADR 004 scenario, ADR 005 integration, ADR 006 cross-language, and ADR 007 post-v2.12 compatibility tranches are complete. M041 closed on exact candidate `724b967da04579282dd8bfc7a81dc4fe55d034a2` (hosted run `36219464594`, 13/13 jobs) as the latest ADR 007 repository-level authority for the narrow metrics/tooling/closure corrective. Strict Toxiproxy v2.12 remains frozen/default.
 
 ## 1. Mission
 
@@ -507,13 +507,14 @@ Toxiproxy oracles and the local plus hosted qualification on exact candidate
 `48fe0dd8dfc1f995c53a3b1661fe704dbdc5bce0`.
 
 A post-M040 audit found a narrow closure regression rather than a fault-model
-problem: the newly added per-proxy stream-loss Prometheus samples are rendered
-twice, with the second copy using a literal `\\n` separator, and the
-post-v2.12 oracle fetcher's default stdout changed incompatibly with existing
-documented command substitution. M041 is the ready corrective closure pass.
-It also reconciles the remaining M040 status/plan-range/strict-corpus wording.
-Historical M036–M040 evidence remains preserved; M041 closure will become the
-latest repository-level authority for ADR 007.
+problem: the newly added per-proxy stream-loss Prometheus samples were
+rendered twice, with the second copy using a literal `\\n` separator, and
+the post-v2.12 oracle fetcher's default stdout changed incompatibly with
+existing documented command substitution. M041 closed that corrective
+pass at `724b967` (hosted run `36219464594`, 13/13 jobs). It also
+reconciled the remaining M040 status/plan-range/strict-corpus wording.
+Historical M036–M040 evidence remains preserved; M041 is the latest
+repository-level authority for ADR 007.
 
 This line still does not model IP/TCP retransmission or lower-layer packet loss,
 does not reuse ADR 003 datagram-loss semantics, and does not track moving
@@ -560,7 +561,7 @@ Potential next lines:
 - eggprobe controlled-impairment integration is downstream work after M031, initially for transport-bearing TLS/HTTP paths while route/probe/report semantics remain EggProbe-owned;
 - cross-language bindings are implemented under ADR 006 + M032–M034 and correctively qualified under M035 (closed at `a710cd6`). A generic C ABI remains deferred pending a separate ADR and demand;
 - richer time-varying scenarios and deterministic schedule files are activated under ADR 004 + M026–M028;
-- post-v2.12 Toxiproxy stream-loss/`packet_loss` compatibility is implemented by ADR 007 + M036–M040, with ready M041 owning a narrow metrics/tooling closure correction; later upstream extensions or a tagged successor require separate reconciliation against the pinned snapshot;
+- post-v2.12 Toxiproxy stream-loss/`packet_loss` compatibility is implemented by ADR 007 + M036–M041; M041 closed at `724b967` as the latest narrow metrics/tooling closure corrective; later upstream extensions or a tagged successor require separate reconciliation against the pinned snapshot;
 - target-class SBC qualification and service-management integration through Eggstack shared updater/service machinery if operational demand exists.
 
 None of these may weaken the fixed-target, protocol-neutral core boundary.

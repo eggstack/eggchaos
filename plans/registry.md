@@ -1,6 +1,6 @@
 # Eggchaos Plan Registry
 
-Last reconciled: 2026-09-26 (post-M040 audit registered M041 metrics/closure-hygiene corrective; M041 is the sole ready handoff)
+Last reconciled: 2026-09-26 (post-M041 metrics/tooling/closure corrective closed at `724b967`; no successor)
 
 This file is the compact source of truth for active milestone state. Detailed scope lives in the numbered plans. Historical closure evidence belongs in `plans/closure/`.
 
@@ -46,8 +46,8 @@ This file is the compact source of truth for active milestone state. Detailed sc
 | M037 | `037-stream-loss-native-contract-and-cross-language-propagation.md` | **closed** | M036 | Propagate proven StreamLoss semantics through native v1/config/CLI/Scenario/OpenAPI/Python/TypeScript/embed/Python-native surfaces without redefining core behavior. |
 | M038 | `038-pinned-post-v2-12-toxiproxy-packet-loss-profile.md` | **closed** | M037 | Add opt-in pinned post-v2.12 snapshot profile for upstream `packet_loss` at `40f7fd31`; strict v2.12 remains default/frozen. |
 | M039 | `039-post-v2-12-stream-loss-qualification-and-closure.md` | **closed** | M036, M037, M038 | Exact-candidate dual-oracle/native/cross-language/fuzz/performance/hosted qualification and tranche closure. |
-| M040 | `040-post-v2-12-stream-loss-corrective-requalification.md` | **closed** | M039 historical closure + ADR 007 | Closed on exact corrective candidate `48fe0dd8dfc1f995c53a3b1661fe704dbdc5bce0`; evidence in `plans/closure/M040-post-v2-12-stream-loss-corrective-requalification-closure.md`. Hosted run `36214657871` is green. M040 activates no automatic successor. |
-| M041 | `041-stream-loss-metrics-and-closure-hygiene-corrective.md` | **ready** | M040 historical closure + ADR 007 | Remove duplicated/malformed stream-loss Prometheus exposition, freeze fetcher stdout modes, reconcile remaining M040 planning/docs drift, and requalify one exact corrective candidate. |
+| M040 | `040-post-v2-12-stream-loss-corrective-requalification.md` | **closed** | M039 historical closure + ADR 007 | Closed on exact corrective candidate `48fe0dd8dfc1f995c53a3b1661fe704dbdc5bce0`; evidence in `plans/closure/M040-post-v2-12-stream-loss-corrective-requalification-closure.md`. Hosted run `36214657871` is green. M040 remains historical evidence for the substantial ADR 007 corrective implementation; M041 is the post-closure metrics/tooling/planning successor. |
+| M041 | `041-stream-loss-metrics-and-closure-hygiene-corrective.md` | **closed** | M040 historical closure + ADR 007 | Closed on exact corrective candidate `724b967da04579282dd8bfc7a81dc4fe55d034a2`; evidence in `plans/closure/M041-stream-loss-metrics-and-closure-hygiene-corrective-closure.md`. Hosted run `36219464594` is green (13/13 jobs, including the new fetcher-contract regression in the language-clients matrix). Duplicate/malformed stream-loss Prometheus exposition removed; post-v2.12 fetcher stdout contract restored (default and `--path-only` print the executable path, `--json` prints the structured metadata); remaining M040 planning/docs drift reconciled. M041 activates no automatic successor. |
 
 ## Execution state
 
@@ -140,15 +140,15 @@ The completed UDP/datagram tranche is listed below; the remaining items are post
 | eggprobe controlled impairment experiments | ready downstream | M031 closure + EggProbe-owned adoption plan; route/probe/report semantics remain EggProbe authority. |
 | cross-language control SDKs / native Python embedding | implemented and correctively qualified | ADR 006 chain M032–M034 plus corrective M035 (closed at `a710cd6`) reconciled hosted SDK/native-Python qualification, datagram mutation authority, and planning closure. Generic C ABI remains no-go pending separate ADR + demand. |
 | richer deterministic scenarios / time-varying schedule files | completed | ADR 004 tranche M026–M028 closed and qualified at `ceb3bae`; ScenarioV1 remains a compatibility surface. Follow-on schedule work requires separate planning. |
-| current-Toxiproxy post-2.12 stream-chunk `packet_loss` extension | implemented / narrow corrective ready | ADR 007 implementation chain M036–M039 and M040 corrective candidate are historical. Post-M040 audit found malformed/duplicate stream-loss Prometheus exposition plus fetch-script/planning closure drift. M041 is the sole corrective authority. Strict v2.12 remains frozen/default. |
+| current-Toxiproxy post-2.12 stream-chunk `packet_loss` extension | implemented / closed | ADR 007 implementation chain M036–M039, M040 corrective candidate, and M041 metrics/tooling closure corrective are closed. M041 is the latest repository-level authority. Strict v2.12 remains frozen/default. |
 
 ## Dependency-ready view
 
-Completed work: M000–M040 and M008 are closed historical work.
+Completed work: M000–M041 and M008 are closed historical work.
 
 Active: none.
 
-Ready: M041.
+Ready: none.
 
 Blocked: none.
 
@@ -176,13 +176,17 @@ Corrective qualification successor: `M035 (closed at a710cd6)`. M035 obtained a 
 
 Historical post-release stream-loss implementation order: `ADR 007 -> M036 (closed) -> M037 (closed) -> M038 (closed) -> M039 (closed)`.
 
-A post-M039 audit found bounded corrective debt in the compatibility/qualification/closure layer rather than a redesign need. M040 has closed that corrective handoff:
+A post-M039 audit found bounded corrective debt in the compatibility/qualification/closure layer rather than a redesign need. M040 closed that corrective handoff at `48fe0dd`:
 
 `M036 (historical) -> M037 (historical) -> M038 (historical) -> M039 (historical closure record) -> M040 (closed corrective authority)`
 
-M036–M037's core/native implementation remains the baseline. M040 corrected the discovered snapshot-profile `populate`/conversion inconsistencies, the non-isolated and unconditional post-v2.12 data-plane “passes,” missing intermediate/correlation statistical comparators, named stream-loss metrics, ambient/unrecorded Go oracle toolchain, missing exact-head hosted rerun, and most closure/planning drift.
+M036–M037's core/native implementation remains the baseline. M040 corrected the discovered snapshot-profile `populate`/conversion inconsistencies, the non-isolated and unconditional post-v2.12 data-plane "passes," missing intermediate/correlation statistical comparators, named stream-loss metrics, ambient/unrecorded Go oracle toolchain, missing exact-head hosted rerun, and most closure/planning drift.
 
-A post-M040 audit found a narrow operator-facing regression: the new stream-loss Prometheus samples are emitted twice and the second copy uses a literal `\\n`, corrupting exposition. It also found fetcher stdout-contract and planning-document nits. M041 is therefore the sole ready corrective successor. M040 remains historical evidence at `48fe0dd`; M041 closure will become the latest ADR 007 repository-level authority.
+A post-M040 audit found a narrow operator-facing regression: the new stream-loss Prometheus samples were emitted twice and the second copy used a literal `\\n`, corrupting exposition. It also found fetcher stdout-contract and planning-document nits. M041 closed that corrective pass at `724b967`:
+
+`M036 (historical) -> M037 (historical) -> M038 (historical) -> M039 (historical closure record) -> M040 (closed corrective authority) -> M041 (closed corrective authority)`
+
+M041 is the latest ADR 007 repository-level authority. M040 remains historical evidence at `48fe0dd`.
 
 ## Closure requirements
 

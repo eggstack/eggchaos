@@ -116,14 +116,16 @@ a separate ADR after demonstrated multi-consumer demand.
 
 ADR 007's M036–M041 implementation/qualification history is preserved.
 M040 closed at `48fe0dd8dfc1f995c53a3b1661fe704dbdc5bce0` and a post-closure
-audit found a narrow metrics/tooling regression. `M041 (closed at <TBD>;
-evidence in plans/closure/M041-...)` is the latest corrective successor;
-the post-v2.12 fetcher now defaults to printing the executable path on
-stdout (with `--path-only` alias and explicit `--json` for the metadata
-record), the per-proxy/direction stream-loss Prometheus samples are
-emitted exactly once with a real newline, and the remaining M040
-planning/doc drift is reconciled. Strict v2.12 remains default/frozen
-and its current pinned oracle behavior must not change.
+audit found a narrow metrics/tooling regression. `M041 (closed at
+724b967da04579282dd8bfc7a81dc4fe55d034a2; evidence in
+plans/closure/M041-stream-loss-metrics-and-closure-hygiene-corrective-closure.md)`
+is the latest corrective successor; the post-v2.12 fetcher now defaults to
+printing the executable path on stdout (with `--path-only` alias and
+explicit `--json` for the metadata record), the per-proxy/direction
+stream-loss Prometheus samples are emitted exactly once with a real
+newline, and the remaining M040 planning/doc drift is reconciled. Strict
+v2.12 remains default/frozen and its current pinned oracle behavior must
+not change.
 
 If the owner asks for new work: `plans/roadmap.md` is the architecture authority, `plans/reference/` holds parity/verification contracts (not status), ADRs live in `plans/adrs/`. Any new numbered plan needs objective, baseline/deps, scope + non-goals, affected crates, ordered work packages, invariants/failure semantics, test commands, acceptance criteria, stop conditions, closure evidence, and follow-on rules — and must update `plans/registry.md` in the same change. Never mark `closed` from source inspection; closure requires running the plan's tests on the exact candidate plus external/differential evidence where declared.
 
