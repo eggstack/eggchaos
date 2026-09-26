@@ -120,3 +120,24 @@ baseline rather than a source-level hypothesis. M042 baseline artifacts are
 `2026-09-26-macos-arm64-m042-stream-probes.json` (stderr-emitted microprobes),
 and `2026-09-26-macos-arm64-m042-datagram.json` (existing triad plus the new
 scale cases).
+
+## M043/M044 optimization evidence (M045 combined head)
+
+M043 implemented shared `Arc<FaultPlan>` engine ownership (WP3) and a
+bounded preserving-plan vectored prefix copy (WP7, no-op disposition
+against the ≥10 % threshold); M042-classified WP2/WP4/WP5/WP6 were
+skipped. M044 removed the whole-`DatagramProxySpec` per-datagram clone
+(WP2), converted the association map to a short-critical-section std
+`RwLock` with a read fast path (WP3, no-op disposition against both
+≥10 % scale thresholds), and sized duplicate-stage candidate buffers
+from bounded amplification (WP5); WP4/WP6 were skipped and WP7 was
+not implemented per the M042 matrix. Combined-head artifacts on the
+M045 candidate are
+`2026-09-26-macos-arm64-m045-stream.json`,
+`2026-09-26-macos-arm64-m045-stream-probes.json`, and
+`2026-09-26-macos-arm64-m045-datagram.json`. Stream byte-conservation
+invariants hold on every case; M023/M024 budgets, M042 latency
+tightness, and hot-with-idle parity hold; same-host A/B runs show
+parity where file-baseline deltas reflect host load (a load-limited
+stream run was discarded and re-evidence under a controlled rerun —
+bare-relay parity is the validity check).
