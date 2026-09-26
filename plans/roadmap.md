@@ -1,6 +1,6 @@
 # Eggchaos Long-Term Roadmap
 
-Status: M008 and M009–M041 are historical closed work. M019 remains the final pre-tag authority at `ca527db`. ADR 003 datagram, ADR 004 scenario, ADR 005 integration, ADR 006 cross-language, and ADR 007 post-v2.12 compatibility tranches are complete. M041 closed on exact candidate `724b967da04579282dd8bfc7a81dc4fe55d034a2` (hosted run `36219464594`, 13/13 jobs) as the latest ADR 007 repository-level authority for the narrow metrics/tooling/closure corrective. Strict Toxiproxy v2.12 remains frozen/default.
+Status: M008 and M009–M041 are historical closed work. M019 remains the final pre-tag authority at `ca527db`. ADR 003 datagram, ADR 004 scenario, ADR 005 integration, ADR 006 cross-language, and ADR 007 post-v2.12 compatibility tranches are complete. M041 closed on exact candidate `724b967da04579282dd8bfc7a81dc4fe55d034a2` (hosted run `36219464594`, 13/13 jobs) as the latest ADR 007 repository-level authority. The post-M041 performance tranche M042–M045 is registered: M042 is ready; M043/M044 are blocked on M042 measurement authority; M045 is blocked on both implementation passes. Strict Toxiproxy v2.12 remains frozen/default.
 
 ## 1. Mission
 
@@ -520,6 +520,46 @@ This line still does not model IP/TCP retransmission or lower-layer packet loss,
 does not reuse ADR 003 datagram-loss semantics, and does not track moving
 Toxiproxy `main`.
 
+## 11J. Registered post-M041 performance optimization tranche
+
+The current optimization line is deliberately evidence-first and does not
+change any architecture or compatibility boundary:
+
+```text
+M042 benchmark authority / exact pre-optimization baseline
+  -> M043 measured stream hot-path optimization
+  -> M044 measured datagram steady-state/association-scale optimization
+  -> M045 combined exact-head qualification/reconciliation
+```
+
+M042 is the only ready plan at registration. It repairs the TCP benchmark's
+destructive stream-loss accounting, separates static-empty from the
+production-representative live-policy stream path, adds small/vectored write
+profiles, and measures pre-warmed datagram association cardinalities before
+any new synchronization/lifecycle work.
+
+M043 and M044 are blocked until M042 classifies each candidate cost as
+proven-material, low-cost-cleanup, inconclusive, or not-material and freezes
+success/regression thresholds from the pre-change evidence. This prevents
+source-level intuition from authorizing complex lock-free/pooling/timer work.
+
+M043 is restricted to internal stream allocation/policy/timer/evidence
+optimization while preserving public constructors, ArcSwap publication
+semantics, bounded ownership, generation barriers, deterministic RNG draw
+order, stream-loss grain/correlation, and Eggress/Eggfetch boundaries.
+
+M044 is restricted to datagram steady-state synchronization/allocation and
+association-scale costs outside the already-closed M024 heap scheduler work.
+Any association registry or idle-reaper redesign is conditional on measured
+high-cardinality benefit and must preserve setup waiter/capacity/identity,
+per-client connected upstream sockets, exact datagram ordering/golden traces,
+and bounded queue/evidence semantics.
+
+M045 reruns the corrected performance authority and the complete
+API/determinism/oracle/fuzz/security/package/hosted regression surface on one
+exact combined candidate. Historical M008/M023/M024 budgets cannot be
+weakened. A clean M045 activates no automatic successor.
+
 ## 12. Performance targets
 
 No-fault overhead is a first-class regression metric.
@@ -533,7 +573,7 @@ Qualification should compare:
 
 For datagrams, retain M023's direct-UDP end-to-end ratio for historical regression comparison, but use M024's topology-matched bare fixed-target relay to isolate avoidable chaos/runtime overhead. Keep sequential RTT and windowed throughput as separate measurements.
 
-Set numeric budgets only after a target-class baseline is measured. Do not invent a percentage before measurement. M008/M023 froze their historical budgets; M024 froze the topology-matched datagram budget, and M025 retained it without weakening.
+Set numeric budgets only after a target-class baseline is measured. Do not invent a percentage before measurement. M008/M023 froze their historical budgets; M024 froze the topology-matched datagram budget, and M025 retained it without weakening. M042 is the authority for any new stream/live-policy/high-association optimization thresholds; M043–M045 may consume those thresholds but must not retune them from post-change output.
 
 ## 13. Security and operational posture
 
@@ -562,6 +602,7 @@ Potential next lines:
 - cross-language bindings are implemented under ADR 006 + M032–M034 and correctively qualified under M035 (closed at `a710cd6`). A generic C ABI remains deferred pending a separate ADR and demand;
 - richer time-varying scenarios and deterministic schedule files are activated under ADR 004 + M026–M028;
 - post-v2.12 Toxiproxy stream-loss/`packet_loss` compatibility is implemented by ADR 007 + M036–M041; M041 closed at `724b967` as the latest narrow metrics/tooling closure corrective; later upstream extensions or a tagged successor require separate reconciliation against the pinned snapshot;
+- the registered M042–M045 post-M041 performance tranche is the current optimization line; it is measurement-gated and may not reduce public API/capability, deterministic fault semantics, or historical performance budgets;
 - target-class SBC qualification and service-management integration through Eggstack shared updater/service machinery if operational demand exists.
 
 None of these may weaken the fixed-target, protocol-neutral core boundary.

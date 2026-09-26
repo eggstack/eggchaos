@@ -1,6 +1,6 @@
 # Eggchaos Plan Registry
 
-Last reconciled: 2026-09-26 (post-M041 metrics/tooling/closure corrective closed at `724b967`; no successor)
+Last reconciled: 2026-09-26 (M042–M045 performance tranche registered; M042 ready, M043–M045 blocked)
 
 This file is the compact source of truth for active milestone state. Detailed scope lives in the numbered plans. Historical closure evidence belongs in `plans/closure/`.
 
@@ -48,6 +48,10 @@ This file is the compact source of truth for active milestone state. Detailed sc
 | M039 | `039-post-v2-12-stream-loss-qualification-and-closure.md` | **closed** | M036, M037, M038 | Exact-candidate dual-oracle/native/cross-language/fuzz/performance/hosted qualification and tranche closure. |
 | M040 | `040-post-v2-12-stream-loss-corrective-requalification.md` | **closed** | M039 historical closure + ADR 007 | Closed on exact corrective candidate `48fe0dd8dfc1f995c53a3b1661fe704dbdc5bce0`; evidence in `plans/closure/M040-post-v2-12-stream-loss-corrective-requalification-closure.md`. Hosted run `36214657871` is green. M040 remains historical evidence for the substantial ADR 007 corrective implementation; M041 is the post-closure metrics/tooling/planning successor. |
 | M041 | `041-stream-loss-metrics-and-closure-hygiene-corrective.md` | **closed** | M040 historical closure + ADR 007 | Closed on exact corrective candidate `724b967da04579282dd8bfc7a81dc4fe55d034a2`; evidence in `plans/closure/M041-stream-loss-metrics-and-closure-hygiene-corrective-closure.md`. Hosted run `36219464594` is green (13/13 jobs, including the new fetcher-contract regression in the language-clients matrix). Duplicate/malformed stream-loss Prometheus exposition removed; post-v2.12 fetcher stdout contract restored (default and `--path-only` print the executable path, `--json` prints the structured metadata); remaining M040 planning/docs drift reconciled. M041 activates no automatic successor. |
+| M042 | `042-performance-measurement-authority-and-baseline-correction.md` | **ready** | M041 | Correct benchmark semantics first, separate static/live stream overhead, add small/vectored stream profiles and pre-warmed high-association datagram scaling, preserve exact baseline artifacts, and freeze measured target classifications/thresholds before production optimization. |
+| M043 | `043-stream-hot-path-allocation-policy-timer-and-evidence-optimization.md` | **blocked** | M042 | Evidence-gated stream optimization: cheap live generation checks, shared immutable plan ownership, compiled active-stage metadata, reusable timers, evidence mirroring reduction, and bounded preserving-plan vectored copies without API/RNG/fault-semantic drift. |
+| M044 | `044-datagram-steady-state-synchronization-and-association-scale-optimization.md` | **blocked** | M042 | Evidence-gated datagram steady-state/scale optimization: remove per-packet whole-spec cloning, optimize active association lookup/record synchronization where measured, bounded candidate/corruption allocation cleanup, and optional deadline reaper only if high-cardinality evidence justifies it. |
+| M045 | `045-performance-optimization-exact-head-qualification-and-reconciliation.md` | **blocked** | M043, M044 | Combined exact-head performance/API/determinism/oracle/fuzz/security/package/hosted qualification. Consumes M042 thresholds, retains M008/M023/M024 budgets, and closes the tranche without adding new optimization scope. |
 
 ## Execution state
 
@@ -148,9 +152,11 @@ Completed work: M000–M041 and M008 are closed historical work.
 
 Active: none.
 
-Ready: none.
+Ready: M042.
 
-Blocked: none.
+Blocked: M043 (M042), M044 (M042), M045 (M043 + M044).
+
+Current performance execution order: `M042 (ready) -> { M043, M044 } (blocked on M042) -> M045 (blocked on M043 + M044)`.
 
 Historical pre-tag execution order: `M016 (closed) -> M017 (closed) -> M018 (closed) -> M019 (closed)`. The owner may proceed with the v0.1.0 tag, crates.io publication, and GitHub release as separate release actions.
 

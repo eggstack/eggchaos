@@ -11,7 +11,7 @@ Eggchaos is intended to be a small Rust-native successor to the useful core of T
 | `roadmap.md` | Long-term architecture, sequencing, release stages, and future extensions. |
 | `registry.md` | Current milestone status and dependency source of truth. |
 | `000-architecture-and-scope-baseline.md` | Investigated baseline, reuse decisions, scope boundaries, and initial dependency graph. |
-| `001-*.md` ... `041-*.md` | Bounded implementation, corrective, cleanup, feature, qualification, maintenance, richer-scenario, integration-boundary, language-binding, post-v2.12 compatibility, and closure handoffs in execution order. |
+| `001-*.md` ... `045-*.md` | Bounded implementation, corrective, cleanup, feature, qualification, maintenance, richer-scenario, integration-boundary, language-binding, post-v2.12 compatibility, performance, and closure handoffs in execution order. |
 | `adrs/` | Durable architecture decisions that should not be silently changed by implementation. |
 | `reference/toxiproxy-parity.md` | Compatibility target and semantic mapping. |
 | `reference/verification-matrix.md` | Required evidence across faults, platforms, APIs, and performance. |
@@ -79,6 +79,19 @@ M041 fixes only those metrics/tooling/closure issues and is the latest ADR
 007 repository-level authority. M040 remains preserved as historical evidence.
 M015 remains valid qualification evidence for `cd88b22`; M019 is the final
 pre-tag release-candidate authority at `ca527db`.
+
+A new evidence-first performance tranche is registered from the current
+post-M041 tree:
+
+`M042 measurement authority -> M043 stream hot path + M044 datagram scale -> M045 exact-head qualification`
+
+M042 is `ready`. It first corrects the destructive stream-loss benchmark
+contract, adds production-representative live-policy stream baselines, and
+extends pre-warmed datagram association-scale measurement. M043 and M044 are
+`blocked` until M042 freezes measured target classifications and thresholds;
+M045 is blocked until both implementation passes close. These plans authorize
+no public API, wire, RNG, fault-semantic, fixed-target, or compatibility
+regression.
 
 ## Status rules
 
