@@ -146,6 +146,9 @@ struct Corpus {
     passed: usize,
     failed: Vec<String>,
     observations: Vec<String>,
+    exact_data_plane_passed: usize,
+    stochastic_passed: usize,
+    correlation_passed: usize,
 }
 
 impl Corpus {
@@ -154,6 +157,9 @@ impl Corpus {
             passed: 0,
             failed: Vec::new(),
             observations: Vec::new(),
+            exact_data_plane_passed: 0,
+            stochastic_passed: 0,
+            correlation_passed: 0,
         }
     }
 
@@ -348,11 +354,6 @@ async fn echo_upstream() -> SocketAddr {
         }
     });
     addr
-}
-
-fn proxy_listen(body: &[u8]) -> SocketAddr {
-    let value: Value = serde_json::from_slice(body).unwrap();
-    value["listen"].as_str().unwrap().parse().unwrap()
 }
 
 #[tokio::test]
@@ -554,42 +555,161 @@ async fn post_v212_packet_loss_differential() {
     )
     .await;
 
-    // Data-plane edge case: loss_rate=0 preserves bytes exactly.
-    let listen = proxy_listen(&ours_created.body);
-    let payload = b"hello world hello world hello world hello world hello world hello world hello";
-    let o_addr = oracle_proxy_addr(&oracle_created.body);
-    fn oracle_proxy_addr(body: &[u8]) -> SocketAddr {
-        let value: Value = serde_json::from_slice(body).unwrap();
-        value["listen"].as_str().unwrap().parse().unwrap()
+    // Data-plane fixtures are independent from API CRUD above, so none of
+    // the CRUD toxics can affect the exact edge probes.
+    let upstream = echo_upstream().await;
+    let payload: Vec<u8> = (0..128 * 1024).map(|n| (n % 251) as u8).collect();
+    async fn fixture(
+        base: &str,
+        name: &str,
+        port: u16,
+        upstream: SocketAddr,
+        lr: f64,
+        correlation: f64,
+    ) -> SocketAddr {
+        let body = json!({"name":name,"listen":format!("127.0.0.1:{port}"),"upstream":upstream.to_string()}).to_string();
+        let created = call("POST", base, "/proxies", Some(&body)).await;
+        assert_eq!(
+            created.status,
+            201,
+            "isolated proxy fixture {name}: {}",
+            String::from_utf8_lossy(&created.body)
+        );
+        let addr: SocketAddr = serde_json::from_slice::<Value>(&created.body).unwrap()["listen"]
+            .as_str()
+            .unwrap()
+            .parse()
+            .unwrap();
+        let toxic = json!({"name":"only-loss","type":"packet_loss","stream":"downstream","toxicity":1.0,"attributes":{"loss_rate":lr,"correlation":correlation}}).to_string();
+        let added = call(
+            "POST",
+            base,
+            &format!("/proxies/{name}/toxics"),
+            Some(&toxic),
+        )
+        .await;
+        assert_eq!(
+            added.status,
+            200,
+            "isolated toxic fixture {name}: {}",
+            String::from_utf8_lossy(&added.body)
+        );
+        let listed = call("GET", base, &format!("/proxies/{name}/toxics"), None).await;
+        let toxics: Value = serde_json::from_slice(&listed.body).unwrap();
+        assert_eq!(
+            toxics.as_array().unwrap().len(),
+            1,
+            "fixture has residual toxics: {toxics}"
+        );
+        assert_eq!(toxics[0]["name"], "only-loss");
+        addr
     }
-
-    // loss_rate=0 preserves bytes; both servers must round-trip the payload.
-    let zero = create("d-zero", 0.0, 0.0);
-    call("POST", &oracle_base, "/proxies/pl/toxics", Some(&zero)).await;
-    call("POST", &ours_base, "/proxies/pl/toxics", Some(&zero)).await;
-    for (tag, addr) in [("oracle", o_addr), ("ours", listen)] {
-        let received = forward_one(addr, payload).await;
-        corpus
-            .observations
-            .push(format!("{tag}-loss-zero-received={}", received));
-    }
-    corpus.passed += 1;
-
-    // loss_rate=1 discards every accepted byte (TCP shutdown / EOF). The
-    // exact byte count varies (peer closes vs. timeout), so we observe
-    // both directions and assert a finite, bounded result.
-    let full = create("d-full", 1.0, 0.0);
-    call("POST", &oracle_base, "/proxies/pl/toxics", Some(&full)).await;
-    call("POST", &ours_base, "/proxies/pl/toxics", Some(&full)).await;
-    let oracle_bytes = forward_one(o_addr, payload).await;
-    let ours_bytes = forward_one(listen, payload).await;
+    let zero_oracle = fixture(&oracle_base, "zero", 29823, upstream, 0.0, 0.0).await;
+    let zero_ours = fixture(&ours_base, "zero", 28823, upstream, 0.0, 0.0).await;
+    let zero_o = forward_one(zero_oracle, &payload).await;
+    let zero_u = forward_one(zero_ours, &payload).await;
+    assert!(
+        zero_o == payload,
+        "oracle zero-loss altered/truncated bytes: received {} of {}",
+        zero_o.len(),
+        payload.len()
+    );
+    assert!(
+        zero_u == payload,
+        "eggchaos zero-loss altered/truncated bytes: received {} of {}",
+        zero_u.len(),
+        payload.len()
+    );
+    corpus.exact_data_plane_passed += 1;
     corpus
         .observations
-        .push(format!("oracle-loss-full-received={oracle_bytes}"));
+        .push(format!("zero_loss_bytes={}", payload.len()));
+
+    let full_oracle = fixture(&oracle_base, "full", 29824, upstream, 1.0, 0.0).await;
+    let full_ours = fixture(&ours_base, "full", 28824, upstream, 1.0, 0.0).await;
+    let full_o = forward_one(full_oracle, &payload).await;
+    let full_u = forward_one(full_ours, &payload).await;
+    assert!(
+        full_o.is_empty(),
+        "oracle full-loss forwarded {} bytes",
+        full_o.len()
+    );
+    assert!(
+        full_u.is_empty(),
+        "eggchaos full-loss forwarded {} bytes",
+        full_u.len()
+    );
+    corpus.exact_data_plane_passed += 1;
     corpus
         .observations
-        .push(format!("ours-loss-full-received={ours_bytes}"));
-    corpus.passed += 1;
+        .push("full_loss_bytes=0 on both implementations".into());
+
+    // Predeclared stochastic comparator: 256 one-grain probes per runtime,
+    // each on a fresh connection. Acceptance bounds are fixed before output.
+    const LOSS_PROBES: usize = 256;
+    const LOSS_INTERVAL: (f64, f64) = (0.10, 0.40);
+    let sample_oracle = fixture(&oracle_base, "sample", 29825, upstream, 0.25, 0.0).await;
+    let sample_ours = fixture(&ours_base, "sample", 28825, upstream, 0.25, 0.0).await;
+    let probe: Vec<u8> = (0..32 * 1024).map(|n| (n % 251) as u8).collect();
+    let sample = async {
+        let mut dropped = [0usize; 2];
+        let mut partial = [0usize; 2];
+        for _ in 0..LOSS_PROBES {
+            for (index, addr) in [sample_oracle, sample_ours].into_iter().enumerate() {
+                let received = forward_one(addr, &probe).await;
+                if received.is_empty() {
+                    dropped[index] += 1;
+                } else if received != probe {
+                    partial[index] += 1;
+                }
+            }
+        }
+        (dropped, partial)
+    };
+    let (dropped, partial) = timeout(Duration::from_secs(60), sample)
+        .await
+        .expect("stochastic probes exceeded 60s");
+    for (label, count) in [("oracle", dropped[0]), ("eggchaos", dropped[1])] {
+        let rate = count as f64 / LOSS_PROBES as f64;
+        assert!(
+            (LOSS_INTERVAL.0..=LOSS_INTERVAL.1).contains(&rate),
+            "{label} loss fraction {rate:.4} outside frozen {:?}",
+            LOSS_INTERVAL
+        );
+    }
+    corpus.stochastic_passed = 1;
+    corpus.observations.push(format!(
+        "intermediate_loss probes={LOSS_PROBES} payload_bytes={} interval={:?} oracle_dropped={} oracle_partial={} eggchaos_dropped={} eggchaos_partial={}",
+        probe.len(), LOSS_INTERVAL, dropped[0], partial[0], dropped[1], partial[1]
+    ));
+
+    // Conditional burst comparator: a single persistent stream, 512
+    // uniquely tagged 32-KiB probes, p=.20 and correlation=.50. Require
+    // at least 50 observations in each predecessor bucket and a >=.20 gap.
+    const BURST_PROBES: usize = 512;
+    const BURST_MIN_BUCKET: usize = 50;
+    const BURST_GAP_FLOOR: f64 = 0.20;
+    let corr_oracle = fixture(&oracle_base, "correlation", 29826, upstream, 0.20, 0.50).await;
+    let corr_ours = fixture(&ours_base, "correlation", 28826, upstream, 0.20, 0.50).await;
+    let burst = timeout(Duration::from_secs(15), async {
+        let oracle_outcomes = correlation_outcomes(corr_oracle, BURST_PROBES).await;
+        let ours_outcomes = correlation_outcomes(corr_ours, BURST_PROBES).await;
+        (oracle_outcomes, ours_outcomes)
+    })
+    .await
+    .expect("correlation probes exceeded 15s");
+    let oracle_gap = conditional_drop_gap(&burst.0, BURST_MIN_BUCKET);
+    let ours_gap = conditional_drop_gap(&burst.1, BURST_MIN_BUCKET);
+    assert!(
+        oracle_gap >= BURST_GAP_FLOOR,
+        "oracle conditional loss gap {oracle_gap:.3} below frozen floor {BURST_GAP_FLOOR}"
+    );
+    assert!(
+        ours_gap >= BURST_GAP_FLOOR,
+        "eggchaos conditional loss gap {ours_gap:.3} below frozen floor {BURST_GAP_FLOOR}"
+    );
+    corpus.correlation_passed = 1;
+    corpus.observations.push(format!("correlation probes={BURST_PROBES} previous_drop_bucket_min={BURST_MIN_BUCKET} gap_floor={BURST_GAP_FLOOR} oracle_gap={oracle_gap:.4} eggchaos_gap={ours_gap:.4}"));
 
     // Drop unused locals.
     let _ = ();
@@ -598,6 +718,10 @@ async fn post_v212_packet_loss_differential() {
         "oracle_version": std::env::var("TOXIPROXY_POST_V2_12_COMMIT")
             .unwrap_or_else(|_| "40f7fd31bee529d824116bd2a11a9e3425e904ec".to_owned()),
         "passed": corpus.passed,
+        "exact_api_passed": corpus.passed,
+        "exact_data_plane_passed": corpus.exact_data_plane_passed,
+        "stochastic_loss_passed": corpus.stochastic_passed,
+        "correlation_passed": corpus.correlation_passed,
         "failed": corpus.failed.len(),
         "failures": corpus.failed,
         "observations": corpus.observations,
@@ -618,30 +742,121 @@ async fn post_v212_packet_loss_differential() {
 
 /// Connect to the proxy, send `payload`, drain until EOF / timeout, and
 /// return how many bytes were received.
-async fn forward_one(addr: SocketAddr, payload: &[u8]) -> usize {
+async fn forward_one(addr: SocketAddr, payload: &[u8]) -> Vec<u8> {
     let connect = tokio::net::TcpStream::connect(addr).await;
     let Ok(mut client) = connect else {
-        return 0;
+        return Vec::new();
     };
     if client.write_all(payload).await.is_err() {
-        return 0;
+        return Vec::new();
     };
     if client.flush().await.is_err() {
-        return 0;
+        return Vec::new();
     };
-    let mut received = 0usize;
+    let mut received = Vec::new();
     let mut buf = [0u8; 8192];
     let drain = async {
         loop {
             match client.read(&mut buf).await {
                 Ok(0) => return,
                 Ok(n) => {
-                    received += n;
+                    received.extend_from_slice(&buf[..n]);
+                    if received.len() >= payload.len() {
+                        return;
+                    }
                 }
                 Err(_) => return,
             }
         }
     };
-    let _ = timeout(Duration::from_secs(2), drain).await;
+    let _ = timeout(Duration::from_millis(60), drain).await;
     received
+}
+
+/// Probe one persistent connection with fixed-size tagged chunks. The marker
+/// lets later replies be identified even when an earlier chunk was dropped.
+async fn correlation_outcomes(addr: SocketAddr, count: usize) -> Vec<bool> {
+    let mut stream = tokio::net::TcpStream::connect(addr)
+        .await
+        .expect("correlation connect");
+    let mut received = Vec::with_capacity(32 * 1024);
+    let mut buf = [0u8; 32 * 1024];
+    let mut outcomes = Vec::with_capacity(count);
+    for sequence in 0..count {
+        let marker = [
+            0xE7,
+            0xCA,
+            (sequence >> 24) as u8,
+            (sequence >> 16) as u8,
+            (sequence >> 8) as u8,
+            sequence as u8,
+            0xB0,
+            0x17,
+        ];
+        let mut payload = vec![0x5a; 32 * 1024];
+        payload[..marker.len()].copy_from_slice(&marker);
+        stream.write_all(&payload).await.expect("correlation write");
+        let deadline = tokio::time::Instant::now() + Duration::from_millis(5);
+        let mut passed = false;
+        while tokio::time::Instant::now() < deadline {
+            if let Some(position) = received
+                .windows(marker.len())
+                .position(|window| window == marker)
+            {
+                passed = true;
+                let end = position + payload.len();
+                while received.len() < end && tokio::time::Instant::now() < deadline {
+                    let wait = deadline.saturating_duration_since(tokio::time::Instant::now());
+                    match timeout(wait, stream.read(&mut buf)).await {
+                        Ok(Ok(n)) if n > 0 => received.extend_from_slice(&buf[..n]),
+                        _ => break,
+                    }
+                }
+                if received.len() >= end {
+                    received.drain(..end);
+                } else {
+                    received.clear();
+                }
+                break;
+            }
+            let wait = deadline.saturating_duration_since(tokio::time::Instant::now());
+            match timeout(wait, stream.read(&mut buf)).await {
+                Ok(Ok(n)) if n > 0 => received.extend_from_slice(&buf[..n]),
+                _ => break,
+            }
+        }
+        if !passed {
+            received.clear();
+        }
+        outcomes.push(passed);
+    }
+    outcomes
+}
+
+/// P(drop[n] | drop[n-1]) - P(drop[n] | pass[n-1]); false entries are
+/// passed probes. The bucket bound is part of the predeclared comparator.
+fn conditional_drop_gap(passed: &[bool], minimum_bucket: usize) -> f64 {
+    let mut dropped_after_drop = 0usize;
+    let mut dropped_after_pass = 0usize;
+    let mut drop_predecessors = 0usize;
+    let mut pass_predecessors = 0usize;
+    for pair in passed.windows(2) {
+        if pair[0] {
+            pass_predecessors += 1;
+            dropped_after_pass += usize::from(!pair[1]);
+        } else {
+            drop_predecessors += 1;
+            dropped_after_drop += usize::from(!pair[1]);
+        }
+    }
+    assert!(
+        drop_predecessors >= minimum_bucket,
+        "only {drop_predecessors} drop-predecessor outcomes"
+    );
+    assert!(
+        pass_predecessors >= minimum_bucket,
+        "only {pass_predecessors} pass-predecessor outcomes"
+    );
+    dropped_after_drop as f64 / drop_predecessors as f64
+        - dropped_after_pass as f64 / pass_predecessors as f64
 }

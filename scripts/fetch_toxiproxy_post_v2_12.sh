@@ -10,6 +10,9 @@
 set -eu
 
 commit="40f7fd31bee529d824116bd2a11a9e3425e904ec"
+requested_toolchain="${EGGCHAOS_POST_V2_12_GO_TOOLCHAIN:-go1.23.0}"
+mode="${1:-}"
+if [ "$mode" = "--path-only" ]; then shift; else mode="--json"; fi
 dest="${1:-${TMPDIR:-/tmp}/eggchaos-toxiproxy-post-v2-12-40f7fd31/toxiproxy-server}"
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 archive_dir=$(dirname "$dest")
@@ -45,7 +48,15 @@ if [ ! -d "$build_dir/cmd/server" ]; then
   echo "post-v2.12 source tree missing cmd/server: $build_dir" >&2
   exit 1
 fi
-( cd "$build_dir/cmd/server" && go build -o "$dest" . )
+resolved_go="$(GOTOOLCHAIN="$requested_toolchain" go version 2>/dev/null)" || {
+  echo "unable to resolve requested Go toolchain $requested_toolchain" >&2; exit 1;
+}
+resolved_toolchain="$(GOTOOLCHAIN="$requested_toolchain" go env GOTOOLCHAIN 2>/dev/null)" || {
+  echo "unable to query requested Go toolchain $requested_toolchain" >&2; exit 1;
+}
+case "$resolved_go" in "go version $requested_toolchain"*) ;; *)
+  echo "Go toolchain mismatch: requested=$requested_toolchain resolved=$resolved_go" >&2; exit 1;; esac
+( cd "$build_dir/cmd/server" && GOTOOLCHAIN="$requested_toolchain" go build -o "$dest" . )
 chmod +x "$dest"
 # Source-built upstream reports `version git`; assert the oracle identity
 # rather than a real release tag.
@@ -54,4 +65,9 @@ if ! printf '%s' "$version_output" | grep -q 'toxiproxy-server version'; then
   echo "post-v2.12 oracle -version output unexpected: $version_output" >&2
   exit 1
 fi
-printf '%s\n' "$dest"
+if [ "$mode" = "--json" ]; then
+  printf '{"requested_toolchain":"%s","resolved_go_version":"%s","resolved_gotoolchain":"%s","source_commit":"%s","source_sha256":"%s","oracle_path":"%s","oracle_version":"%s"}\n' \
+    "$requested_toolchain" "$resolved_go" "$resolved_toolchain" "$commit" "$actual" "$dest" "$version_output"
+else
+  printf '%s\n' "$dest"
+fi

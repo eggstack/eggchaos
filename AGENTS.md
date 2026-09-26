@@ -114,7 +114,7 @@ cgo, UniFFI, or WASM under M035; a generic C ABI still requires
 a separate ADR after demonstrated multi-consumer demand.
 
 ADR 007's M036–M039 implementation chain is historical. A post-M039
-audit registered `M040 (ready)` as the sole corrective handoff. Do not
+audit registered `M040 (active)` as the sole corrective handoff. Do not
 reimplement M036/M037 core/native stream loss. M040 owns the snapshot-profile
 `populate`/conversion fixes, executable isolated packet_loss data-plane edge
 tests, intermediate/correlation statistical qualification, named stream-loss
@@ -122,7 +122,8 @@ Prometheus metrics, exact Go oracle-toolchain recording, exact-head hosted
 Linux/macOS/Windows + language/native-Python requalification, and planning/
 closure reconciliation. Strict v2.12 remains the default/frozen profile and
 must keep its pinned oracle behavior. Preserve historical M036–M039 closure
-evidence; M040 closure becomes the final ADR 007 repository-level authority.
+evidence; after exact-candidate local and hosted qualification, M040 closure
+becomes the final ADR 007 repository-level authority.
 
 If the owner asks for new work: `plans/roadmap.md` is the architecture authority, `plans/reference/` holds parity/verification contracts (not status), ADRs live in `plans/adrs/`. Any new numbered plan needs objective, baseline/deps, scope + non-goals, affected crates, ordered work packages, invariants/failure semantics, test commands, acceptance criteria, stop conditions, closure evidence, and follow-on rules — and must update `plans/registry.md` in the same change. Never mark `closed` from source inspection; closure requires running the plan's tests on the exact candidate plus external/differential evidence where declared.
 

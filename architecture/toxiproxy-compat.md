@@ -88,8 +88,11 @@ Notes:
   with the documented distinction (project invariant, `AGENTS.md`).
 - `reset_peer` maps to delayed `Disconnect { hard_reset: true }`; RST vs FIN
   is platform-dependent (see §4).
-- Current-Toxiproxy `main` extensions such as `packet_loss` are out of scope
-  (`plans/reference/toxiproxy-parity.md:17-20`, `docs/toxiproxy.md:33`).
+- `packet_loss` is available only under the opt-in
+  `post-v2.12-2026-09-25` profile pinned to Shopify/Toxiproxy commit
+  `40f7fd31bee529d824116bd2a11a9e3425e904ec`; strict v2.12 remains the
+  default and rejects it. See §5. The profile models userspace stream-chunk
+  loss, not IP/TCP packet loss.
 
 ### 2.2 Defaults, names, toxicity, validation precedence, update merge
 
@@ -243,7 +246,7 @@ Version policy: eggchaos targets pinned **v2.12.0 only**, not moving
   `qualification/toxiproxy-v2-12/cases/default-latency.json`: latency
   `{"latency":100,"jitter":10}` translation fixture shape.
 - **Differential corpus** `crates/eggchaos-toxiproxy/tests/differential.rs`:
-  **47/47 comparisons pass** against the live pinned oracle
+  The strict corpus now has **50/50 comparisons pass** against the live pinned oracle
   (`TOXIPROXY_SERVER=/path/to/v2.12.0`); without the binary (or on version
   mismatch) the test reports `incomplete` and passes without asserting
   parity (`differential.rs:515-530`). Corpus compares status + content-type
@@ -274,6 +277,28 @@ Version policy: eggchaos targets pinned **v2.12.0 only**, not moving
   defaults + clamp, `timeout=0` indefinite round-trip, zero coalescing,
   cross-type merge isolation, version route, create/list/toxic shared-state,
   oracle shapes/errors, reset re-enable + clear.
+
+### 5.1 Post-v2.12 snapshot profile (M040 corrective qualification)
+
+The adapter profile is the single source for proxy/toxic translation and
+rendering, including populate keep/recreate responses. `to_fault()` and
+`translate_proxy()` remain strict by default; their profile-aware variants
+accept `packet_loss` only for the snapshot profile. Snapshot reverse mapping
+emits `packet_loss`; strict reverse mapping reports an invalid toxic type.
+
+The mandatory source-built oracle uses commit
+`40f7fd31bee529d824116bd2a11a9e3425e904ec`, archive SHA-256
+`26351cc70792f1c3391bdd1d376974a79a756b349ec1abfa8b8f1524c042b13d`, and
+exact Go toolchain `go1.23.0` (the pinned upstream module declares Go 1.23.0).
+The corrective corpus separates 12 exact API comparisons, two isolated exact
+data-plane edges, a 256-probe `loss_rate=0.25` comparator with frozen
+`0.10..=0.40` drop-fraction bounds, and a 512-probe `loss_rate=0.20`,
+`correlation=0.50` conditional-gap comparator with 50-observation minimum
+conditioning buckets and a `0.20` gap floor. The latest mandatory run recorded
+oracle/Eggchaos intermediate drops of 54/256 and 69/256, and conditional gaps
+of 0.6766/0.5204. These are intent-compatible stochastic results, not exact
+RNG/chunk-sequence equivalence. See the M040 closure for the exact candidate
+and raw qualification output.
 
 ## 6. Review checklist
 

@@ -212,3 +212,13 @@ closed. A future tagged Toxiproxy release may justify a separate
 promotion/reconciliation milestone that diffs the real release tag
 against the pinned `40f7fd31` snapshot before changing the profile
 spelling or its claims.
+
+## Additive M040 corrective supersession note (2026-09-26)
+
+This M039 record is preserved as the evidence and claims recorded at its
+historical candidate `3b405af7684a681ffcf73709d6b6c90b10267a9a`. Its assertion
+that the hosted matrix did not need a per-tranche rerun and its initial
+post-v2.12 qualification claims were superseded by M040's exact-candidate
+corrective qualification. M039's implementation/claimed-closure commit is
+`3b405af7684a681ffcf73709d6b6c90b10267a9a`. The final ADR 007 repository
+authority is `plans/closure/M040-post-v2-12-stream-loss-corrective-requalification-closure.md`.

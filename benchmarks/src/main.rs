@@ -34,10 +34,19 @@ async fn main() {
         ("eggchaos_bandwidth_16mib_s", Some(bandwidth_plan())),
         ("eggchaos_slice_16k", Some(slice_plan())),
         ("eggchaos_combined_latency_slice", Some(combined_plan())),
-        ("eggchaos_stream_loss_zero", Some(stream_loss_plan(0.0, 0.0))),
+        (
+            "eggchaos_stream_loss_zero",
+            Some(stream_loss_plan(0.0, 0.0)),
+        ),
         ("eggchaos_stream_loss_mid", Some(stream_loss_plan(0.3, 0.2))),
-        ("eggchaos_stream_loss_full", Some(stream_loss_plan(1.0, 0.0))),
-        ("eggchaos_stream_loss_latency", Some(stream_loss_latency_plan())),
+        (
+            "eggchaos_stream_loss_full",
+            Some(stream_loss_plan(1.0, 0.0)),
+        ),
+        (
+            "eggchaos_stream_loss_latency",
+            Some(stream_loss_latency_plan()),
+        ),
     ];
     for (index, (name, plan)) in cases.into_iter().enumerate() {
         let mut samples = Vec::with_capacity(rounds);

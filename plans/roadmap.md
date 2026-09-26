@@ -1,6 +1,6 @@
 # Eggchaos Long-Term Roadmap
 
-Status: M008 and M009–M039 are historical closed work. M019 remains the final pre-tag authority at `ca527db`. ADR 003 datagram, ADR 004 scenario, ADR 005 integration, and ADR 006 cross-language tranches are complete. ADR 007's M036–M039 implementation chain landed, but a post-M039 audit found bounded compatibility/qualification/closure defects; M040 is the sole ready corrective requalification handoff. Strict Toxiproxy v2.12 remains frozen/default.
+Status: M008 and M009–M039 are historical closed work. M019 remains the final pre-tag authority at `ca527db`. ADR 003 datagram, ADR 004 scenario, ADR 005 integration, and ADR 006 cross-language tranches are complete. ADR 007's M036–M039 implementation chain landed, and M040 is the active corrective requalification handoff for bounded compatibility/qualification/closure defects. Strict Toxiproxy v2.12 remains frozen/default.
 
 ## 1. Mission
 
@@ -481,7 +481,7 @@ M036 deterministic stream-loss core + additive evidence
   -> M037 native/config/CLI/Scenario/OpenAPI/SDK/embed propagation
   -> M038 pinned post-v2.12 Toxiproxy packet_loss profile
   -> M039 initial tranche qualification/closure record
-  -> M040 corrective requalification (ready)
+  -> M040 corrective requalification (active)
 ```
 
 M036–M037 established the core/native implementation: fragmentation-independent
@@ -502,7 +502,7 @@ stream-loss Prometheus metrics are incomplete; the source oracle uses an
 ambient unrecorded Go toolchain; exact-head hosted Linux/macOS/Windows evidence
 was not rerun; and closure/current-state documents drifted.
 
-M040 is the sole ready corrective authority. It must fix those defects,
+M040 is the sole active corrective authority. It must fix those defects,
 re-run both mandatory Toxiproxy oracles and the complete local/hosted
 qualification on one exact candidate, and then become the final repository-level
 closure authority for ADR 007. Historical M036–M039 evidence remains preserved.
@@ -552,7 +552,7 @@ Potential next lines:
 - eggprobe controlled-impairment integration is downstream work after M031, initially for transport-bearing TLS/HTTP paths while route/probe/report semantics remain EggProbe-owned;
 - cross-language bindings are implemented under ADR 006 + M032–M034 and correctively qualified under M035 (closed at `a710cd6`). A generic C ABI remains deferred pending a separate ADR and demand;
 - richer time-varying scenarios and deterministic schedule files are activated under ADR 004 + M026–M028;
-- post-v2.12 Toxiproxy stream-loss/`packet_loss` compatibility is implemented by ADR 007 + M036–M039 and is undergoing bounded corrective requalification under ready M040; later upstream extensions or a tagged successor require separate reconciliation against the pinned snapshot;
+- post-v2.12 Toxiproxy stream-loss/`packet_loss` compatibility is implemented by ADR 007 + M036–M039 and is undergoing bounded corrective requalification under active M040; later upstream extensions or a tagged successor require separate reconciliation against the pinned snapshot;
 - target-class SBC qualification and service-management integration through Eggstack shared updater/service machinery if operational demand exists.
 
 None of these may weaken the fixed-target, protocol-neutral core boundary.

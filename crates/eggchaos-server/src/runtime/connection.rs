@@ -149,6 +149,19 @@ pub(super) fn aggregate_close_metrics(
         );
         tables.record_activations(&snapshot.proxy, "upstream", up);
         tables.record_activations(&snapshot.proxy, "downstream", down);
+        tables.record_stream_loss(
+            &snapshot.proxy,
+            [
+                snapshot.upstream_stream_loss_chunks_evaluated,
+                snapshot.upstream_stream_loss_chunks_dropped,
+                snapshot.upstream_stream_loss_bytes_discarded,
+            ],
+            [
+                snapshot.downstream_stream_loss_chunks_evaluated,
+                snapshot.downstream_stream_loss_chunks_dropped,
+                snapshot.downstream_stream_loss_bytes_discarded,
+            ],
+        );
     }
 }
 

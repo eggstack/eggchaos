@@ -228,3 +228,10 @@ creating a second semantic authority. M037's entry criterion (the exact
 `StreamLossConfig` shape, fixed grain, evidence field names, multi-loss
 composition rule, and golden decision vectors) is met by this M036
 candidate.
+
+## Additive M040 corrective reference (2026-09-26)
+
+This historical M036 implementation record is preserved. Its implementation
+commit is `36ddf1a4ba78879938ca65c68193565355bc9be4`; final ADR 007 corrective
+qualification and repository authority are recorded in
+`plans/closure/M040-post-v2-12-stream-loss-corrective-requalification-closure.md`.

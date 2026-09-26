@@ -1755,6 +1755,15 @@ async fn metrics_use_only_bounded_label_keys() {
         .unwrap();
     assert_eq!(exchange(view.bound_addr.unwrap(), b"ping").await, b"ping");
     let metrics = control.metrics_text().await;
+    assert!(metrics.contains(
+        "eggchaos_stream_loss_chunks_evaluated_total{proxy=\"echo\",direction=\"downstream\"} 0\n"
+    ));
+    assert!(metrics.contains(
+        "eggchaos_stream_loss_chunks_dropped_total{proxy=\"echo\",direction=\"downstream\"} 0\n"
+    ));
+    assert!(metrics.contains(
+        "eggchaos_stream_loss_bytes_discarded_total{proxy=\"echo\",direction=\"downstream\"} 0\n"
+    ));
     for line in metrics.lines() {
         if line.starts_with('#') || line.trim().is_empty() {
             continue;
@@ -1781,6 +1790,55 @@ async fn metrics_use_only_bounded_label_keys() {
                 );
             }
         }
+    }
+    control.shutdown_and_join().await;
+    origin_task.abort();
+}
+
+#[tokio::test]
+async fn stream_loss_prometheus_metrics_count_final_evidence_once() {
+    let (origin_addr, origin_task) = echo_server().await;
+    let control = test_control();
+    let payload = vec![0x5a; 64 * 1024];
+    for (name, rate) in [("zero-loss", 0.0), ("full-loss", 1.0)] {
+        let mut spec = ProxySpec::new(name, "127.0.0.1:0".parse().unwrap(), origin_addr);
+        spec.downstream_faults = FaultPlan::new(vec![fault(
+            "loss",
+            FaultKind::StreamLoss(eggchaos_core::StreamLossConfig {
+                loss_rate: Probability::new(rate).unwrap(),
+                correlation: Probability::new(0.0).unwrap(),
+            }),
+        )])
+        .unwrap();
+        let (view, _) = control.create_proxy(spec).await.unwrap();
+        let mut client = TcpStream::connect(view.bound_addr.unwrap()).await.unwrap();
+        client.write_all(&payload).await.unwrap();
+        client.shutdown().await.unwrap();
+        let mut response = Vec::new();
+        tokio::time::timeout(Duration::from_secs(5), client.read_to_end(&mut response))
+            .await
+            .unwrap()
+            .unwrap();
+        if rate == 0.0 {
+            assert_eq!(response, payload);
+        } else {
+            assert!(response.is_empty());
+        }
+    }
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let metrics = control.metrics_text().await;
+            if metrics.contains("eggchaos_stream_loss_bytes_discarded_total{proxy=\"full-loss\",direction=\"downstream\"} 65536\n") { break; }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }).await.unwrap();
+    let metrics = control.metrics_text().await;
+    for (proxy, (evaluated, dropped, discarded)) in
+        [("zero-loss", (2, 0, 0)), ("full-loss", (2, 2, 64 * 1024))]
+    {
+        assert!(metrics.contains(&format!("eggchaos_stream_loss_chunks_evaluated_total{{proxy=\"{proxy}\",direction=\"downstream\"}} {evaluated}\n")));
+        assert!(metrics.contains(&format!("eggchaos_stream_loss_chunks_dropped_total{{proxy=\"{proxy}\",direction=\"downstream\"}} {dropped}\n")));
+        assert!(metrics.contains(&format!("eggchaos_stream_loss_bytes_discarded_total{{proxy=\"{proxy}\",direction=\"downstream\"}} {discarded}\n")));
     }
     control.shutdown_and_join().await;
     origin_task.abort();

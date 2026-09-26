@@ -92,6 +92,7 @@ impl ControlState {
                 .schedule_v2_late_events
                 .load(Ordering::Relaxed),
         ));
+        text.push_str("# HELP eggchaos_stream_loss_chunks_evaluated_total Logical stream-loss chunks evaluated\n# TYPE eggchaos_stream_loss_chunks_evaluated_total counter\n# HELP eggchaos_stream_loss_chunks_dropped_total Logical stream-loss chunks dropped\n# TYPE eggchaos_stream_loss_chunks_dropped_total counter\n# HELP eggchaos_stream_loss_bytes_discarded_total Bytes discarded by stream-loss faults\n# TYPE eggchaos_stream_loss_bytes_discarded_total counter\n");
         {
             let tables = self.runtime.metrics.tables.lock().expect("metrics lock");
             let mut proxies: Vec<_> = tables.proxies.iter().collect();
@@ -110,6 +111,42 @@ impl ControlState {
                             "eggchaos_proxy_bytes_total{{proxy=\"{name}\",direction=\"{direction}\",flow=\"{flow}\"}} {value}\n",
                         ));
                     }
+                    for (metric, value) in [
+                        (
+                            "eggchaos_stream_loss_chunks_evaluated_total",
+                            entry.stream_loss[index][0],
+                        ),
+                        (
+                            "eggchaos_stream_loss_chunks_dropped_total",
+                            entry.stream_loss[index][1],
+                        ),
+                        (
+                            "eggchaos_stream_loss_bytes_discarded_total",
+                            entry.stream_loss[index][2],
+                        ),
+                    ] {
+                        text.push_str(&format!(
+                            "{metric}{{proxy=\"{name}\",direction=\"{direction}\"}} {value}\n"
+                        ));
+                    }
+                    for (metric, value) in [
+                        (
+                            "eggchaos_stream_loss_chunks_evaluated_total",
+                            entry.stream_loss[index][0],
+                        ),
+                        (
+                            "eggchaos_stream_loss_chunks_dropped_total",
+                            entry.stream_loss[index][1],
+                        ),
+                        (
+                            "eggchaos_stream_loss_bytes_discarded_total",
+                            entry.stream_loss[index][2],
+                        ),
+                    ] {
+                        text.push_str(&format!(
+                            "{metric}{{proxy=\"{name}\",direction=\"{direction}\"}} {value}\\n"
+                        ));
+                    }
                 }
             }
             if tables.overflow_proxy.accepted + tables.overflow_proxy.completed > 0 {
@@ -117,6 +154,26 @@ impl ControlState {
                     "eggchaos_proxy_connections_accepted_total{{proxy=\"_overflow\"}} {}\neggchaos_proxy_connections_completed_total{{proxy=\"_overflow\"}} {}\n",
                     tables.overflow_proxy.accepted, tables.overflow_proxy.completed,
                 ));
+                for (direction, index) in [("upstream", 0), ("downstream", 1)] {
+                    for (metric, value) in [
+                        (
+                            "eggchaos_stream_loss_chunks_evaluated_total",
+                            tables.overflow_proxy.stream_loss[index][0],
+                        ),
+                        (
+                            "eggchaos_stream_loss_chunks_dropped_total",
+                            tables.overflow_proxy.stream_loss[index][1],
+                        ),
+                        (
+                            "eggchaos_stream_loss_bytes_discarded_total",
+                            tables.overflow_proxy.stream_loss[index][2],
+                        ),
+                    ] {
+                        text.push_str(&format!(
+                            "{metric}{{proxy=\"_overflow\",direction=\"{direction}\"}} {value}\n"
+                        ));
+                    }
+                }
             }
             let mut activations: Vec<_> = tables.activations.iter().collect();
             activations.sort();

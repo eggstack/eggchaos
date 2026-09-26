@@ -105,7 +105,7 @@ if a gate was not run, record it as incomplete (see §8).
   + `smoke` proxy) is the release-smoke fixture consumed by
   `scripts/release-artifact-smoke.sh`.
 
-### Differential vs Toxiproxy v2.12.0 (47/47)
+### Differential vs Toxiproxy v2.12.0 (current strict corpus: 50/50)
 
 - Oracle pinned: `toxiproxy-server version 2.12.0`, SHA-256
   `aa299966b52f16a8594f1cd0d1e9049dc2e8fe2c04a90c19860e2719b2b95d15`
@@ -114,7 +114,9 @@ if a gate was not run, record it as incomplete (see §8).
 - Corpus: `crates/eggchaos-toxiproxy/tests/differential.rs`
   (`toxiproxy_v212_differential`): same API + data-plane sequences against
   oracle (`TOXIPROXY_SERVER`, port `18747`) and in-process compat server.
-  47 passed / 0 failed on the M015 candidate `cd88b22` with 4 declared
+  Historical M015 evidence was 47 passed / 0 failed on `cd88b22`; the current
+  strict corpus is 50 passed / 0 failed on the corrective qualification
+  candidate with 4 declared
   normalizations only: disjoint-bind `listen` replacement (concrete ports
   asserted per server), f64 number canonicalization (Go `1` vs `1.0`),
   toxicity clamp into `[0,1]`, degenerate-zero `rate`/`average_size`/`bytes`
@@ -128,6 +130,30 @@ if a gate was not run, record it as incomplete (see §8).
   always; runs the differential only with a pinned `2.12.0` binary, else
   prints `{"translation":"pass","oracle":"unavailable","differential":"incomplete"}`
   and exits 0 — never treats inspection as differential proof.
+
+### Post-v2.12 snapshot-profile stream-loss differential
+
+- Pinned source oracle: Shopify/Toxiproxy commit
+  `40f7fd31bee529d824116bd2a11a9e3425e904ec`, archive SHA-256
+  `26351cc70792f1c3391bdd1d376974a79a756b349ec1abfa8b8f1524c042b13d`,
+  exact Go toolchain `go1.23.0` (`go.mod` declares Go 1.23.0). The fetcher
+  emits requested/resolved toolchain, source identity, binary path, and
+  `-version` as JSON; mandatory qualification fails if the exact toolchain
+  cannot be resolved.
+- `crates/eggchaos-toxiproxy/tests/post_v212_differential.rs` reports distinct
+  counters for exact API checks, exact data-plane edges, intermediate-loss
+  statistics, correlation statistics, and recorded normalizations. The latest
+  mandatory run passed 12 API checks and 2 exact isolated edges. Zero loss
+  preserved all 131,072 bytes; full loss forwarded zero bytes.
+- Intermediate comparator: 256 fresh connections, one 32 KiB probe each,
+  `loss_rate=0.25`, predeclared drop interval `0.10..=0.40`; latest dropped
+  counts were oracle 54/256 and Eggchaos 69/256, with partial outcomes recorded.
+- Correlation comparator: 512 uniquely tagged 32 KiB probes on one persistent
+  connection, `loss_rate=0.20`, `correlation=0.50`, at least 50 observations
+  per predecessor bucket and a predeclared conditional gap floor of `0.20`;
+  latest gaps were oracle 0.6766 and Eggchaos 0.5204. These comparators assert
+  intent-compatible distributions, not exact RNG draws or upstream chunk
+  boundaries. Raw `DIFFERENTIAL_SUMMARY` is retained at `/tmp/post-v212.log`.
 
 ### Go + Python client smokes
 
@@ -421,7 +447,7 @@ registry transition, next activation).
 1. `cargo fmt`, `clippy -D warnings`, full workspace tests, `cargo doc`
    green on the exact candidate? (`scripts/check.sh` is the short form.)
 2. Audit + deny green? Any new `git` source in `Cargo.lock`?
-3. Differential: pinned `2.12.0` SHA matches baseline? 47/47 with only the 4
+3. Differential: pinned `2.12.0` SHA matches baseline? 50/50 with only the 4
    declared normalizations? Transcript (`/tmp/qualify_m012.log`) attached?
 4. Client smokes rerun fresh against the candidate compat server (Go 13,
    Python 12 steps, 0 failed)? Transcripts kept?

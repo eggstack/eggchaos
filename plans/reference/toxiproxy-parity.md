@@ -19,10 +19,14 @@ Claim levels: `exact`, `behaviorally compatible` (tolerances noted),
 Eggchaos does not claim compatibility with an unversioned moving Toxiproxy
 `main`. This file remains the frozen strict-v2.12 parity contract.
 
-ADR 007 + M036–M039 separately plan an opt-in post-v2.12 snapshot profile for
+ADR 007 + M036–M040 implement and correctively qualify an opt-in post-v2.12 snapshot profile for
 `packet_loss`, pinned to upstream commit
 `40f7fd31bee529d824116bd2a11a9e3425e904ec`. That work must not broaden or
 rewrite the strict v2.12 claims recorded here.
+
+M040's source-build/differential evidence is summarized in
+`architecture/toxiproxy-compat.md` §5.1 and authoritatively recorded in
+`plans/closure/M040-post-v2-12-stream-loss-corrective-requalification-closure.md`.
 
 ## Route parity
 

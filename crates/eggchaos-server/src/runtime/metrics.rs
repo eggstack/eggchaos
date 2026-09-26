@@ -70,6 +70,8 @@ pub struct PerProxyMetrics {
     /// Byte counters per direction (0 = upstream, 1 = downstream) as
     /// (accepted, forwarded, discarded).
     pub bytes: [[u64; 3]; 2],
+    /// Stream-loss evaluated chunks, dropped chunks, and discarded bytes per direction.
+    pub stream_loss: [[u64; 3]; 2],
 }
 
 /// Bounded low-cardinality metric tables with overflow buckets, so metric
@@ -107,6 +109,16 @@ impl MetricTables {
             *slot = slot.saturating_add(value);
         }
     }
+    /// Record named stream-loss evidence once from final connection state.
+    pub fn record_stream_loss(&mut self, proxy: &str, upstream: [u64; 3], downstream: [u64; 3]) {
+        let entry = self.proxy_entry(proxy);
+        for (slot, value) in entry.stream_loss[0].iter_mut().zip(upstream) {
+            *slot = slot.saturating_add(value);
+        }
+        for (slot, value) in entry.stream_loss[1].iter_mut().zip(downstream) {
+            *slot = slot.saturating_add(value);
+        }
+    }
     /// Record fault-type activations for one direction.
     pub fn record_activations(&mut self, proxy: &str, direction: &str, activations: [u64; 7]) {
         for (index, count) in activations.iter().enumerate() {
@@ -128,5 +140,28 @@ impl MetricTables {
             }
             self.activations.insert(key, *count);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stream_loss_metrics_are_bounded_and_do_not_extend_legacy_activations() {
+        let mut tables = MetricTables::default();
+        tables.record_stream_loss("p", [0, 0, 0], [4, 0, 0]);
+        tables.record_stream_loss("p", [0, 0, 0], [4, 4, 32 * 1024]);
+        let proxy = &tables.proxies["p"];
+        assert_eq!(proxy.stream_loss[1], [8, 4, 32 * 1024]);
+        assert_eq!(proxy.stream_loss[0], [0; 3]);
+        assert!(tables.activations.is_empty());
+
+        for index in 0..=MAX_METRIC_PROXIES {
+            tables.record_stream_loss(&format!("proxy-{index}"), [1, 1, 10], [2, 2, 20]);
+        }
+        assert_eq!(tables.proxies.len(), MAX_METRIC_PROXIES);
+        assert_eq!(tables.overflow_proxy.stream_loss[0], [2, 2, 20]);
+        assert_eq!(tables.overflow_proxy.stream_loss[1], [4, 4, 40]);
     }
 }

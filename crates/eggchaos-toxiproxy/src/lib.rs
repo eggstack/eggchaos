@@ -540,6 +540,7 @@ impl Toxic {
                 | "reset_peer"
                 | "slicer"
                 | "limit_data"
+                | "packet_loss"
         ) {
             return Err(CompatibilityError::Unsupported(self.r#type.clone()));
         }
@@ -571,6 +572,14 @@ impl Toxic {
 /// the input are translated (create bodies may carry them even though the
 /// oracle ignores them on create); use empty toxics for oracle-exact create.
 pub fn translate_proxy(proxy: &Proxy) -> Result<ProxySpec, CompatibilityError> {
+    translate_proxy_with_profile(proxy, &CompatProfile::default())
+}
+
+/// Profile-aware proxy translation. `translate_proxy` remains strict v2.12.
+pub fn translate_proxy_with_profile(
+    proxy: &Proxy,
+    profile: &CompatProfile,
+) -> Result<ProxySpec, CompatibilityError> {
     let listen = proxy
         .listen
         .parse()
@@ -584,7 +593,7 @@ pub fn translate_proxy(proxy: &Proxy) -> Result<ProxySpec, CompatibilityError> {
     let mut up = Vec::new();
     let mut down = Vec::new();
     for toxic in &proxy.toxics {
-        let (direction, fault) = toxic.to_fault()?;
+        let (direction, fault) = toxic.to_fault_with_profile(profile)?;
         if direction == Direction::Upstream {
             up.push(fault);
         } else {
@@ -843,7 +852,7 @@ impl ToxiproxyAdapter {
         let enabled = input.enabled.unwrap_or(true);
         if let Some(view) = self.state.get(&name).await {
             if view.listen == listen && view.upstream == upstream {
-                return Some(proxy_json(&view, CompatProfile::StrictV2_12));
+                return Some(proxy_json(&view, self.profile.clone()));
             }
             // Changed addresses: delete and recreate (toxics drop by
             // construction), matching observed oracle replace behavior.
@@ -853,7 +862,7 @@ impl ToxiproxyAdapter {
         spec.enabled = enabled;
         if enabled {
             match self.state.create_proxy(spec).await {
-                Ok((view, _)) => Some(proxy_json(&view, CompatProfile::StrictV2_12)),
+                Ok((view, _)) => Some(proxy_json(&view, self.profile.clone())),
                 Err(_) => None,
             }
         } else {
@@ -1379,6 +1388,66 @@ mod tests {
             };
             assert_eq!(toxic.to_fault().unwrap().0, Direction::Downstream);
         }
+    }
+
+    #[test]
+    fn packet_loss_conversion_is_snapshot_only_and_round_trips() {
+        let toxic = Toxic {
+            name: Some("loss".into()),
+            r#type: "packet_loss".into(),
+            stream: "downstream".into(),
+            toxicity: 1.0,
+            attributes: ToxicAttributes {
+                loss_rate: Some(0.25),
+                correlation: Some(0.5),
+                ..Default::default()
+            },
+        };
+        assert!(toxic.to_fault().is_err());
+        assert!(toxic
+            .to_fault_with_profile(&CompatProfile::StrictV2_12)
+            .is_err());
+        let (direction, fault) = toxic
+            .to_fault_with_profile(&CompatProfile::PostV2_12_2026_09_25)
+            .unwrap();
+        assert_eq!(direction, Direction::Downstream);
+        assert_eq!(
+            fault_to_toxic(direction, &fault, CompatProfile::PostV2_12_2026_09_25).unwrap()["type"],
+            "packet_loss"
+        );
+        assert!(fault_to_toxic(direction, &fault, CompatProfile::StrictV2_12).is_err());
+    }
+
+    #[tokio::test]
+    async fn snapshot_populate_keep_preserves_packet_loss_profile() {
+        let state = ControlState::default();
+        let addr = "127.0.0.1:0".parse().unwrap();
+        let mut spec = ProxySpec::new("snapshot", addr, "127.0.0.1:1".parse().unwrap());
+        spec.enabled = false;
+        spec.downstream_faults = FaultPlan::new(vec![FaultSpec {
+            id: FaultId::new("loss").unwrap(),
+            probability: Probability::new(1.0).unwrap(),
+            kind: FaultKind::StreamLoss(StreamLossConfig {
+                loss_rate: Probability::new(0.25).unwrap(),
+                correlation: Probability::new(0.0).unwrap(),
+            }),
+        }])
+        .unwrap();
+        state.create_proxy(spec).await.unwrap();
+        let adapter = ToxiproxyAdapter::with_profile(state, CompatProfile::PostV2_12_2026_09_25);
+        let handle = ToxiproxyHttp::start("127.0.0.1:0".parse().unwrap(), adapter)
+            .await
+            .unwrap();
+        let client = eggfetch_core::Client::builder().build();
+        let mut response = client.post(&format!("http://{}/populate", handle.local_addr()))
+            .unwrap().json(&json!([{"name":"snapshot","listen":"127.0.0.1:0","upstream":"127.0.0.1:1","enabled":false}]))
+            .unwrap().send().await.unwrap();
+        assert_eq!(response.status().as_u16(), 201);
+        let body = response.bytes().await.unwrap();
+        let output: Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(output["proxies"][0]["toxics"][0]["type"], "packet_loss");
+        handle.shutdown();
+        handle.wait().await;
     }
 
     #[test]

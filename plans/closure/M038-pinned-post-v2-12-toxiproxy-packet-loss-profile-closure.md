@@ -223,3 +223,10 @@ A clean M038 closure makes **M039 ready**. M039 is the tranche-level
 exact-candidate qualification gate and must rerun both the strict
 v2.12 and pinned post-v2.12 snapshot oracles together with
 native/SDK/binding regressions on one exact commit.
+
+## Additive M040 corrective reference (2026-09-26)
+
+This historical M038 implementation record is preserved. Its implementation
+commit is `8bfe0332ebc19a032443951818c2988319217e7d`; final ADR 007 corrective
+qualification and repository authority are recorded in
+`plans/closure/M040-post-v2-12-stream-loss-corrective-requalification-closure.md`.

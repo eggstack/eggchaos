@@ -207,3 +207,10 @@ A clean M037 closure makes **M038 ready**. M038 may add the
 Toxiproxy `packet_loss` spelling only by translating it into the
 proven `StreamLoss` primitive through the opt-in pinned snapshot
 profile. Strict v2.12 remains default and frozen.
+
+## Additive M040 corrective reference (2026-09-26)
+
+This historical M037 implementation record is preserved. Its implementation
+commit is `a521b093cac5319183b6e34aef352afb7be43533`; final ADR 007 corrective
+qualification and repository authority are recorded in
+`plans/closure/M040-post-v2-12-stream-loss-corrective-requalification-closure.md`.

@@ -71,9 +71,9 @@ native/cross-language surfaces, M038 added the opt-in pinned post-v2.12
 `packet_loss` profile, and M039 attempted tranche-level qualification.
 
 A post-M039 audit found bounded correctness/qualification/closure defects.
-M040 is now the sole ready handoff:
+M040 is the sole active handoff:
 
-`M036 (historical) -> M037 (historical) -> M038 (historical) -> M039 (historical closure record) -> M040 (ready)`
+`M036 (historical) -> M037 (historical) -> M038 (historical) -> M039 (historical closure record) -> M040 (active)`
 
 M040 does not redesign ADR 007. It corrects profile propagation/conversion,
 replaces observational/non-isolated data-plane “passes” with executable edge
@@ -109,7 +109,7 @@ The initial architecture is deliberately narrow:
 
 The native admin plane should use the leaf `eggserve-server` + `eggserve-primitives` H1 substrate. The CLI should use a minimal `eggfetch-core` HTTP profile to call it. `eggress-admin` is not used because its state model is specific to Eggress routing, UDP, metrics, and reverse-proxy administration.
 
-The first release is TCP byte-stream focused. UDP/datagram chaos is implemented as the post-release tranche under ADR 003 (M020–M023), with M024/M025 performance and setup-hygiene successors closed, and remains outside the first-release/M019 historical scope. Richer deterministic scenarios are complete under ADR 004 + M026–M028. The consumer-neutral cross-project integration substrate is complete under ADR 005 + M029–M031; EggReplay/EggProbe product-specific adoption remains downstream work. Cross-language control/embedding is implemented under ADR 006 + M032–M034 and correctively qualified under M035 (closed at `a710cd6`: hosted SDK/native-Python qualification, shared datagram mutation authority, exact-head closure). ADR 007 + historical M036–M039 implement the post-v2.12 deterministic stream-loss/`packet_loss` line; M040 is the ready corrective requalification authority. Native stream loss remains distinct from ADR 003 datagram loss and strict v2.12 remains frozen. A generic C ABI remains deferred. Arbitrary outbound proxy chains remain a later roadmap item.
+The first release is TCP byte-stream focused. UDP/datagram chaos is implemented as the post-release tranche under ADR 003 (M020–M023), with M024/M025 performance and setup-hygiene successors closed, and remains outside the first-release/M019 historical scope. Richer deterministic scenarios are complete under ADR 004 + M026–M028. The consumer-neutral cross-project integration substrate is complete under ADR 005 + M029–M031; EggReplay/EggProbe product-specific adoption remains downstream work. Cross-language control/embedding is implemented under ADR 006 + M032–M034 and correctively qualified under M035 (closed at `a710cd6`: hosted SDK/native-Python qualification, shared datagram mutation authority, exact-head closure). ADR 007 + historical M036–M039 implement the post-v2.12 deterministic stream-loss/`packet_loss` line; M040 is the active corrective requalification authority. Native stream loss remains distinct from ADR 003 datagram loss and strict v2.12 remains frozen. A generic C ABI remains deferred. Arbitrary outbound proxy chains remain a later roadmap item.
 
 ## Research baseline
 
