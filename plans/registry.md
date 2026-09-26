@@ -1,6 +1,6 @@
 # Eggchaos Plan Registry
 
-Last reconciled: 2026-09-26 (M045 closed on `a27a67a`, hosted run `36255454409` 13/13; post-M041 performance tranche M042–M045 complete with no successor)
+Last reconciled: 2026-09-26 (M046 performance evidence-provenance/closure-lineage corrective registered ready after M045)
 
 This file is the compact source of truth for active milestone state. Detailed scope lives in the numbered plans. Historical closure evidence belongs in `plans/closure/`.
 
@@ -52,6 +52,7 @@ This file is the compact source of truth for active milestone state. Detailed sc
 | M043 | `043-stream-hot-path-allocation-policy-timer-and-evidence-optimization.md` | **closed** | M042 (closed) | Closed on exact candidate `67ce4ab`; evidence in `plans/closure/M043-stream-hot-path-allocation-policy-timer-and-evidence-optimization-closure.md`; raw artifacts `qualification/performance/2026-09-26-macos-arm64-m043-{stream,stream-probes,datagram}.json`. WP3 (shared `Arc<FaultPlan>` internal ownership) implemented as low-cost-cleanup; WP7 (bounded preserving-plan vectored prefix copy) implemented but recorded as a no-op disposition against the ≥10 % M042 throughput threshold (the per-call iovec-join allocation save is masked by downstream duplex write synchronization at the harness's small-iovec / short-write profile); proptest properties `accept_vectored_matches_scalar_for_preserving_plans` / `accept_vectored_matches_scalar_for_stream_loss` prove semantic equivalence. WP2, WP4, WP5, WP6 are explicitly skipped per the M042 classification. |
 | M044 | `044-datagram-steady-state-synchronization-and-association-scale-optimization.md` | **closed** | M043 (closed) | Closed on exact candidate `7a6dbb8`; evidence in `plans/closure/M044-datagram-steady-state-synchronization-and-association-scale-optimization-closure.md`; raw artifact `qualification/performance/2026-09-26-macos-arm64-m044-datagram.json`. WP2 (whole-spec clone removal) and WP3 (association-map async mutex → std RwLock + read fast path) implemented, WP3 recorded as a no-op disposition against both M042 ≥10 % scale thresholds (same-host parity, file-baseline deltas inside host noise); WP5 (duplicate-stage capacity reservation) implemented as low-cost-cleanup; WP4/WP6 skipped and WP7 not implemented per the M042 matrix. M023/M024 budgets, latency-tightness, hot-with-idle parity, ADR 003 goldens, OpenAPI drift, and fuzz all green. |
 | M045 | `045-performance-optimization-exact-head-qualification-and-reconciliation.md` | **closed** | M043, M044 (both closed) | Closed on evidence candidate `a27a67a` (production-identical to `e8ff753`); evidence in `plans/closure/M045-performance-optimization-exact-head-qualification-and-reconciliation-closure.md`; raw artifacts `qualification/performance/2026-09-26-macos-arm64-m045-{stream,stream-probes,datagram}.json`. Full local gates green (check/OpenAPI/SDKs/eggfetch/fuzz 9×10k/mandatory v2.12 + post-v2.12 oracles/release-smoke/artifact-smoke/python-native); hosted CI run `36255454409` green 13/13 on `a27a67a`. M042 thresholds unretuned; M043/M044 no-op dispositions stand. The post-M041 performance tranche is closed with no automatic successor. |
+| M046 | `046-performance-evidence-provenance-and-closure-lineage-corrective.md` | **ready** | M045 historical closure | Narrow evidence-provenance corrective. Reconstruct M042/M045 artifact lineage, replace the non-resolving M042 exact-candidate claim with evidence-backed terminology, distinguish M045 `e8ff753` local evidence from the later `a27a67a` refresh, preserve raw artifacts additively, and reconcile current-state docs without production/benchmark changes or threshold retuning. |
 
 ## Execution state
 
@@ -152,11 +153,11 @@ Completed work: M000–M041 and M008 are closed historical work.
 
 Active: none.
 
-Ready: none.
+Ready: M046.
 
 Blocked: none.
 
-Current performance execution order: `M042 (closed) -> M043 (closed) -> M044 (closed) -> M045 (closed)`. The post-M041 performance tranche is complete and activates no successor.
+Current performance execution order: `M042 (closed) -> M043 (closed) -> M044 (closed) -> M045 (closed) -> M046 (ready provenance corrective)`. M046 does not reopen the optimization tranche; it corrects artifact/closure lineage only.
 
 Historical pre-tag execution order: `M016 (closed) -> M017 (closed) -> M018 (closed) -> M019 (closed)`. The owner may proceed with the v0.1.0 tag, crates.io publication, and GitHub release as separate release actions.
 

@@ -11,7 +11,7 @@ Eggchaos is intended to be a small Rust-native successor to the useful core of T
 | `roadmap.md` | Long-term architecture, sequencing, release stages, and future extensions. |
 | `registry.md` | Current milestone status and dependency source of truth. |
 | `000-architecture-and-scope-baseline.md` | Investigated baseline, reuse decisions, scope boundaries, and initial dependency graph. |
-| `001-*.md` ... `045-*.md` | Bounded implementation, corrective, cleanup, feature, qualification, maintenance, richer-scenario, integration-boundary, language-binding, post-v2.12 compatibility, performance, and closure handoffs in execution order. |
+| `001-*.md` ... `046-*.md` | Bounded implementation, corrective, cleanup, feature, qualification, maintenance, richer-scenario, integration-boundary, language-binding, post-v2.12 compatibility, performance, and closure handoffs in execution order. |
 | `adrs/` | Durable architecture decisions that should not be silently changed by implementation. |
 | `reference/toxiproxy-parity.md` | Compatibility target and semantic mapping. |
 | `reference/verification-matrix.md` | Required evidence across faults, platforms, APIs, and performance. |
@@ -92,6 +92,16 @@ are `closed` (at `67ce4ab` and `7a6dbb8`); M045 is `closed` (evidence
 candidate `a27a67a`, hosted run `36255454409` 13/13). These plans authorize
 no public API, wire, RNG, fault-semantic, fixed-target, or compatibility
 regression.
+
+A narrow post-closure evidence-provenance corrective is now registered:
+
+`M046 performance evidence provenance / closure lineage`
+
+M046 is `ready`. It does not reopen M042–M045 implementation or performance
+thresholds. Its scope is to reconstruct the exact M042/M045 artifact lineage,
+replace non-resolving or ambiguous exact-candidate wording with evidence-backed
+production/execution/evidence revisions, preserve historical raw data
+additively, and reconcile the performance documentation.
 
 ## Status rules
 
