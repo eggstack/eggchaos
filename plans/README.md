@@ -11,7 +11,7 @@ Eggchaos is intended to be a small Rust-native successor to the useful core of T
 | `roadmap.md` | Long-term architecture, sequencing, release stages, and future extensions. |
 | `registry.md` | Current milestone status and dependency source of truth. |
 | `000-architecture-and-scope-baseline.md` | Investigated baseline, reuse decisions, scope boundaries, and initial dependency graph. |
-| `001-*.md` ... `039-*.md` | Bounded implementation, corrective, cleanup, feature, qualification, maintenance, richer-scenario, integration-boundary, language-binding, post-v2.12 compatibility, and closure handoffs in execution order. |
+| `001-*.md` ... `041-*.md` | Bounded implementation, corrective, cleanup, feature, qualification, maintenance, richer-scenario, integration-boundary, language-binding, post-v2.12 compatibility, and closure handoffs in execution order. |
 | `adrs/` | Durable architecture decisions that should not be silently changed by implementation. |
 | `reference/toxiproxy-parity.md` | Compatibility target and semantic mapping. |
 | `reference/verification-matrix.md` | Required evidence across faults, platforms, APIs, and performance. |
@@ -65,15 +65,19 @@ qualification, consolidated duplicated datagram fault mutation semantics between
 HTTP and embed, reconciled current-state planning, and obtained a green exact-head
 hosted qualification result. M035 does not rewrite M032–M034 history.
 
-ADR 007's M036–M039 implementation chain and corrective M040 qualification
-are complete. M040 closed on exact candidate
-`48fe0dd8dfc1f995c53a3b1661fe704dbdc5bce0`; its closure note records the
-corrected profile paths, executable post-v2.12 comparators, bounded named
-metrics, pinned Go toolchain, local gates, and exact-head hosted evidence.
-Historical M036–M039 closure records remain preserved and point to M040 as
-the final repository-level authority for ADR 007. M040 activates no automatic
-successor. M015 remains valid qualification evidence for `cd88b22`; M019 is
-the final pre-tag release-candidate authority at `ca527db`.
+ADR 007's M036–M039 implementation chain and M040 corrective
+qualification are historical. M040 closed on exact candidate
+`48fe0dd8dfc1f995c53a3b1661fe704dbdc5bce0` with green local/oracle/hosted
+evidence. A post-closure audit found one narrow operator-facing regression in
+the M040 metrics renderer (duplicate stream-loss series plus a literal
+`\\n` separator), along with oracle-fetch stdout-contract and planning
+hygiene drift.
+
+M041 is now the sole ready handoff. It fixes only those metrics/tooling/closure
+issues and must requalify one exact candidate before becoming the latest ADR
+007 repository-level authority. M040 remains preserved as historical evidence.
+M015 remains valid qualification evidence for `cd88b22`; M019 is the final
+pre-tag release-candidate authority at `ca527db`.
 
 ## Status rules
 
