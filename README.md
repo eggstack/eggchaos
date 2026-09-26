@@ -104,6 +104,7 @@ curl -s http://127.0.0.1:8475/metrics
 | `slow_close` | Delays shutdown only, never ordinary writes |
 | `slice` | Segments output into `average_size` ± `variation` chunks |
 | `disconnect` | Terminates after `after` (`--hard-reset` for abortive close) |
+| `stream-loss` | Drops 32 KiB logical stream chunks at `loss_rate` with burst `correlation` (userspace byte-stream loss, not IP/TCP packet loss) |
 
 Every fault takes a `probability` (0–1): the deterministic per-connection
 activation chance, decided from the seed — never from global RNG state.

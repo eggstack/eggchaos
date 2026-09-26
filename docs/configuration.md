@@ -21,9 +21,11 @@ The `Direction` names are `upstream` (client to target) and `downstream`
 decision is derived from the policy seed namespace, proxy identity, connection key,
 direction, and fault identity. No process-global RNG is used. Each published
 policy generation carries its own seed namespace: manual updates retain the
-current namespace, while scenario runs publish namespaces derived from
-`(scenario seed, run id, event index)`; see `docs/control-plane.md` for the
-replay limits this implies.
+current namespace, Scenario V1 runs publish namespaces derived from
+`(scenario seed, run id, event index)`, and Scenario V2 runs publish
+namespaces derived from `(scenario seed, execution key, schedule
+fingerprint, compiled event index)` with no run_id input; see
+`docs/control-plane.md` for the replay limits this implies.
 
 ## Runtime and proxy bounds
 

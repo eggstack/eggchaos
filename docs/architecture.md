@@ -3,9 +3,9 @@
 The dependency direction is inward:
 
 ```text
-eggchaos-cli -> eggchaos-server -> eggchaos-experiment -> eggchaos-core
-eggchaos-toxiproxy -----------^               |
-eggchaos-eggfetch ------------^               +-> Tokio byte streams
+eggchaos-cli -> eggchaos-server -> eggchaos-protocol -> eggchaos-experiment -> eggchaos-core
+eggchaos-toxiproxy -> server/core (adapter, no separate state store)
+eggchaos-eggfetch -> core (implements `eggfetch_core::Dialer`)
 ```
 
 `eggchaos-core` is protocol-neutral. It owns typed stream and datagram fault
