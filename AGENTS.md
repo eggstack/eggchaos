@@ -30,7 +30,7 @@ eggchaos-native -> embed (PyO3 pilot, standalone maturin crate outside the works
 - `architecture/server-runtime.md` — listeners, `eggress-relay` embedding, `ControlState` authority, full bounds table.
 - `architecture/control-plane-cli.md` — `/v1` route inventory, schema-v1 TOML, CLI command matrix, auth/bounds.
 - `architecture/scenario-observability.md` — scenario driver, evidence/snapshot/metrics types, replay limits.
-- `architecture/toxiproxy-compat.md` — toxic↔fault table, defaults/naming precedence, divergences, 47/47 evidence.
+- `architecture/toxiproxy-compat.md` — toxic↔fault table, defaults/naming precedence, strict/snapshot divergences and qualification evidence; M040 owns current corrective reconciliation.
 - `architecture/eggfetch-integration.md` — `ChaosDialer`, ownership split, H1/`http2` profiles, regression map.
 - `architecture/verification-qualification.md` — test layers, exact gate commands, incomplete-evidence rule.
 - `architecture/tooling-distribution.md` — scripts catalog, CI/release workflows, dep policy, plan governance.
@@ -113,16 +113,16 @@ history. Do not start a generic C ABI, Node native addon, JNI, P/Invoke,
 cgo, UniFFI, or WASM under M035; a generic C ABI still requires
 a separate ADR after demonstrated multi-consumer demand.
 
-ADR 007 is now active for post-v2.12 Toxiproxy stream-loss compatibility:
-`M036 (ready) -> M037 (blocked) -> M038 (blocked) -> M039 (blocked)`.
-M036 is the sole ready implementation handoff. It owns only deterministic
-core `StreamLoss` semantics/evidence and must preserve the existing
-seven-slot activation arrays. M037 cannot start until M036 closes; it owns
-native/config/CLI/Scenario/OpenAPI/SDK/embed propagation. M038 cannot start
-until M037 closes; it owns the opt-in `packet_loss` profile pinned to
-Shopify/Toxiproxy `40f7fd31bee529d824116bd2a11a9e3425e904ec`. Strict
-v2.12 remains the default/frozen profile and retains its current pinned oracle.
-M039 is the final dual-oracle exact-candidate qualification gate.
+ADR 007's M036–M039 implementation chain is historical. A post-M039
+audit registered `M040 (ready)` as the sole corrective handoff. Do not
+reimplement M036/M037 core/native stream loss. M040 owns the snapshot-profile
+`populate`/conversion fixes, executable isolated packet_loss data-plane edge
+tests, intermediate/correlation statistical qualification, named stream-loss
+Prometheus metrics, exact Go oracle-toolchain recording, exact-head hosted
+Linux/macOS/Windows + language/native-Python requalification, and planning/
+closure reconciliation. Strict v2.12 remains the default/frozen profile and
+must keep its pinned oracle behavior. Preserve historical M036–M039 closure
+evidence; M040 closure becomes the final ADR 007 repository-level authority.
 
 If the owner asks for new work: `plans/roadmap.md` is the architecture authority, `plans/reference/` holds parity/verification contracts (not status), ADRs live in `plans/adrs/`. Any new numbered plan needs objective, baseline/deps, scope + non-goals, affected crates, ordered work packages, invariants/failure semantics, test commands, acceptance criteria, stop conditions, closure evidence, and follow-on rules — and must update `plans/registry.md` in the same change. Never mark `closed` from source inspection; closure requires running the plan's tests on the exact candidate plus external/differential evidence where declared.
 
