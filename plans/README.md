@@ -85,11 +85,11 @@ post-M041 tree:
 
 `M042 measurement authority -> M043 stream hot path + M044 datagram scale -> M045 exact-head qualification`
 
-M042 is `ready`. It first corrects the destructive stream-loss benchmark
-contract, adds production-representative live-policy stream baselines, and
-extends pre-warmed datagram association-scale measurement. M043 and M044 are
-`blocked` until M042 freezes measured target classifications and thresholds;
-M045 is blocked until both implementation passes close. These plans authorize
+M042 is `closed`. It corrected the destructive stream-loss benchmark
+contract, added production-representative live-policy stream baselines, and
+extended pre-warmed datagram association-scale measurement. M043 and M044
+are `closed` (at `67ce4ab` and `7a6dbb8`); M045 is `ready` for combined
+exact-head qualification. These plans authorize
 no public API, wire, RNG, fault-semantic, fixed-target, or compatibility
 regression.
 

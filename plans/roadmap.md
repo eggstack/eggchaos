@@ -1,6 +1,6 @@
 # Eggchaos Long-Term Roadmap
 
-Status: M008 and M009–M041 are historical closed work. M019 remains the final pre-tag authority at `ca527db`. ADR 003 datagram, ADR 004 scenario, ADR 005 integration, ADR 006 cross-language, and ADR 007 post-v2.12 compatibility tranches are complete. M041 closed on exact candidate `724b967da04579282dd8bfc7a81dc4fe55d034a2` (hosted run `36219464594`, 13/13 jobs) as the latest ADR 007 repository-level authority. The post-M041 performance tranche M042–M045 is registered: M042 is ready; M043/M044 are blocked on M042 measurement authority; M045 is blocked on both implementation passes. Strict Toxiproxy v2.12 remains frozen/default.
+Status: M008 and M009–M041 are historical closed work. M019 remains the final pre-tag authority at `ca527db`. ADR 003 datagram, ADR 004 scenario, ADR 005 integration, ADR 006 cross-language, and ADR 007 post-v2.12 compatibility tranches are complete. M041 closed on exact candidate `724b967da04579282dd8bfc7a81dc4fe55d034a2` (hosted run `36219464594`, 13/13 jobs) as the latest ADR 007 repository-level authority. The post-M041 performance tranche M042–M045 is registered: M042, M043 (closed at `67ce4ab`), and M044 (closed at `7a6dbb8`) are complete; M045 is ready for combined exact-head qualification. Strict Toxiproxy v2.12 remains frozen/default.
 
 ## 1. Mission
 

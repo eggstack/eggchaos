@@ -1,6 +1,6 @@
 # Eggchaos Plan Registry
 
-Last reconciled: 2026-09-26 (M043 closed at `67ce4ab` (WP3 + WP7) and M044 now ready for the M042-classified proven-material targets; M045 still blocked on M044)
+Last reconciled: 2026-09-26 (M044 closed at `7a6dbb8` (WP2 + WP3 + WP5) and M045 now ready for combined exact-head qualification; M043 closed at `67ce4ab`)
 
 This file is the compact source of truth for active milestone state. Detailed scope lives in the numbered plans. Historical closure evidence belongs in `plans/closure/`.
 
@@ -50,8 +50,8 @@ This file is the compact source of truth for active milestone state. Detailed sc
 | M041 | `041-stream-loss-metrics-and-closure-hygiene-corrective.md` | **closed** | M040 historical closure + ADR 007 | Closed on exact corrective candidate `724b967da04579282dd8bfc7a81dc4fe55d034a2`; evidence in `plans/closure/M041-stream-loss-metrics-and-closure-hygiene-corrective-closure.md`. Hosted run `36219464594` is green (13/13 jobs, including the new fetcher-contract regression in the language-clients matrix). Duplicate/malformed stream-loss Prometheus exposition removed; post-v2.12 fetcher stdout contract restored (default and `--path-only` print the executable path, `--json` prints the structured metadata); remaining M040 planning/docs drift reconciled. M041 activates no automatic successor. |
 | M042 | `042-performance-measurement-authority-and-baseline-correction.md` | **closed** | M041 | Closed on the M042 baseline candidate set (see `plans/closure/M042-performance-measurement-authority-and-baseline-correction-closure.md`); raw artifacts `qualification/performance/2026-09-26-macos-arm64-m042-{stream,stream-probes,datagram}.json`. Destructive stream-loss benchmark semantics corrected; static/live stream distinction + small/vectored write profiles added; TCP hot-path microprobes emitted; datagram harness extended with pre-warmed `scale_warm_<N>` and `hot_with_idle_<N>` cases at N ∈ {1, 8, 256, 1 024, 4 096} and the existing M008/M023/M024 budgets preserved. M042 classifies each M043/M044 WP as `proven-material` / `low-cost-cleanup` / `inconclusive` / `not-material` and freezes the per-target implementation thresholds used in the next milestones. |
 | M043 | `043-stream-hot-path-allocation-policy-timer-and-evidence-optimization.md` | **closed** | M042 (closed) | Closed on exact candidate `67ce4ab`; evidence in `plans/closure/M043-stream-hot-path-allocation-policy-timer-and-evidence-optimization-closure.md`; raw artifacts `qualification/performance/2026-09-26-macos-arm64-m043-{stream,stream-probes,datagram}.json`. WP3 (shared `Arc<FaultPlan>` internal ownership) implemented as low-cost-cleanup; WP7 (bounded preserving-plan vectored prefix copy) implemented but recorded as a no-op disposition against the ≥10 % M042 throughput threshold (the per-call iovec-join allocation save is masked by downstream duplex write synchronization at the harness's small-iovec / short-write profile); proptest properties `accept_vectored_matches_scalar_for_preserving_plans` / `accept_vectored_matches_scalar_for_stream_loss` prove semantic equivalence. WP2, WP4, WP5, WP6 are explicitly skipped per the M042 classification. |
-| M044 | `044-datagram-steady-state-synchronization-and-association-scale-optimization.md` | **ready** | M043 (closed) | Datagram steady-state / scale optimization, evidence-gated by M042 target matrix. M042 classifies WP2 (remove whole-`DatagramProxySpec` clone from steady-state ingress) and WP3 (replace association-map async mutex with a short-critical-section design) as **proven-material**; WP4, WP5, and WP6 are **low-cost-cleanup** items that may be implemented but require an explicit no-op disposition if no measured gain; WP7 (deadline-driven reaper) is **not-material** and must NOT be implemented. All implementation thresholds are frozen in the M042 closure. |
-| M045 | `045-performance-optimization-exact-head-qualification-and-reconciliation.md` | **blocked** | M043, M044 | Combined exact-head performance/API/determinism/oracle/fuzz/security/package/hosted qualification. Consumes M042 thresholds, retains M008/M023/M024 budgets, and closes the tranche without adding new optimization scope. |
+| M044 | `044-datagram-steady-state-synchronization-and-association-scale-optimization.md` | **closed** | M043 (closed) | Closed on exact candidate `7a6dbb8`; evidence in `plans/closure/M044-datagram-steady-state-synchronization-and-association-scale-optimization-closure.md`; raw artifact `qualification/performance/2026-09-26-macos-arm64-m044-datagram.json`. WP2 (whole-spec clone removal) and WP3 (association-map async mutex → std RwLock + read fast path) implemented, WP3 recorded as a no-op disposition against both M042 ≥10 % scale thresholds (same-host parity, file-baseline deltas inside host noise); WP5 (duplicate-stage capacity reservation) implemented as low-cost-cleanup; WP4/WP6 skipped and WP7 not implemented per the M042 matrix. M023/M024 budgets, latency-tightness, hot-with-idle parity, ADR 003 goldens, OpenAPI drift, and fuzz all green. |
+| M045 | `045-performance-optimization-exact-head-qualification-and-reconciliation.md` | **ready** | M043, M044 (both closed) | Combined exact-head performance/API/determinism/oracle/fuzz/security/package/hosted qualification. Consumes M042 thresholds, retains M008/M023/M024 budgets, and closes the tranche without adding new optimization scope. |
 
 ## Execution state
 
@@ -152,11 +152,11 @@ Completed work: M000–M041 and M008 are closed historical work.
 
 Active: none.
 
-Ready: M042.
+Ready: M045.
 
-Blocked: M043 (M042), M044 (M042), M045 (M043 + M044).
+Blocked: none.
 
-Current performance execution order: `M042 (ready) -> { M043, M044 } (blocked on M042) -> M045 (blocked on M043 + M044)`.
+Current performance execution order: `M042 (closed) -> M043 (closed) -> M044 (closed) -> M045 (ready)`.
 
 Historical pre-tag execution order: `M016 (closed) -> M017 (closed) -> M018 (closed) -> M019 (closed)`. The owner may proceed with the v0.1.0 tag, crates.io publication, and GitHub release as separate release actions.
 
