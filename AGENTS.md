@@ -30,7 +30,7 @@ eggchaos-native -> embed (PyO3 pilot, standalone maturin crate outside the works
 - `architecture/server-runtime.md` — listeners, `eggress-relay` embedding, `ControlState` authority, full bounds table.
 - `architecture/control-plane-cli.md` — `/v1` route inventory, schema-v1 TOML, CLI command matrix, auth/bounds.
 - `architecture/scenario-observability.md` — scenario driver, evidence/snapshot/metrics types, replay limits.
-- `architecture/toxiproxy-compat.md` — toxic↔fault table, defaults/naming precedence, strict/snapshot divergences and qualification evidence; M040 owns current corrective reconciliation.
+- `architecture/toxiproxy-compat.md` — toxic↔fault table, defaults/naming precedence, strict/snapshot divergences and qualification evidence; M041 owns the current narrow metrics/tooling closure correction.
 - `architecture/eggfetch-integration.md` — `ChaosDialer`, ownership split, H1/`http2` profiles, regression map.
 - `architecture/verification-qualification.md` — test layers, exact gate commands, incomplete-evidence rule.
 - `architecture/tooling-distribution.md` — scripts catalog, CI/release workflows, dep policy, plan governance.
@@ -113,21 +113,18 @@ history. Do not start a generic C ABI, Node native addon, JNI, P/Invoke,
 cgo, UniFFI, or WASM under M035; a generic C ABI still requires
 a separate ADR after demonstrated multi-consumer demand.
 
-ADR 007's M036–M039 implementation chain is historical. M040 is closed at
-`48fe0dd8dfc1f995c53a3b1661fe704dbdc5bce0` as the corrective authority; see
-`plans/closure/M040-post-v2-12-stream-loss-corrective-requalification-closure.md`.
-It activated no automatic successor. Do not
-reimplement M036/M037 core/native stream loss. M040 owns the snapshot-profile
-`populate`/conversion fixes, executable isolated packet_loss data-plane edge
-tests, intermediate/correlation statistical qualification, named stream-loss
-Prometheus metrics, exact Go oracle-toolchain recording, exact-head hosted
-Linux/macOS/Windows + language/native-Python requalification, and planning/
-closure reconciliation. Strict v2.12 remains the default/frozen profile and
-must keep its pinned oracle behavior. Preserve historical M036–M039 closure
-evidence. M040 is the final ADR 007 repository-level authority.
+ADR 007's M036–M040 implementation/qualification history is preserved. M040
+closed at `48fe0dd8dfc1f995c53a3b1661fe704dbdc5bce0`, but a post-closure
+audit found a narrow regression in its metrics/tooling layer. `M041 (ready)`
+is now the sole handoff. Do not reimplement core/native stream loss or the
+M040 Toxiproxy stochastic qualification. M041 owns only: duplicate/malformed
+stream-loss Prometheus exposition, fetch_toxiproxy_post_v2_12 stdout-mode
+compatibility, remaining M040 planning/docs drift, and exact-head
+requalification. Strict v2.12 remains default/frozen and its current pinned
+oracle behavior must not change.
 
 If the owner asks for new work: `plans/roadmap.md` is the architecture authority, `plans/reference/` holds parity/verification contracts (not status), ADRs live in `plans/adrs/`. Any new numbered plan needs objective, baseline/deps, scope + non-goals, affected crates, ordered work packages, invariants/failure semantics, test commands, acceptance criteria, stop conditions, closure evidence, and follow-on rules — and must update `plans/registry.md` in the same change. Never mark `closed` from source inspection; closure requires running the plan's tests on the exact candidate plus external/differential evidence where declared.
 
 ## Verification
 
-Prefer deterministic Tokio-time tests; wall-clock assertions need justified tolerances and must not be sole evidence. Cover: fault state machines, byte-conservation properties where faults preserve bytes, half-close/shutdown, bounded-buffer/backpressure, RNG golden vectors, exact JSON/TOML round trips, Toxiproxy differential (47/47 vs pinned v2.12.0), no-fault throughput/latency vs bare `eggress-relay`, exact datagram traces and the measured fixed-target UDP budget. Record un-runnable oracles/platforms as incomplete evidence. Authoritative semantics: `docs/architecture.md`, `docs/configuration.md`, `docs/control-plane.md`, `docs/toxiproxy.md`, `docs/eggfetch.md`.
+Prefer deterministic Tokio-time tests; wall-clock assertions need justified tolerances and must not be sole evidence. Cover: fault state machines, byte-conservation properties where faults preserve bytes, half-close/shutdown, bounded-buffer/backpressure, RNG golden vectors, exact JSON/TOML round trips, Toxiproxy differential (current strict corpus 50/50 vs pinned v2.12.0), no-fault throughput/latency vs bare `eggress-relay`, exact datagram traces and the measured fixed-target UDP budget. Record un-runnable oracles/platforms as incomplete evidence. Authoritative semantics: `docs/architecture.md`, `docs/configuration.md`, `docs/control-plane.md`, `docs/toxiproxy.md`, `docs/eggfetch.md`.
