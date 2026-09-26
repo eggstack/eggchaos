@@ -81,8 +81,8 @@ async fn direct_setup(
 async fn starting_reservation(state: &ProxyState, client: SocketAddr) -> Arc<StartingReservation> {
     state
         .associations
-        .lock()
-        .await
+        .read()
+        .expect("datagram association registry")
         .get(&client)
         .and_then(|slot| match slot {
             AssociationSlot::Starting { reservation } => Some(reservation.clone()),
@@ -833,7 +833,12 @@ async fn aborted_setup_owner_releases_reservation_and_worker() {
     assert!(matches!(owner.await, Err(error) if error.is_cancelled()));
     assert_eq!(state.proxy_active.load(Ordering::Acquire), 0);
     assert_eq!(state.global_active.load(Ordering::Acquire), 0);
-    assert!(state.associations.lock().await.get(&client_addr).is_none());
+    assert!(state
+        .associations
+        .read()
+        .expect("datagram association registry")
+        .get(&client_addr)
+        .is_none());
     runtime.delete_proxy("direct").await.unwrap();
     stop_target.cancel();
 }
@@ -887,7 +892,12 @@ async fn disable_drains_an_unpublished_setup_worker() {
         owner.await.unwrap(),
         Err(DatagramRuntimeError::Conflict(_))
     ));
-    assert!(state.associations.lock().await.get(&client_addr).is_none());
+    assert!(state
+        .associations
+        .read()
+        .expect("datagram association registry")
+        .get(&client_addr)
+        .is_none());
     runtime.enable_proxy("direct").await.unwrap();
     let association = resolve_association(socket, &state, client_addr)
         .await

@@ -64,16 +64,26 @@ async fn receive_client_datagram(
     client: SocketAddr,
     payload: Bytes,
 ) {
-    let spec = state.spec.read().expect("datagram proxy spec").clone();
-    if payload.len() as u64 > spec.queue_limits.max_datagram_bytes.get() {
+    // M044 WP2 — drop the whole-`DatagramProxySpec` clone that the prior
+    // path paid on every active ingress datagram. The pre-clone shape
+    // copied the proxy name string plus two `Arc<ArcSwap<…>>` policy
+    // handles; we only ever need the queue-limit max-datagram size (a
+    // `Copy`) and the upstream-policy atomic snapshot, both of which are
+    // obtainable under a brief read guard and never co-resident with
+    // the awaiting `resolve_association` future.
+    let max_datagram_bytes = {
+        let spec = state.spec.read().expect("datagram proxy spec");
+        spec.queue_limits.max_datagram_bytes
+    };
+    if payload.len() as u64 > max_datagram_bytes.get() {
         state
             .counters
             .oversize_datagrams
             .fetch_add(1, Ordering::Relaxed);
         if let Some(association) = state
             .associations
-            .lock()
-            .await
+            .read()
+            .expect("datagram association registry")
             .get(&client)
             .and_then(AssociationSlot::active)
         {
@@ -100,7 +110,10 @@ async fn receive_client_datagram(
             return;
         }
     };
-    let policy = spec.upstream_policy.snapshot();
+    let policy = {
+        let spec = state.spec.read().expect("datagram proxy spec");
+        spec.upstream_policy.snapshot()
+    };
     let ingress_bytes = payload.len() as u64;
     let Some(reservation) = reserve_ingress(
         state.ingress_buffered_bytes.clone(),
@@ -152,7 +165,10 @@ async fn reap_idle(state: &Arc<ProxyState>) {
         .expect("datagram proxy spec")
         .association_idle_timeout;
     let expired: Vec<(SocketAddr, Arc<Association>)> = {
-        let associations = state.associations.lock().await;
+        let associations = state
+            .associations
+            .read()
+            .expect("datagram association registry");
         associations
             .iter()
             .filter_map(|(client, slot)| {
@@ -175,7 +191,10 @@ async fn reap_idle(state: &Arc<ProxyState>) {
         // Remove only if the slot still holds this exact association: a new
         // setup for the same client must never be reaped as stale.
         let removed = {
-            let mut associations = state.associations.lock().await;
+            let mut associations = state
+                .associations
+                .write()
+                .expect("datagram association registry");
             let ours = matches!(
                 associations.get(&client),
                 Some(AssociationSlot::Active(current)) if Arc::ptr_eq(current, &association)

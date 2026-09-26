@@ -386,7 +386,19 @@ impl DatagramDirectionEngine {
         let mut candidates = vec![(0u16, payload, Duration::ZERO)];
         let mut next_copy_index = 1u16;
         for (stage, fault) in policy.plan.faults().iter().enumerate() {
-            let mut next = Vec::with_capacity(candidates.len().max(1));
+            // M044 WP5 — size the next-stage buffer from the validated
+            // bounded amplification of this stage. Duplicate stages can
+            // emit `additional_copies + 1` outputs per input; other
+            // stages emit at most one per input. Saturating arithmetic
+            // keeps the existing 4,096 candidate hard bound intact.
+            let next_capacity = match &fault.kind {
+                DatagramFaultKind::Duplicate { additional_copies } => candidates
+                    .len()
+                    .saturating_mul(usize::from(*additional_copies).saturating_add(1))
+                    .max(1),
+                _ => candidates.len().max(1),
+            };
+            let mut next = Vec::with_capacity(next_capacity);
             for (copy, mut bytes, delay) in candidates {
                 let seed = derive_datagram_seed(
                     policy.seed_namespace ^ u64::from(copy),

@@ -50,8 +50,8 @@ pub(crate) struct ListenerOwner {
 
 pub(crate) struct ProxyState {
     pub(crate) spec: StdRwLock<DatagramProxySpec>,
-    pub(crate) policy_mutation: AsyncMutex<()>,
-    pub(crate) associations: AsyncMutex<HashMap<SocketAddr, AssociationSlot>>,
+    pub(crate) policy_mutation: Mutex<()>,
+    pub(crate) associations: StdRwLock<HashMap<SocketAddr, AssociationSlot>>,
     pub(crate) global_active: Arc<AtomicUsize>,
     pub(crate) proxy_active: Arc<AtomicUsize>,
     pub(crate) next_id: Arc<AtomicU64>,
@@ -134,8 +134,8 @@ impl DatagramRuntime {
         let bound = socket.local_addr().map_err(DatagramRuntimeError::Bind)?;
         let state = Arc::new(ProxyState {
             spec: StdRwLock::new(spec.clone()),
-            policy_mutation: AsyncMutex::new(()),
-            associations: AsyncMutex::new(HashMap::new()),
+            policy_mutation: Mutex::new(()),
+            associations: StdRwLock::new(HashMap::new()),
             global_active: self.inner.active_associations.clone(),
             proxy_active: Arc::new(AtomicUsize::new(0)),
             next_id: self.inner.next_association.clone(),
@@ -369,14 +369,21 @@ impl DatagramRuntime {
             let _ = owner.task.await;
         }
         if !must_stop_old {
-            let associations = state.associations.lock().await;
-            if state.proxy_active.load(Ordering::Acquire) > next.max_associations {
-                return Err(DatagramRuntimeError::Invalid(
-                    "max_associations cannot be lower than the current active count".into(),
-                ));
+            // The `Sync` association registry's read guard is `!Send`, so
+            // the guard must not cross the below `drain_associations().await`.
+            // Acquire the guard, validate the cap, write the spec, then drop.
+            {
+                let _associations = state
+                    .associations
+                    .read()
+                    .expect("datagram association registry");
+                if state.proxy_active.load(Ordering::Acquire) > next.max_associations {
+                    return Err(DatagramRuntimeError::Invalid(
+                        "max_associations cannot be lower than the current active count".into(),
+                    ));
+                }
+                *state.spec.write().expect("datagram proxy spec") = next;
             }
-            *state.spec.write().expect("datagram proxy spec") = next;
-            drop(associations);
             if upstream_changed {
                 for association in drain_associations(&state, running).await {
                     stop_association(&state, association, true).await;
@@ -444,7 +451,10 @@ impl DatagramRuntime {
             .get(name)
             .ok_or_else(|| DatagramRuntimeError::NotFound(name.into()))?
             .state;
-        let _guard = state.policy_mutation.lock().await;
+        let _guard = state
+            .policy_mutation
+            .lock()
+            .expect("datagram policy mutation");
         let spec = state.spec.read().expect("datagram proxy spec").clone();
         let policy = match direction {
             Direction::Upstream => &spec.upstream_policy,
@@ -471,7 +481,11 @@ impl DatagramRuntime {
         let proxies = self.inner.proxies.lock().await;
         let mut views = Vec::new();
         for managed in proxies.values() {
-            let associations = managed.state.associations.lock().await;
+            let associations = managed
+                .state
+                .associations
+                .read()
+                .expect("datagram association registry");
             for association in associations.values().filter_map(AssociationSlot::active) {
                 views.push(
                     association
@@ -505,7 +519,11 @@ impl DatagramRuntime {
     pub async fn association(&self, id: u64) -> Option<DatagramAssociationSnapshot> {
         let proxies = self.inner.proxies.lock().await;
         for managed in proxies.values() {
-            let associations = managed.state.associations.lock().await;
+            let associations = managed
+                .state
+                .associations
+                .read()
+                .expect("datagram association registry");
             if let Some(association) = associations
                 .values()
                 .filter_map(AssociationSlot::active)
@@ -537,7 +555,11 @@ impl DatagramRuntime {
         let proxies = self.inner.proxies.lock().await;
         for managed in proxies.values() {
             let found = {
-                let mut associations = managed.state.associations.lock().await;
+                let mut associations = managed
+                    .state
+                    .associations
+                    .write()
+                    .expect("datagram association registry");
                 let key = associations.iter().find_map(|(key, slot)| {
                     matches!(slot, AssociationSlot::Active(association) if association.id == id)
                         .then_some(*key)
@@ -583,8 +605,8 @@ async fn proxy_view(
         seed: spec.seed,
         active_associations: state
             .associations
-            .lock()
-            .await
+            .read()
+            .expect("datagram association registry")
             .values()
             .filter(|slot| matches!(slot, AssociationSlot::Active(_)))
             .count(),

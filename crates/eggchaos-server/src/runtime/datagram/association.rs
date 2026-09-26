@@ -407,7 +407,7 @@ impl Drop for SetupOwnerGuard {
         if !self.armed {
             return;
         }
-        if let Ok(mut associations) = self.state.associations.try_lock() {
+        if let Ok(mut associations) = self.state.associations.try_write() {
             if same_reservation_slot(associations.get(&self.client), &self.reservation) {
                 associations.remove(&self.client);
             }
@@ -441,8 +441,24 @@ pub(crate) async fn resolve_association(
     client: SocketAddr,
 ) -> Result<Arc<Association>, DatagramRuntimeError> {
     loop {
+        // Hot path: a read-locked lookup avoids write-lock acquisition
+        // for the common already-active case. The miss path re-checks
+        // under the write guard, so the optimistic read cannot admit a
+        // second setup owner.
+        if let Some(association) = state
+            .associations
+            .read()
+            .expect("datagram association registry")
+            .get(&client)
+            .and_then(AssociationSlot::active)
+        {
+            return Ok(association);
+        }
         let step = {
-            let mut associations = state.associations.lock().await;
+            let mut associations = state
+                .associations
+                .write()
+                .expect("datagram association registry");
             match associations.get(&client) {
                 Some(AssociationSlot::Active(association)) => return Ok(association.clone()),
                 Some(AssociationSlot::Starting { reservation }) if reservation.is_terminal() => {
@@ -593,7 +609,10 @@ async fn publish_association(
         hook.before_publish.pause().await;
     }
     let published = {
-        let mut associations = state.associations.lock().await;
+        let mut associations = state
+            .associations
+            .write()
+            .expect("datagram association registry");
         if same_reservation_slot(associations.get(&client), &reservation) {
             associations.insert(client, AssociationSlot::Active(association.clone()));
             reservation.transition(SetupOutcome::Published);
@@ -623,7 +642,10 @@ async fn abandon_starting(
     reservation: &Arc<StartingReservation>,
     retryable: bool,
 ) {
-    let mut associations = state.associations.lock().await;
+    let mut associations = state
+        .associations
+        .write()
+        .expect("datagram association registry");
     if same_reservation_slot(associations.get(&client), reservation) {
         associations.remove(&client);
     }
@@ -636,7 +658,10 @@ pub(crate) async fn drain_associations(
     retryable: bool,
 ) -> Vec<Arc<Association>> {
     let slots = {
-        let mut associations = state.associations.lock().await;
+        let mut associations = state
+            .associations
+            .write()
+            .expect("datagram association registry");
         let slots = associations
             .drain()
             .map(|(_, slot)| slot)
