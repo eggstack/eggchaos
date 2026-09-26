@@ -1,0 +1,18 @@
+{"format":2,"platform":"macos","arch":"aarch64","probes":[
+{"description":"Repeated LivePolicy::snapshot on a stable policy","iterations":200000,"name":"live_policy_snapshot_load_full","nanos_per_iter":4.937295}
+,
+{"description":"Generation compare followed by full snapshot on a generation change","iterations":200000,"name":"live_policy_generation_only_path","nanos_per_iter":4.458545}
+,
+{"iterations":1000,"name":"engine_build_stages_0","nanos_per_iter":104.542}
+,
+{"iterations":1000,"name":"engine_build_stages_4_latency","nanos_per_iter":358.958}
+,
+{"iterations":1000,"name":"engine_build_preserving_8k","nanos_per_iter":285.041}
+,
+{"iterations":1024,"name":"stream_loss_zero_engine_build","nanos_per_iter":243.85546875}
+,
+{"iterations":1024,"name":"stream_loss_full_engine_build","nanos_per_iter":238.76953125}
+,
+{"description":"Snap a live 4-stage policy and recompile a DirectionEngine from it","iterations":1000,"name":"live_4stage_engine_recompile","nanos_per_iter":263.209}
+]}
+

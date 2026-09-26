@@ -340,7 +340,7 @@ struct StreamLossConnState {
 
 /// Poll-driven ordered fault state machine.
 pub struct DirectionEngine {
-    plan: FaultPlan,
+    plan: Arc<FaultPlan>,
     direction: Direction,
     queue: VecDeque<Queued>,
     buffered: usize,
@@ -414,6 +414,30 @@ impl DirectionEngine {
     /// live-policy transition can never erase an already-due request.
     pub fn new_with_termination(
         plan: FaultPlan,
+        run_seed: u64,
+        proxy: &str,
+        connection_key: u64,
+        direction: Direction,
+        term_handle: TerminationHandle,
+    ) -> Result<Self, ValidationError> {
+        Self::new_with_arc_plan(
+            Arc::new(plan),
+            run_seed,
+            proxy,
+            connection_key,
+            direction,
+            term_handle,
+        )
+    }
+
+    /// Internal shared-plan constructor: clone the supplied
+    /// `Arc<FaultPlan>` instead of cloning the underlying `FaultPlan`.
+    /// Production callers that already hold an `Arc<FaultPlan>` (the
+    /// `LivePolicy` snapshot path in `ChaosStream::new_live`) reach this
+    /// directly; the legacy `FaultPlan`-accepting constructors wrap
+    /// their argument in a fresh `Arc` and forward here.
+    pub fn new_with_arc_plan(
+        plan: Arc<FaultPlan>,
         run_seed: u64,
         proxy: &str,
         connection_key: u64,
@@ -575,7 +599,7 @@ impl DirectionEngine {
             ..Default::default()
         };
         Self {
-            plan: FaultPlan::empty(),
+            plan: Arc::new(FaultPlan::empty()),
             direction: Direction::Upstream,
             queue: VecDeque::new(),
             buffered: 0,
@@ -605,6 +629,93 @@ impl DirectionEngine {
     /// True when no stage is configured.
     pub fn is_empty(&self) -> bool {
         self.plan.is_empty()
+    }
+
+    /// True when no configured stage discards accepted bytes.
+    ///
+    /// Blackhole and StreamLoss compositions switch into a destructive
+    /// path that may discard sub-ranges independent of the bounded queue,
+    /// so the vectored-write prefix optimization stays on the
+    /// scalar-join fallback for those plans. LimitData, Disconnect, and
+    /// SlowClose don't discard accepted bytes directly and remain
+    /// compatible with the prefix path; the bounded capacity/limit
+    /// check below naturally honors `LimitData` without code
+    /// duplication.
+    pub fn is_preserving_only(&self) -> bool {
+        self.plan.faults().iter().all(|fault| {
+            matches!(
+                fault.kind,
+                crate::FaultKind::Latency(_)
+                    | crate::FaultKind::Bandwidth(_)
+                    | crate::FaultKind::Slice(_)
+                    | crate::FaultKind::Disconnect(_)
+                    | crate::FaultKind::SlowClose(_)
+            )
+        })
+    }
+
+    /// Maximum prefix length the engine will own on the next `accept`
+    /// call, computed without mutation. Honours `LimitData` and the
+    /// live bounded queue capacity.
+    pub fn bounded_accept_capacity(&self) -> usize {
+        let limit_available = self
+            .remaining_limit
+            .as_ref()
+            .map(|(remaining, _)| *remaining)
+            .unwrap_or(u64::MAX);
+        let capacity = self.max_buffer.saturating_sub(self.buffered);
+        (limit_available as usize).min(capacity)
+    }
+
+    /// Accept a slice of `IoSlice` byte ranges, copying only the prefix
+    /// the engine is guaranteed to own on the next `accept` call.
+    ///
+    /// For preserving-only plans this avoids the existing full-vector
+    /// join whenever the bounded queue capacity is smaller than the
+    /// caller-supplied total; for plans containing a destructive stage
+    /// (Blackhole or StreamLoss) the engine requires the complete
+    /// joined buffer to honour its segmentation and RNG draws, so this
+    /// method falls back to a full join.
+    ///
+    /// The returned owned byte count is exactly what a scalar
+    /// `accept(joined)` over all `bufs` would return; the prefix-only
+    /// copy is observationally transparent for preserving plans.
+    pub fn accept_vectored(&mut self, bufs: &[std::io::IoSlice<'_>]) -> usize {
+        let total: usize = bufs.iter().map(|b| b.len()).sum();
+        if total == 0 {
+            // Mirror `accept`'s empty-input contract (always returns 0 on
+            // an empty buffer; termination/queue checks are owned by the
+            // outer ChaosStream paths that query them beforehand).
+            return 0;
+        }
+        if !self.is_preserving_only() {
+            // Conservative fallback: join everything so Blackhole /
+            // StreamLoss segmentation and RNG draws stay byte-for-byte
+            // identical with the scalar path.
+            let mut joined = Vec::with_capacity(total);
+            for buf in bufs {
+                joined.extend_from_slice(buf);
+            }
+            return self.accept(&joined);
+        }
+        let bounded = self.bounded_accept_capacity();
+        if bounded == 0 {
+            // Honor the empty-bound contract from `accept` without
+            // allocating a prefix copy.
+            return self.accept(&[]);
+        }
+        let take = total.min(bounded);
+        let mut joined = Vec::with_capacity(take);
+        let mut remaining = take;
+        for buf in bufs {
+            if remaining == 0 {
+                break;
+            }
+            let n = buf.len().min(remaining);
+            joined.extend_from_slice(&buf[..n]);
+            remaining -= n;
+        }
+        self.accept(&joined)
     }
 
     /// Borrow the compiled plan.
@@ -1749,6 +1860,106 @@ mod tests {
                     Some(TerminationRequest::Graceful)
                 );
             }
+        }
+
+        /// `accept_vectored` must agree with the scalar `accept`
+        /// reference for the preserving plan, in both total accepted
+        /// bytes and evidence counters. This is the WP7 correctness
+        /// contract.
+        #[test]
+        fn accept_vectored_matches_scalar_for_preserving_plans(
+            groups in prop::collection::vec(
+                prop::collection::vec(any::<u8>(), 1..64usize),
+                1..8usize,
+            )
+        ) {
+            let mut scalar = DirectionEngine::new(
+                preserving_plan(),
+                7,
+                "p",
+                1,
+                Direction::Upstream,
+            )
+            .unwrap();
+            let mut vectored = DirectionEngine::new(
+                preserving_plan(),
+                7,
+                "p",
+                1,
+                Direction::Upstream,
+            )
+            .unwrap();
+            // Build the joined scalar buffer + the matching vectored
+            // slices up front, then drive both engines side-by-side.
+            let mut joined = Vec::new();
+            let mut all_slices: Vec<std::io::IoSlice<'_>> = Vec::new();
+            for group in &groups {
+                for chunk in group {
+                    joined.push(*chunk);
+                    all_slices.push(std::io::IoSlice::new(std::slice::from_ref(chunk)));
+                }
+            }
+            let scalar_total = scalar.accept(&joined);
+            let vectored_total = vectored.accept_vectored(&all_slices);
+            prop_assert_eq!(scalar_total, vectored_total);
+            let ev_scalar = scalar.evidence();
+            let ev_vectored = vectored.evidence();
+            prop_assert_eq!(ev_scalar.bytes_accepted, ev_vectored.bytes_accepted);
+            prop_assert_eq!(ev_scalar.bytes_discarded, ev_vectored.bytes_discarded);
+            prop_assert_eq!(ev_scalar.segments, ev_vectored.segments);
+            prop_assert_eq!(ev_scalar.slices, ev_vectored.slices);
+            prop_assert_eq!(ev_scalar.activations, ev_vectored.activations);
+        }
+
+        /// Stream-loss plans must keep the reference semantics: scalar
+        /// and vectored must observe the same accepted bytes, dropped
+        /// chunks, and discarded bytes.
+        #[test]
+        fn accept_vectored_matches_scalar_for_stream_loss(
+            groups in prop::collection::vec(
+                prop::collection::vec(any::<u8>(), 1..24usize),
+                1..4usize,
+            )
+        ) {
+            let build = || {
+                let p = plan(vec![fault(
+                    "loss",
+                    FaultKind::StreamLoss(crate::StreamLossConfig {
+                        loss_rate: crate::Probability::new(0.3).unwrap(),
+                        correlation: crate::Probability::new(0.1).unwrap(),
+                    }),
+                )]);
+                DirectionEngine::new(p, 7, "p", 1, Direction::Upstream).unwrap()
+            };
+            let mut scalar = build();
+            let mut vectored = build();
+            let mut joined = Vec::new();
+            let mut all_slices: Vec<std::io::IoSlice<'_>> = Vec::new();
+            for group in &groups {
+                for chunk in group {
+                    joined.push(*chunk);
+                    all_slices.push(std::io::IoSlice::new(std::slice::from_ref(chunk)));
+                }
+            }
+            let scalar_total = scalar.accept(&joined);
+            let vectored_total = vectored.accept_vectored(&all_slices);
+            prop_assert_eq!(scalar_total, vectored_total);
+            prop_assert_eq!(
+                scalar.evidence().stream_loss_chunks_evaluated,
+                vectored.evidence().stream_loss_chunks_evaluated
+            );
+            prop_assert_eq!(
+                scalar.evidence().stream_loss_chunks_dropped,
+                vectored.evidence().stream_loss_chunks_dropped
+            );
+            prop_assert_eq!(
+                scalar.evidence().stream_loss_bytes_discarded,
+                vectored.evidence().stream_loss_bytes_discarded
+            );
+            prop_assert_eq!(
+                scalar.evidence().bytes_forwarded,
+                vectored.evidence().bytes_forwarded
+            );
         }
     }
 }

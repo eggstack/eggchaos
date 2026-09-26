@@ -356,12 +356,16 @@ impl<T> ChaosStream<T> {
     ) -> Result<Self, EngineError> {
         let proxy = proxy.as_ref().to_owned();
         let snapshot = policy.snapshot();
-        let engine = DirectionEngine::new(
-            (*snapshot.plan).clone(),
+        // Reuse the already-published `Arc<FaultPlan>` rather than cloning
+        // the underlying `FaultPlan`; this is the shared ownership the
+        // M043 WP3 production path asked for.
+        let engine = DirectionEngine::new_with_arc_plan(
+            snapshot.plan.clone(),
             snapshot.seed_namespace,
             &proxy,
             connection_key,
             direction,
+            TerminationHandle::new(),
         )?;
         let evidence = Arc::new(StreamEvidence::default());
         evidence.refresh_policy(&snapshot);
@@ -581,7 +585,9 @@ impl<T: AsyncWrite + Unpin> AsyncWrite for ChaosStream<T> {
         // Observe the live generation before the empty-engine fast path,
         // mirroring `poll_write`.
         if self.update_live(cx).is_pending() {
-            return Poll::Pending;
+            return Poll::Ready(Err(io::Error::other(
+                "ChaosStream::poll_write_vectored: live-policy update pending",
+            )));
         }
         if self.engine.is_empty() {
             match Pin::new(&mut self.inner).poll_write_vectored(cx, bufs) {
@@ -592,11 +598,45 @@ impl<T: AsyncWrite + Unpin> AsyncWrite for ChaosStream<T> {
                 other => return other,
             }
         }
-        let mut joined = Vec::new();
-        for buf in bufs {
-            joined.extend_from_slice(buf);
+        // Preserve the existing semantics for plans whose composition
+        // requires a full join (Blackhole / StreamLoss / LimitData)
+        // and only opt into the prefix-only copy when the plan is
+        // ordinary preserving. Poll_write handles the bookkeeping
+        // (pre-accept flush, termination check, post-accept flush,
+        // evidence mirroring) identically for both paths.
+        if !self.engine.is_preserving_only() {
+            let mut joined = Vec::new();
+            for buf in bufs {
+                joined.extend_from_slice(buf);
+            }
+            return self.as_mut().poll_write(cx, &joined);
         }
-        self.poll_write(cx, &joined)
+        // Direct prefix copy + accept via the engine's bounded path.
+        let bounded = self.engine.bounded_accept_capacity();
+        if bounded == 0 {
+            // Honor the empty-bound contract from `accept` without
+            // allocating a prefix copy. We still surface a Pending
+            // result so the caller retries after the release timer
+            // fires, matching `poll_write`'s empty / full branch.
+            return if self.engine.termination_request().is_some() && self.engine.queue_is_empty() {
+                Poll::Ready(Err(terminated_error(self.engine.termination_info())))
+            } else {
+                Poll::Pending
+            };
+        }
+        let total: usize = bufs.iter().map(|b| b.len()).sum();
+        let take = total.min(bounded);
+        let mut joined = Vec::with_capacity(take);
+        let mut remaining = take;
+        for buf in bufs {
+            if remaining == 0 {
+                break;
+            }
+            let n = buf.len().min(remaining);
+            joined.extend_from_slice(&buf[..n]);
+            remaining -= n;
+        }
+        self.as_mut().poll_write(cx, &joined)
     }
 }
 
@@ -625,8 +665,8 @@ impl<T: AsyncWrite + Unpin> ChaosStream<T> {
         // The termination handle is shared across the swap, so a due
         // termination request survives the transition (first wins).
         let handle = self.engine.termination_handle();
-        self.engine = DirectionEngine::new_with_termination(
-            (*snapshot.plan).clone(),
+        self.engine = DirectionEngine::new_with_arc_plan(
+            snapshot.plan.clone(),
             snapshot.seed_namespace,
             &self.proxy,
             self.connection_key,
@@ -811,19 +851,21 @@ impl<T: AsyncRead + AsyncWrite + Unpin> BidirectionalChaosStream<T> {
         downstream_evidence.refresh_policy(&downstream_snapshot);
         Ok(Self {
             inner,
-            upstream: DirectionEngine::new(
-                (*upstream_snapshot.plan).clone(),
+            upstream: DirectionEngine::new_with_arc_plan(
+                upstream_snapshot.plan.clone(),
                 upstream_snapshot.seed_namespace,
                 &proxy,
                 connection_key,
                 Direction::Upstream,
+                TerminationHandle::new(),
             )?,
-            downstream: DirectionEngine::new(
-                (*downstream_snapshot.plan).clone(),
+            downstream: DirectionEngine::new_with_arc_plan(
+                downstream_snapshot.plan.clone(),
                 downstream_snapshot.seed_namespace,
                 &proxy,
                 connection_key,
                 Direction::Downstream,
+                TerminationHandle::new(),
             )?,
             output: VecDeque::new(),
             upstream_policy: Some(upstream),
@@ -938,8 +980,8 @@ impl<T: AsyncRead + AsyncWrite + Unpin> BidirectionalChaosStream<T> {
                     return Poll::Pending;
                 }
                 let handle = self.upstream.termination_handle();
-                self.upstream = DirectionEngine::new_with_termination(
-                    (*snapshot.plan).clone(),
+                self.upstream = DirectionEngine::new_with_arc_plan(
+                    snapshot.plan.clone(),
                     snapshot.seed_namespace,
                     &self.proxy,
                     self.connection_key,
@@ -976,8 +1018,8 @@ impl<T: AsyncRead + AsyncWrite + Unpin> BidirectionalChaosStream<T> {
                     return Poll::Pending;
                 }
                 let handle = self.downstream.termination_handle();
-                self.downstream = DirectionEngine::new_with_termination(
-                    (*snapshot.plan).clone(),
+                self.downstream = DirectionEngine::new_with_arc_plan(
+                    snapshot.plan.clone(),
                     snapshot.seed_namespace,
                     &self.proxy,
                     self.connection_key,
