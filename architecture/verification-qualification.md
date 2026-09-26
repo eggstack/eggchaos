@@ -1,10 +1,13 @@
 # Verification and qualification
 
-Part of [Eggchaos architecture overview](overview.md) (item 7). Evidence-first
-review handoff for how eggchaos proves correctness. Canonical contracts live in
+Part of [Eggchaos architecture overview](overview.md) (item 9). Evidence-first
+review handoff for how eggchaos proves correctness at HEAD (M041 closed;
+exact implementation candidate `724b967`). Canonical contracts live in
 `plans/reference/verification-matrix.md` and
 `qualification/toxiproxy-v2-12/oracle-baseline-v2.12.0.md`; canonical status
-lives in `plans/registry.md` and `plans/closure/`. Do not assert by inspection:
+lives in `plans/registry.md` and `plans/closure/` (latest:
+`plans/closure/M041-stream-loss-metrics-and-closure-hygiene-corrective-closure.md`).
+Do not assert by inspection:
 if a gate was not run, record it as incomplete (see §8).
 
 ## 1. Test layers (what runs where)
@@ -18,27 +21,37 @@ if a gate was not run, record it as incomplete (see §8).
   boundary, finite-blackhole prefix + termination, deterministic-state replay
   (`identical_inputs_give_identical_deterministic_state`), namespace-varying
   decisions with replay.
-- `crates/eggchaos-core/src/stream.rs` (`mod tests`, all
-  `#[tokio::test(start_paused = true)]`): latency bounded + flushable,
-  queue backpressure at capacity + wake, flush/shutdown while queued.
+- `crates/eggchaos-core/src/stream.rs` (`mod tests`: 28 tests, mixed
+  `#[tokio::test]` and `#[tokio::test(start_paused = true)]` — paused only
+  where the fault owns the clock): latency bounded + flushable,
+  queue backpressure at capacity + wake, flush/shutdown while queued,
+  empty-plan transparency/delegation, live generation engagement.
+- `crates/eggchaos-core/tests/stream_loss.rs` (29 tests, ADR 007) plus
+  `crates/eggchaos-core/tests/datagram_golden.rs` (numbered datagram traces):
+  integration-level stream-loss grain/correlation/composition goldens live
+  outside `src/` alongside the datagram golden corpus.
 - `crates/eggchaos-core/src/plan.rs`, `policy.rs`, `rng.rs`: validation,
   generation publication, seed derivation (see §2).
-- `crates/eggchaos-server/src/runtime.rs`, `admin.rs`, `scenario.rs`,
-  `config.rs`: relay embedding, admission limits, control authority,
-  scenario driver, schema-v1 TOML compile-through-validation
-  (`config.rs:132`).
-- `crates/eggchaos-toxiproxy/src/lib.rs` (translation unit tests, 10 in
-  M008/M015 census) and `crates/eggchaos-eggfetch/src/lib.rs` (adapter lib
-  tests, 3): translator-only behavior; every view derives from
+- `crates/eggchaos-server/src/runtime/` (`tests.rs`: 37 TCP/runtime tests),
+  `runtime/datagram/tests.rs` (20 UDP association tests), `admin.rs`,
+  `config.rs`, `native.rs`: relay embedding, admission limits, control
+  authority, schema-v1 TOML compile-through-validation
+  (`config.rs:183-290`, `compile_proxies`).
+- `crates/eggchaos-toxiproxy/src/lib.rs` (translation unit tests, 15 at
+  M041 — the M008/M015 census of 10 is superseded) and
+  `crates/eggchaos-eggfetch/src/tests.rs` (adapter unit tests, 20 since
+  M029): translator-only behavior; every view derives from
   `ControlState`.
 
 ### Property: proptest byte conservation
 
-- `crates/eggchaos-core/src/engine.rs:1349-1369`
-  (`preserving_accept_conserves_bytes`, `ProptestConfig::with_cases(64)`):
-  random fragments through a preserving combination
-  (latency + bandwidth + slice) must conserve bytes;
-  `bytes_accepted` equals the fragment total.
+- `crates/eggchaos-core/src/engine.rs` (`proptest!` block,
+  `ProptestConfig::with_cases(64)` at `engine.rs:1695`):
+  `preserving_accept_conserves_bytes` (`engine.rs:1698`) runs random
+  fragments through a preserving combination
+  (latency + bandwidth + slice) and requires byte conservation;
+  `bytes_accepted` equals the fragment total. `limit_data_accepts_exact_prefix`
+  (`engine.rs:1721`) pins the exact N-byte boundary under fragmentation.
 - Rule from `plans/reference/verification-matrix.md` §9: property tests
   emphasize byte conservation for preserving fault combinations. Non-preserving
   faults (blackhole discard accounting, limit-data prefix, disconnect
@@ -49,8 +62,10 @@ if a gate was not run, record it as incomplete (see §8).
 - Core: `stream.rs` flush-as-delivery-barrier, preserving buffers resolve
   before close, slow-close delay honored, runtime cancellation can still
   terminate (`verification-matrix.md` §1).
-- Runtime: `crates/eggchaos-server/src/runtime.rs` half-close policy
-  (`HalfClosePolicy::Drain`, `half_close` field ~`runtime.rs:769-783,2157-2194`),
+- Runtime: TCP half-close policy (`HalfClosePolicy::Drain` default in
+  `crates/eggchaos-server/src/runtime/mod.rs:199-214`, per-connection state
+  in `runtime/connection.rs:324-425`, admission in
+  `runtime/supervisor.rs:147`),
   `eggress-testkit` fixtures where suitable (echo, request half-close then
   response, target half-close, fragmented writes, slow reader/writer —
   `verification-matrix.md` §3). `eggress-relay` remains the relay authority;
@@ -61,7 +76,7 @@ if a gate was not run, record it as incomplete (see §8).
 
 ### Bounded-buffer / backpressure
 
-- `stream.rs:1022-1032`
+- `stream.rs:1374`
   (`latency_queue_backpressures_at_capacity_and_wakes`): bounded queue reaches
   cap, returns pending, wakes, resumes without duplication/loss.
 - `engine.rs` capacity surface (`capacity_bytes`, `bytes currently owned in
@@ -72,14 +87,18 @@ if a gate was not run, record it as incomplete (see §8).
 
 ### RNG golden vectors
 
-- `crates/eggchaos-core/src/rng.rs:106-124`:
-  `golden_vectors_are_stable` (`DeterministicRng::new(42)` →
+- `crates/eggchaos-core/src/rng.rs` (`mod tests` at `rng.rs:169-243`):
+  `golden_vectors_are_stable` (`rng.rs:175`: `DeterministicRng::new(42)` →
   `2949826092126892291`, `5139283748462763858`; `derive_seed(42,"proxy",7,…)` →
-  `11882912530514077282`) and
-  `policy_seed_derivation_is_stable_and_sensitive`
-  (`derive_policy_seed(7,1,0/1)`, `(8,1,0)` vectors + sensitivity).
-- `engine.rs:1118-1141`, `1244-1280`: namespace-varying probabilistic
-  decisions reproduce on replay; identical inputs give identical state.
+  `11882912530514077282`),
+  `policy_seed_derivation_is_stable_and_sensitive` (`rng.rs:187`:
+  `derive_policy_seed(7,1,0/1)`, `(8,1,0)` vectors + sensitivity), and
+  `schedule_policy_seed_derivation_is_stable_and_sensitive` (`rng.rs:196`:
+  v2 `(seed, execution_key, schedule_fingerprint, compiled_event_index)`
+  vectors plus per-axis sensitivity and frozen v1 vectors).
+- `engine.rs:1464-1590`: namespace-varying probabilistic
+  decisions reproduce on replay (`seed_namespace_changes_…`,
+  `identical_inputs_give_identical_deterministic_state`).
 - `verification-matrix.md` §7: commit goldens for seed derivation, Bernoulli
   decisions, jitter values, slice sizes, scenario ordering, evidence
   serialization; rerun with scheduling noise and verify decisions identical.
@@ -97,10 +116,13 @@ if a gate was not run, record it as incomplete (see §8).
   unknown proxy/fault/connection, duplicate create, generation-conflict CAS,
   concurrent reads during mutation, reset, health/readiness, auth, loopback
   default + non-loopback opt-in.
-- CLI (`crates/eggchaos-cli/tests/cli_e2e.rs`, 1 test
-  `cli_json_create_fault_kill_reset_end_to_end`): `--json` valid JSON on
-  success and failure, nonzero exits, no ANSI in JSON, config parse errors,
-  admin-unavailable, auth redaction.
+- CLI (`crates/eggchaos-cli/tests/cli_e2e.rs`, 4 tests:
+  `cli_json_create_fault_kill_reset_end_to_end`,
+  `cli_authenticates_and_round_trips_opaque_fault_ids`,
+  `datagram_cli_is_json_first_and_uses_native_routes`,
+  `cli_scenario_v2_validate_compile_apply_json_and_toml`): `--json` valid
+  JSON on success and failure, nonzero exits, no ANSI in JSON, config parse
+  errors, admin-unavailable, auth redaction.
 - Config: `qualification/release/eggchaos.toml` (schema-v1 seed + admin bind
   + `smoke` proxy) is the release-smoke fixture consumed by
   `scripts/release-artifact-smoke.sh`.
@@ -115,8 +137,8 @@ if a gate was not run, record it as incomplete (see §8).
   (`toxiproxy_v212_differential`): same API + data-plane sequences against
   oracle (`TOXIPROXY_SERVER`, port `18747`) and in-process compat server.
   Historical M015 evidence was 47 passed / 0 failed on `cd88b22`; the current
-  strict corpus is 50 passed / 0 failed on the corrective qualification
-  candidate with 4 declared
+  strict corpus is 50 passed / 0 failed on the M041 exact candidate
+  `724b967` (M041 closure § "Local exact-candidate evidence") with 4 declared
   normalizations only: disjoint-bind `listen` replacement (concrete ports
   asserted per server), f64 number canonicalization (Go `1` vs `1.0`),
   toxicity clamp into `[0,1]`, degenerate-zero `rate`/`average_size`/`bytes`
@@ -172,11 +194,14 @@ if a gate was not run, record it as incomplete (see §8).
 
 ### CLI e2e
 
-- `crates/eggchaos-cli/tests/cli_e2e.rs` (sole integration test file for the
-  CLI crate): boots `NativeAdmin` + echo origin, drives the real `eggchaos`
-  binary (`CARGO_BIN_EXE_eggchaos`) through proxy add → fault add (latency
-  50 ms downstream) → live-connection kill → reset → unknown-name nonzero
-  exit, all over `--json` with parsed-body assertions.
+- `crates/eggchaos-cli/tests/cli_e2e.rs` (integration test file for the
+  CLI crate, 4 tests): boots `NativeAdmin` + echo origin, drives the real
+  `eggchaos` binary (`CARGO_BIN_EXE_eggchaos`) through proxy add → fault
+  add (latency 50 ms downstream) → live-connection kill → reset →
+  unknown-name nonzero exit, all over `--json` with parsed-body
+  assertions; plus opaque-fault-ID auth round-trip, JSON-first datagram
+  CLI over native routes, and scenario-v2 validate/compile/apply
+  (JSON + TOML).
 
 ### Eggfetch regression (H1/H2)
 
@@ -205,8 +230,11 @@ if a gate was not run, record it as incomplete (see §8).
   compile/prepare/start overhead for small and 1024-event schedules.
 - Gate: `scripts/qualify_eggfetch.sh` runs
   `cargo test -p eggchaos-eggfetch --all-features` plus
-  `cargo test -p eggchaos-server --all-features` (M015: adapter 3 +
-  regression 10 + server 37 + toxiproxy 10, all pass).
+  `cargo test -p eggchaos-server --all-features`. Current census at HEAD:
+  eggfetch adapter unit 20 + regression 10 + overhead 3 + correlation 1,
+  server lib 137, toxiproxy translation 15 (the older
+  "adapter 3 + regression 10 + server 37 + toxiproxy 10" line was the M015
+  census and is superseded).
 
 ### Integration-boundary and experiment harness (M029–M031)
 
@@ -223,6 +251,11 @@ if a gate was not run, record it as incomplete (see §8).
   produce equivalent event/generation outcomes for the stream subset;
   datagram actions fail explicitly on the stream-only target while the
   server applies them.
+- Server scenario-v2 census at HEAD: 61 in-`src` tests
+  (`scenario_v2/tests.rs` 31 + `runtime_tests.rs` 24 +
+  `conformance_tests.rs` 3 + `property_tests.rs` 3) plus 2
+  `tests/schedule_corpus.rs` integration tests over the frozen corpus
+  fixtures in `tests/schedule_corpus/`.
 - Golden Scenario V2 corpus (`schedule_corpus`, M026/M028) runs
   unchanged against the extracted `eggchaos-experiment` authority via
   server re-exports; fingerprints and namespace vectors are frozen.
@@ -246,6 +279,10 @@ if a gate was not run, record it as incomplete (see §8).
   `scripts/qualify_language_clients.sh` (loopback servers, equivalent
   sync/async/TS flows, sdist/wheel + tarball builds). Hosted matrix:
   `[ubuntu-latest, macos-latest] × python 3.11/3.12 × node 20/22`.
+  The `language-clients` CI job additionally pins both server-spawning
+  regressions: `scripts/tests/test_cleanup_traps.sh` and the M041
+  `scripts/tests/test_fetch_toxiproxy_post_v2_12_contract.sh` (fetcher
+  stdout contract, end-to-end whenever a cached oracle exists).
 - Cleanup hygiene (M035): both server-spawning qualification scripts
   use status-preserving child cleanup (captured status, `set +e` in
   cleanup, guarded `wait` reaping so expected SIGTERM never leaks exit
@@ -291,6 +328,12 @@ if a gate was not run, record it as incomplete (see §8).
   `qualification/performance/2026-09-22-macos-arm64-m008.json` (candidate
   `645a761`, Mac16,8 M4 Pro, 64 MiB/5 rounds, host block + per-case
   mean/throughput/samples + frozen budget).
+  Datagram snapshots: `2026-09-24-macos-arm64-m023.json` (M023 floor),
+  `2026-09-24-macos-arm64-m024-before.json` /
+  `2026-09-24-macos-arm64-m024-after.json` (M024 topology-matched pair),
+  `2026-09-24-macos-arm64-m025.json` (candidate `55911f6`, M025 close).
+  `qualification/m040/` holds the M040 attempt/load-contaminated datagram
+  benchmarks plus the post-v2.12 exact log/oracle record for `48fe0dd`.
 - Budget (frozen M008, rechecked M015): empty-plan mean throughput ≥ 70% of
   same-session bare relay; deliberate-fault delay excluded; absolute numbers
   host-specific, ratio is the gate (M008 0.982; M015 sanity 0.821 ≥ 0.70).
@@ -299,8 +342,9 @@ if a gate was not run, record it as incomplete (see §8).
 
 - Deterministic first: use `#[tokio::test(start_paused = true)]` +
   `tokio::time::advance(...)` wherever the fault owns the clock
-  (`stream.rs` latency/backpressure/flush/shutdown tests; bandwidth
-  paused-time tests per `verification-matrix.md` §2).
+  (latency/backpressure/flush/shutdown/bandwidth paused-time tests per
+  `verification-matrix.md` §2; `stream.rs` uses 8 paused tests out of 26
+  `#[tokio::test]`s — plain `#[tokio::test]` where no clock is owned).
 - Wall-clock assertions require a justified tolerance window and are never
   the sole evidence. Examples of the allowed pattern:
   - differential data-plane: latency byte preservation is exact; delay is
@@ -316,27 +360,47 @@ if a gate was not run, record it as incomplete (see §8).
 
 ## 3. Fuzz
 
-- Target: `fuzz/fuzz_targets/plan_json.rs` — arbitrary bytes →
-  `serde_json::from_slice::<FaultPlan>` → `validate()` → serialize →
-  re-parse → `assert_eq!`. Catches parser/validator/round-trip panics and
-  divergence.
+- Targets (9, all run by `scripts/qualify_fuzz.sh`; the target map in
+  `plans/reference/verification-matrix.md` §9 covers the original six —
+  `plan_json`, `native_config`, `native_control_json`,
+  `fault_evidence_json`, `policy_transitions`, `toxiproxy_attributes` —
+  and HEAD adds `datagram_plan_json`, `datagram_transitions`, and
+  `scenario_v2` under `fuzz/fuzz_targets/`):
+  - `plan_json` — arbitrary bytes →
+    `serde_json::from_slice::<FaultPlan>` → `validate()` → serialize →
+    re-parse → `assert_eq!`. Catches parser/validator/round-trip panics and
+    divergence.
+  - `datagram_plan_json`, `datagram_transitions` — whole-datagram plan
+    JSON and transition/accounting bounds. `datagram_transitions`
+    reconciles emitted, queued, configured loss, explicit overflow,
+    oversize, and duplicated candidates.
+  - `native_config` — schema-v1 TOML parse and typed proxy compilation.
+  - `native_control_json` — native v1 DTO parse, semantic validation, and
+    serialization round-trip.
+  - `fault_evidence_json` — fault plan, active snapshot, and
+    closed-connection evidence serialization (incl. association evidence
+    round-trips).
+  - `policy_transitions` — deterministic publication generations and
+    stale-base conflict sequences.
+  - `toxiproxy_attributes` — toxic attribute parse and compatibility
+    conversion normalization.
+  - `scenario_v2` — schedule source parse/compile surface.
 - Manifest: `fuzz/Cargo.toml` (`eggchaos-fuzz`, `cargo-fuzz = true`,
   deps `eggchaos-core`, `libfuzzer-sys 0.4`, `serde_json 1`, standalone
   `[workspace]`).
-- Corpus: `fuzz/corpus/plan_json/seed.json` (`{"faults":[]}`) is the only
-  tracked seed; run-generated byproducts are removed. Artifacts:
-  `fuzz/artifacts/` must be empty on a clean gate (M015: empty, 0 crashes).
+- Corpus: 19 tracked seeds under `fuzz/corpus/*/` (`git ls-files`;
+  e.g. `plan_json/seed.json` (`{"faults":[]}`), per-target TOML/JSON
+  fixtures); run-generated byproducts are untracked and removed.
+  Artifacts: `fuzz/artifacts/` holds one empty per-target dir on a clean
+  gate (0 files at HEAD; M015: empty, 0 crashes).
 - Gate: `scripts/qualify_fuzz.sh`
   (`EGGCHAOS_FUZZ_RUNS` default 10000;
-  `cargo fuzz run plan_json --sanitizer none -- -runs=…`; prints
-  `{"fuzz":"pass","target":"plan_json"}`). Release workflow installs
+  `cargo fuzz run <target> --sanitizer none -- -runs=…` per target; prints
+  one `{"fuzz":"pass","target":"…"}` line each plus a final
+  `{"fuzz":"pass","targets":9}`). Release workflow installs
   `cargo-fuzz 0.13.2` under current stable (1.89.0 cannot compile its
   transitive `cargo-platform@0.3.3`) but drives the target under pinned
   1.89.0 — see `.github/workflows/release.yml`.
-- Datagram fuzz targets cover plan JSON, transition/accounting bounds, datagram
-  DTOs, schema-v1 TOML compilation, and association evidence round-trips.
-  `datagram_transitions` reconciles emitted, queued, configured loss, explicit
-  overflow, oversize, and duplicated candidates.
 
 ## 4. Benchmarks + qualification snapshots
 
@@ -344,35 +408,45 @@ if a gate was not run, record it as incomplete (see §8).
 | --- | --- | --- |
 | Harness + cases | `benchmarks/src/main.rs`, `benchmarks/src/bin/datagram.rs`, `benchmarks/Cargo.toml`, `scripts/benchmark.sh`, `scripts/benchmark_datagram.sh` | Stream cases plus direct UDP, benchmark-local bare fixed-target relay, fixed-target empty plan, sequential-RTT and windowed-throughput modes, core-only scheduler depth probes, individual/combined datagram faults, and multi-client workload |
 | Method README | `qualification/performance/README.md` | Topology-matched bare relay isolates proxy-hop cost from engine overhead; sequential RTT and windowed throughput are separate measurements; fault delay excluded from overhead |
-| Snapshots | `qualification/performance/2026-09-22-macos-arm64.json`, `...-m008.json`, `2026-09-24-macos-arm64-m023.json`, `2026-09-24-macos-arm64-m024-before.json`, `2026-09-24-macos-arm64-m024-after.json` | Host block (OS/model/CPU/Rust/profile), candidate SHA, method, results, and budget |
+| Snapshots | `qualification/performance/2026-09-22-macos-arm64.json`, `...-m008.json`, `2026-09-24-macos-arm64-m023.json`, `2026-09-24-macos-arm64-m024-before.json`, `2026-09-24-macos-arm64-m024-after.json`, `2026-09-24-macos-arm64-m025.json` (+ `qualification/m040/` attempt/contaminated evidence) | Host block (OS/model/CPU/Rust/profile), candidate SHA, method, results, and budget |
 | Budget | `...-m008.json:budget`; `2026-09-24-macos-arm64-m023.json`; M024 matched budget in `scripts/benchmark_datagram.sh` | Stream `empty_plan ≥ 70% of same-session bare relay`; datagram `≥45%` of direct UDP throughput and `≤2.5×` direct p95 latency (retained M023 floor); M024 topology-matched empty/bare `≥0.7×` sequential throughput, `≤1.6×` sequential p95, `≥0.7×` windowed throughput |
 | Release TOML | `qualification/release/eggchaos.toml` | Artifact-smoke fixture (seed 7, loopback admin, TCP `smoke` and UDP `udp-smoke` proxies) |
 | Oracle baseline | `qualification/toxiproxy-v2-12/oracle-baseline-v2.12.0.md` | Live-captured 2026-09-22: identity, routes, reset/populate, 7 toxic defaults, non-API 404s |
 | Client smokes | `qualification/toxiproxy-v2-12/client-smoke/{go/,py_smoke.py,*_results.json}` | Pinned Go client + stdlib Python; rerun fresh per qualification |
 
-## 5. CI matrix + release workflow evidence (M015 exact-HEAD)
+## 5. CI matrix + release workflow evidence (M041 exact-HEAD)
 
-- Ordinary CI (`.github/workflows/ci.yml`): `ubuntu-latest`,
-  `macos-latest`, `windows-latest`; `timeout-minutes: 25`; toolchain
-  `1.89.0` + `rustfmt,clippy`; `cargo fmt --all -- --check`, `cargo clippy
+- Ordinary CI (`.github/workflows/ci.yml`, `check` job): `ubuntu-latest`,
+  `macos-latest`, `windows-latest`; `timeout-minutes: 25`;
+  `RUST_TEST_THREADS=4`; toolchain `1.89.0` + `rustfmt,clippy`;
+  `cargo fmt --all -- --check`, `cargo clippy
   --workspace --all-targets --all-features -- -D warnings`,
   `cargo test --workspace --all-features`,
+  IPv6 datagram loopback qualification with visible capability result
+  (`runtime::datagram::tests::ipv6_loopback_works_when_host_capability_is_available
+  -- --exact --nocapture`),
   `cargo doc --workspace --all-features --no-deps`,
   `cargo audit --deny warnings`,
   `cargo deny check advisories licenses bans sources`.
-  M015: run `35810065730` on `cd88b22`, all three platforms green.
 - Hosted SDK/native gates (`.github/workflows/ci.yml`): job
   `language-clients` (`[ubuntu-latest, macos-latest] × python
-  3.11/3.12 × node 20/22`: cleanup-trap regression, OpenAPI drift,
-  Python/TS checks, live cross-language qualification) and job
+  3.11/3.12 × node 20/22`: cleanup-trap regression, fetcher-contract
+  regression (`test_fetch_toxiproxy_post_v2_12_contract.sh`), OpenAPI
+  drift, Python/TS checks, live cross-language qualification) and job
   `python-native` (M035; `[ubuntu-latest, macos-latest] × python
   3.12` with `maturin==1.9.5`: embed/binding checks plus
-  remote/native conformance on native-host wheels). M035 closure
-  records the exact-candidate run IDs/URLs for the full matrix.
+  remote/native conformance on native-host wheels).
+- M041 exact-head hosted qualification: GitHub Actions run
+  [36219464594](https://github.com/eggstack/eggchaos/actions/runs/36219464594)
+  on candidate `724b967`, conclusion `success` — 13/13 jobs green
+  (3 `check` + 8 `language-clients` + 2 `python-native`; see the M041
+  closure § "Exact-head hosted qualification"). The older M015 runs
+  (`35810065730`, `35810310455` on `cd88b22`) are historical.
 - Release qualification (`.github/workflows/release.yml`, `workflow_dispatch`
   + `v*.*.*` tags): `qualify` job on ubuntu (`timeout-minutes: 60`:
-  `release-smoke.sh` → fuzz 10k → toxiproxy qualify → eggfetch qualify →
-  artifact smoke) plus `artifacts` matrix (`timeout-minutes: 45`) over 5
+  `release-smoke.sh` → `benchmark_datagram.sh` → fuzz 10k → toxiproxy
+  qualify → eggfetch qualify → artifact smoke) plus `artifacts` matrix
+  (`timeout-minutes: 45`) over 5
   targets: `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`
   (cross-linker `aarch64-linux-gnu-gcc`), `x86_64-apple-darwin` (cross-built
   on `macos-14`; `macos-13` Intel retired), `aarch64-apple-darwin`,
@@ -400,10 +474,13 @@ cargo deny check advisories licenses bans sources
 EGGCHAOS_FUZZ_RUNS=10000 ./scripts/qualify_fuzz.sh
 ./scripts/qualify_toxiproxy_v2_12.sh
 TOXIPROXY_SERVER=/path/to/pinned/v2.12.0 ./scripts/qualify_toxiproxy_v2_12.sh
+./scripts/qualify_toxiproxy_post_v2_12.sh
+TOXIPROXY_POST_V2_12_SERVER="$(./scripts/fetch_toxiproxy_post_v2_12.sh --path-only)" EGGCHAOS_REQUIRE_POST_V2_12_ORACLE=1 ./scripts/qualify_toxiproxy_post_v2_12.sh
 ./scripts/qualify_eggfetch.sh
 ./scripts/release-smoke.sh
 ./scripts/release-artifact-smoke.sh
 sh scripts/tests/test_cleanup_traps.sh
+sh scripts/tests/test_fetch_toxiproxy_post_v2_12_contract.sh
 ./scripts/check_openapi.sh
 ./scripts/check_python_client.sh
 ./scripts/check_typescript_client.sh
@@ -413,14 +490,28 @@ sh scripts/tests/test_cleanup_traps.sh
 ./scripts/benchmark_datagram.sh
 ```
 
-Integration-test files (via `crates/*/tests/*` glob): exactly
+Integration-test files (via `crates/*/tests/*` glob) at HEAD:
 
-- `crates/eggchaos-cli/tests/cli_e2e.rs`,
-- `crates/eggchaos-toxiproxy/tests/differential.rs`,
-- `crates/eggchaos-eggfetch/tests/regression.rs`.
+- `crates/eggchaos-cli/tests/cli_e2e.rs` (4 CLI e2e tests),
+- `crates/eggchaos-core/tests/datagram_golden.rs` (numbered datagram traces),
+- `crates/eggchaos-core/tests/stream_loss.rs` (29 ADR 007 stream-loss tests),
+- `crates/eggchaos-eggfetch/tests/regression.rs` (10),
+- `crates/eggchaos-eggfetch/tests/adapter_overhead.rs` (3),
+- `crates/eggchaos-eggfetch/tests/correlation.rs` (1 cross-layer test),
+- `crates/eggchaos-embed/tests/facade.rs` (10 facade tests),
+- `crates/eggchaos-protocol/tests/contract_drift.rs`,
+- `crates/eggchaos-protocol/tests/golden.rs`,
+- `crates/eggchaos-server/tests/native_route_inventory.rs` (36-operation inventory proof),
+- `crates/eggchaos-server/tests/schedule_corpus.rs` (2),
+- `crates/eggchaos-toxiproxy/tests/differential.rs`
+  (`toxiproxy_v212_differential`, strict 50-case corpus),
+- `crates/eggchaos-toxiproxy/tests/post_v212_differential.rs`
+  (`post_v212_packet_loss_differential`, snapshot profile only).
 
-Everything else is unit tests inside `crates/*/src/` plus the external
-`fuzz/`, `benchmarks/`, `qualification/`, `scripts/` gates above.
+Everything else is unit tests inside `crates/*/src/` (server lib 137,
+scenario-v2 in-`src` 61, experiment 23, toxiproxy translation 15,
+eggfetch adapter unit 20, core stream 28 / engine 11 / rng 3) plus the
+external `fuzz/`, `benchmarks/`, `qualification/`, `scripts/` gates above.
 
 ## 7. Incomplete-evidence rule
 
@@ -430,10 +521,12 @@ never replace missing execution with "the code looks correct." A blocked
 milestone names the dependency; a closed milestone points at the closure
 record or exact verification evidence.
 
-Concrete applications: developer mode of the Toxiproxy qualify script and
-`differential.rs` report `incomplete` without a verified pinned `2.12.0`
-binary. Release mode is strict and fails unless the architecture-specific
-SHA-256 and version pass and a clean differential summary is emitted.
+Concrete applications: developer mode of the Toxiproxy qualify scripts
+(`qualify_toxiproxy_v2_12.sh`, `qualify_toxiproxy_post_v2_12.sh`) and the
+differential tests report `incomplete` without a verified pinned binary
+(`2.12.0` / `40f7fd31` source-build respectively). Release/mandatory modes
+are strict and fail unless the architecture-specific SHA-256 and version
+pass and a clean differential summary is emitted.
 Bandwidth/slicer/slow_close now have oracle-backed byte and tolerance-based
 timing cases; the recorded measurements and intentional timing limits are in
 `plans/reference/toxiproxy-parity.md`. Foreign-arch artifact execution smoke
@@ -448,11 +541,16 @@ registry transition, next activation).
    green on the exact candidate? (`scripts/check.sh` is the short form.)
 2. Audit + deny green? Any new `git` source in `Cargo.lock`?
 3. Differential: pinned `2.12.0` SHA matches baseline? 50/50 with only the 4
-   declared normalizations? Transcript (`/tmp/qualify_m012.log`) attached?
+   declared normalizations? `DIFFERENTIAL_SUMMARY … "failed":0` observed in
+   the qualify transcript (the script uses a `mktemp` log, `cat`s it, then
+   greps the summary — there is no fixed `/tmp/qualify_m012.log` path)?
+   Post-v2.12 raw summary retained at `/tmp/post-v212.log`?
 4. Client smokes rerun fresh against the candidate compat server (Go 13,
    Python 12 steps, 0 failed)? Transcripts kept?
-5. Fuzz 10k pass, `fuzz/artifacts/` empty, only tracked corpus retained?
-6. Eggfetch qualify pass (adapter 3 + regression 10 + server suites)?
+5. Fuzz 10k pass on all 9 targets, `fuzz/artifacts/` holds no crash files
+   (per-target dirs empty), only the 19 tracked `fuzz/corpus/*/` seeds retained?
+6. Eggfetch qualify pass (adapter unit 20 + regression 10 + overhead 3 +
+   correlation 1 + server lib 137)?
 7. Benchmark ratio ≥ 0.70 same-session (fault delay excluded)? Host block +
    raw JSON recorded under `qualification/performance/`?
 8. Every wall-clock assertion paired with an exact assertion (bytes/status/
