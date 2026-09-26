@@ -147,11 +147,11 @@ if a gate was not run, record it as incomplete (see §8).
   preserved all 131,072 bytes; full loss forwarded zero bytes.
 - Intermediate comparator: 256 fresh connections, one 32 KiB probe each,
   `loss_rate=0.25`, predeclared drop interval `0.10..=0.40`; latest dropped
-  counts were oracle 54/256 and Eggchaos 69/256, with partial outcomes recorded.
+  counts were oracle 71/256 and Eggchaos 69/256, with no partial outcomes.
 - Correlation comparator: 512 uniquely tagged 32 KiB probes on one persistent
   connection, `loss_rate=0.20`, `correlation=0.50`, at least 50 observations
   per predecessor bucket and a predeclared conditional gap floor of `0.20`;
-  latest gaps were oracle 0.6766 and Eggchaos 0.5204. These comparators assert
+  latest gaps were oracle 0.4720 and Eggchaos 0.5136. These comparators assert
   intent-compatible distributions, not exact RNG draws or upstream chunk
   boundaries. Raw `DIFFERENTIAL_SUMMARY` is retained at `/tmp/post-v212.log`.
 

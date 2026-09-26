@@ -295,8 +295,8 @@ data-plane edges, a 256-probe `loss_rate=0.25` comparator with frozen
 `0.10..=0.40` drop-fraction bounds, and a 512-probe `loss_rate=0.20`,
 `correlation=0.50` conditional-gap comparator with 50-observation minimum
 conditioning buckets and a `0.20` gap floor. The latest mandatory run recorded
-oracle/Eggchaos intermediate drops of 54/256 and 69/256, and conditional gaps
-of 0.6766/0.5204. These are intent-compatible stochastic results, not exact
+oracle/Eggchaos intermediate drops of 71/256 and 69/256, and conditional gaps
+of 0.4720/0.5136. These are intent-compatible stochastic results, not exact
 RNG/chunk-sequence equivalence. See the M040 closure for the exact candidate
 and raw qualification output.
 
