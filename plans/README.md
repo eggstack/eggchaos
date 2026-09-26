@@ -112,12 +112,17 @@ historical-evidence defect: newly generated benchmark artifacts can still repeat
 the same ambiguity. Datagram evidence stamps only `git rev-parse HEAD`, so a
 dirty run names its base commit; stream/probe JSON carries no Git provenance.
 
-M047 is therefore registered `ready` as a root-cause corrective. It adds a
+M047 is therefore closed as the root-cause corrective. It adds a
 shared provenance schema across stream/probe/datagram evidence, mechanically
 distinguishes clean authoritative runs from dirty exploratory runs, fingerprints
 dirty source state, and prevents dirty canonical evidence from being called an
-exact candidate. It may not change benchmark workloads, thresholds, production
-behavior, or historical artifacts.
+exact candidate. It changed no benchmark workloads, thresholds, production
+behavior, or historical artifacts. Evidence is in
+`plans/closure/M047-performance-artifact-provenance-capture-and-dirty-worktree-guard-corrective-closure.md`;
+the M042–M045 provenance map plus the M047 schema/policy section are in
+`qualification/performance/README.md`. M047 activates no successor; it is the
+authority for provenance in newly generated evidence while M046 remains the
+authority for historical artifacts.
 
 ## Status rules
 

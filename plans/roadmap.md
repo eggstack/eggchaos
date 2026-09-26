@@ -1,6 +1,6 @@
 # Eggchaos Long-Term Roadmap
 
-Status: M008 and M009–M041 are historical closed work. M019 remains the final pre-tag authority at `ca527db`. ADR 003 datagram, ADR 004 scenario, ADR 005 integration, ADR 006 cross-language, and ADR 007 post-v2.12 compatibility tranches are complete. M041 closed on exact candidate `724b967da04579282dd8bfc7a81dc4fe55d034a2` (hosted run `36219464594`, 13/13 jobs) as the latest ADR 007 repository-level authority. The post-M041 performance implementation tranche M042–M045 is complete; M046 closed the historical evidence-provenance reconstruction; M047 is now ready as the root-cause artifact-provenance/dirty-worktree guard corrective for future benchmark evidence. Strict Toxiproxy v2.12 remains frozen/default.
+Status: M008 and M009–M041 are historical closed work. M019 remains the final pre-tag authority at `ca527db`. ADR 003 datagram, ADR 004 scenario, ADR 005 integration, ADR 006 cross-language, and ADR 007 post-v2.12 compatibility tranches are complete. M041 closed on exact candidate `724b967da04579282dd8bfc7a81dc4fe55d034a2` (hosted run `36219464594`, 13/13 jobs) as the latest ADR 007 repository-level authority. The post-M041 performance implementation tranche M042–M045 is complete; M046 closed the historical evidence-provenance reconstruction; M047 closed the artifact-provenance/dirty-worktree guard corrective on exact candidate `493fb03` as the authority for provenance in newly generated benchmark evidence. Strict Toxiproxy v2.12 remains frozen/default.
 
 ## 1. Mission
 
@@ -606,26 +606,27 @@ generation:
   base revision when the worktree is dirty;
 - stream and stream-probe JSON currently carry no Git/worktree provenance.
 
-M047 is registered as the sole ready corrective:
+M047 is closed as the corrective (candidate `493fb03`; evidence in
+`plans/closure/M047-performance-artifact-provenance-capture-and-dirty-worktree-guard-corrective-closure.md`):
 
 ```text
 M042–M045 closed performance tranche
   -> M046 closed historical provenance reconstruction
-  -> M047 artifact provenance capture + dirty-worktree guard (ready)
+  -> M047 artifact provenance capture + dirty-worktree guard (closed at 493fb03)
 ```
 
-M047 must introduce one shared internal provenance schema across stream,
-stream-probe, and datagram artifacts. Clean source trees may produce
-`authoritative=true` exact-candidate evidence. Dirty developer runs must
-remain possible but must be explicitly non-authoritative and carry a stable
-source-state fingerprint. Canonical retained-evidence mode must reject dirty
-source state rather than silently stamping only the base HEAD.
-
-M047 may not rewrite pre-M047 artifacts, alter benchmark workloads or numeric
-budgets, modify production runtime/API/fault semantics, or retune M042
-thresholds. M046 remains the authority for interpreting historical artifacts;
-M047 becomes the authority only for provenance embedded in newly generated
-evidence after implementation.
+M047 introduced one shared internal provenance schema (v1, collected by
+`scripts/bench_provenance.py`) across stream, stream-probe, and datagram
+artifacts. Clean source trees produce `authoritative=true`
+exact-candidate evidence; dirty developer runs remain possible but are
+explicitly non-authoritative with a stable source-state fingerprint;
+canonical retained-evidence mode (`EGGCHAOS_BENCH_REQUIRE_CLEAN=1`)
+rejects dirty source state rather than silently stamping only the base
+HEAD. Pre-M047 artifacts were not rewritten, benchmark workloads and
+numeric budgets were not altered, and production runtime/API/fault
+semantics did not change. M046 remains the authority for interpreting
+historical artifacts; M047 is the authority for provenance embedded in
+newly generated evidence.
 
 ## 12. Performance targets
 
@@ -669,7 +670,7 @@ Potential next lines:
 - cross-language bindings are implemented under ADR 006 + M032–M034 and correctively qualified under M035 (closed at `a710cd6`). A generic C ABI remains deferred pending a separate ADR and demand;
 - richer time-varying scenarios and deterministic schedule files are activated under ADR 004 + M026–M028;
 - post-v2.12 Toxiproxy stream-loss/`packet_loss` compatibility is implemented by ADR 007 + M036–M041; M041 closed at `724b967` as the latest narrow metrics/tooling closure corrective; later upstream extensions or a tagged successor require separate reconciliation against the pinned snapshot;
-- the M042–M045 post-M041 performance implementation tranche is closed; M046 is the closed historical provenance authority; M047 is the current artifact-provenance/clean-tree corrective and may not reduce public API/capability, alter benchmark workloads or deterministic fault semantics, retune thresholds, or change historical performance budgets;
+- the M042–M045 post-M041 performance implementation tranche is closed; M046 is the closed historical provenance authority; M047 (closed at `493fb03`) is the provenance authority for newly generated performance artifacts and did not reduce public API/capability, alter benchmark workloads or deterministic fault semantics, retune thresholds, or change historical performance budgets;
 - target-class SBC qualification and service-management integration through Eggstack shared updater/service machinery if operational demand exists.
 
 None of these may weaken the fixed-target, protocol-neutral core boundary.
