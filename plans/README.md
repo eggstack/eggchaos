@@ -11,7 +11,7 @@ Eggchaos is intended to be a small Rust-native successor to the useful core of T
 | `roadmap.md` | Long-term architecture, sequencing, release stages, and future extensions. |
 | `registry.md` | Current milestone status and dependency source of truth. |
 | `000-architecture-and-scope-baseline.md` | Investigated baseline, reuse decisions, scope boundaries, and initial dependency graph. |
-| `001-*.md` ... `046-*.md` | Bounded implementation, corrective, cleanup, feature, qualification, maintenance, richer-scenario, integration-boundary, language-binding, post-v2.12 compatibility, performance, and closure handoffs in execution order. |
+| `001-*.md` ... `047-*.md` | Bounded implementation, corrective, cleanup, feature, qualification, maintenance, richer-scenario, integration-boundary, language-binding, post-v2.12 compatibility, performance, and closure handoffs in execution order. |
 | `adrs/` | Durable architecture decisions that should not be silently changed by implementation. |
 | `reference/toxiproxy-parity.md` | Compatibility target and semantic mapping. |
 | `reference/verification-matrix.md` | Required evidence across faults, platforms, APIs, and performance. |
@@ -104,8 +104,20 @@ production/execution/evidence revisions, preserve historical raw data
 additively, and reconcile the performance documentation. Evidence is in
 `plans/closure/M046-performance-evidence-provenance-and-closure-lineage-corrective-closure.md`;
 the M042–M045 provenance map is in `qualification/performance/README.md`.
-M046 activates no successor; further performance work requires a new measured
-finding and numbered plan.
+M046 activates no optimization successor; further performance work requires a new measured
+finding rather than another open-ended optimization milestone.
+
+A post-M046 audit found one remaining **mechanism** defect rather than another
+historical-evidence defect: newly generated benchmark artifacts can still repeat
+the same ambiguity. Datagram evidence stamps only `git rev-parse HEAD`, so a
+dirty run names its base commit; stream/probe JSON carries no Git provenance.
+
+M047 is therefore registered `ready` as a root-cause corrective. It adds a
+shared provenance schema across stream/probe/datagram evidence, mechanically
+distinguishes clean authoritative runs from dirty exploratory runs, fingerprints
+dirty source state, and prevents dirty canonical evidence from being called an
+exact candidate. It may not change benchmark workloads, thresholds, production
+behavior, or historical artifacts.
 
 ## Status rules
 
