@@ -19,6 +19,11 @@ const PAYLOAD_BYTES: usize = 1200;
 const CLIENTS: usize = 8;
 const WINDOW_SIZE: usize = 32;
 
+/// Cardinalities M042 attempts for scale measurement. The harness records the
+/// largest cardinality it could actually pre-warm on the host so M044 has a
+/// measured target rather than an invented one.
+const SCALE_TARGETS: &[usize] = &[1, 8, 256, 1_024, 4_096];
+
 #[derive(Debug)]
 struct Sample {
     datagrams_per_second: f64,
@@ -46,6 +51,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or(3);
     let selected_case = std::env::var("EGGCHAOS_DATAGRAM_BENCH_CASE").ok();
     let selected = |name: &str| {
+        // Use exact-name matching so e.g. `scale_warm_1` does not also match
+        // `scale_warm_16`. The earlier `starts_with` clause mis-matched
+        // because every longer `scale_warm_<N>` shares the
+        // `scale_warm_<digit>` prefix.
         selected_case
             .as_deref()
             .is_none_or(|selected| selected == name)
@@ -56,26 +65,51 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if !selected(name) {
                 continue;
             }
-            let (sample, mode, extra_datagrams) = if name == "direct_udp_echo" {
-                (run_direct(count).await?, "sequential", count)
+            let result = if name == "direct_udp_echo" {
+                Outcome(run_direct(count).await?, "sequential", count, None)
             } else if name == "bare_fixed_target_relay" {
-                (run_bare(count).await?, "sequential", count)
+                Outcome(run_bare(count).await?, "sequential", count, None)
             } else if name == "multi_client_empty_plan" {
-                (
+                let extra = serde_json::json!({"clients": CLIENTS});
+                Outcome(
                     run_multi_client(count).await?,
                     "sequential",
                     count.max(CLIENTS) / CLIENTS * CLIENTS,
+                    Some(extra),
                 )
             } else if name == "direct_windowed" {
-                (run_direct_windowed(count).await?, "windowed", count)
+                Outcome(run_direct_windowed(count).await?, "windowed", count, None)
             } else if name == "bare_windowed" {
-                (run_bare_windowed(count).await?, "windowed", count)
+                Outcome(run_bare_windowed(count).await?, "windowed", count, None)
             } else if name == "empty_plan_windowed" {
-                (run_proxy_windowed(count).await?, "windowed", count)
+                Outcome(run_proxy_windowed(count).await?, "windowed", count, None)
+            } else if let Some(target) = scale_warm_target(name) {
+                let warm = run_scale_warm(count, target).await?;
+                Outcome(
+                    warm.sample,
+                    "scale_warm",
+                    count,
+                    Some(serde_json::json!({
+                        "target_cardinality": target,
+                        "achieved_cardinality": warm.achieved_cardinality,
+                    })),
+                )
+            } else if let Some(target) = hot_with_idle_target(name) {
+                let hot = run_hot_with_idle(count, target).await?;
+                Outcome(
+                    hot.sample,
+                    "hot_with_idle",
+                    count,
+                    Some(serde_json::json!({
+                        "idle_cardinality": target,
+                        "achieved_cardinality": hot.achieved_cardinality,
+                    })),
+                )
             } else {
-                (run_proxy(count, fault).await?, "sequential", count)
+                Outcome(run_proxy(count, fault).await?, "sequential", count, None)
             };
-            output.push(serde_json::json!({
+            let (sample, mode, extra_datagrams, extra_meta) = result.into_parts();
+            let mut entry = serde_json::json!({
                 "round": round,
                 "name": name,
                 "mode": mode,
@@ -91,7 +125,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "duplicates_observed": sample.duplicates,
                 "queue_high_water_datagrams": sample.high_water_datagrams,
                 "queue_high_water_bytes": sample.high_water_bytes,
-            }));
+            });
+            if let Some(extra) = extra_meta {
+                if let (Some(entry_obj), Some(extra_obj)) =
+                    (entry.as_object_mut(), extra.as_object())
+                {
+                    for (k, v) in extra_obj {
+                        entry_obj.insert(k.clone(), v.clone());
+                    }
+                }
+            }
+            output.push(entry);
         }
     }
     let scheduler = if selected_case
@@ -118,8 +162,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Per-case outcome split into (sample, mode, datagram_count, extra_metadata)
+/// so the harness can attach scale metadata alongside the common samples.
+struct Outcome(Sample, &'static str, usize, Option<serde_json::Value>);
+
+impl Outcome {
+    fn into_parts(self) -> (Sample, &'static str, usize, Option<serde_json::Value>) {
+        (self.0, self.1, self.2, self.3)
+    }
+}
+
+/// Return the scale-warm target cardinality for `scale_warm_<N>` cases, or
+/// `None` if the name is not a scale-warm case.
+fn scale_warm_target(name: &str) -> Option<usize> {
+    let suffix = name.strip_prefix("scale_warm_")?;
+    suffix.parse().ok()
+}
+
+/// Return the hot-with-idle target cardinality for `hot_with_idle_<N>` cases.
+fn hot_with_idle_target(name: &str) -> Option<usize> {
+    let suffix = name.strip_prefix("hot_with_idle_")?;
+    suffix.parse().ok()
+}
+
 fn cases() -> Vec<(&'static str, Option<Vec<DatagramFaultSpec>>)> {
-    vec![
+    let mut out: Vec<(&'static str, Option<Vec<DatagramFaultSpec>>)> = vec![
         ("direct_udp_echo", None),
         ("bare_fixed_target_relay", None),
         ("fixed_target_empty_plan", Some(vec![])),
@@ -206,7 +273,23 @@ fn cases() -> Vec<(&'static str, Option<Vec<DatagramFaultSpec>>)> {
             ]),
         ),
         ("multi_client_empty_plan", Some(vec![])),
-    ]
+    ];
+    for &target in SCALE_TARGETS {
+        out.push((
+            // scale_warm_<N>: pre-warm N associations, then time a single
+            // hot client's steady-state RTT throughput and latency.
+            Box::leak(format!("scale_warm_{target}").into_boxed_str()) as &'static str,
+            Some(vec![]),
+        ));
+        out.push((
+            // hot_with_idle_<N>: pre-warm N associations then leave them
+            // idle; measure a hot client's steady-state latency to observe
+            // reaper / registry scan contributions.
+            Box::leak(format!("hot_with_idle_{target}").into_boxed_str()) as &'static str,
+            Some(vec![]),
+        ));
+    }
+    out
 }
 
 fn fault(id: &str, kind: DatagramFaultKind) -> DatagramFaultSpec {
@@ -636,6 +719,125 @@ async fn send_sequence(client: &UdpSocket, sequence: usize) -> Result<(), std::i
     payload[..8].copy_from_slice(&(sequence as u64).to_be_bytes());
     client.send(&payload).await?;
     Ok(())
+}
+
+/// Scale-warm: pre-warm `target` associations before timing the steady-state
+/// interval for a single hot client. Returns the requested cardinality plus
+/// the one the host actually achieved (OS port/FD limits may reduce it for
+/// cardinalities like 4096 on macOS).
+struct ScaleWarmResult {
+    sample: Sample,
+    achieved_cardinality: usize,
+}
+
+async fn run_scale_warm(
+    count: usize,
+    target: usize,
+) -> Result<ScaleWarmResult, Box<dyn std::error::Error>> {
+    let (target_addr, echo) = start_echo().await?;
+    // The proxy default caps associations at 256; scale targets go higher.
+    let limits = DatagramRuntimeLimits {
+        max_associations: 8192,
+        ..DatagramRuntimeLimits::default()
+    };
+    let runtime = DatagramRuntime::new(limits)?;
+    let mut proxy = DatagramProxySpec::new(
+        "bench-scale-warm",
+        "127.0.0.1:0".parse().unwrap(),
+        target_addr,
+        queue_limits(),
+    )?;
+    proxy.max_associations = 8192;
+    let view = runtime.create_proxy(proxy).await?;
+    let bound = view.bound_addr.expect("bound");
+    let achieved = prewarm_associations(bound, target).await.len();
+    // Give the listener task the chance to finish registering every
+    // association's upstream UDP socket. Without this wait the timed
+    // exchange can race a setup that has not yet published.
+    tokio::time::sleep(Duration::from_millis(target.max(1).min(500) as u64)).await;
+    let client = UdpSocket::bind("127.0.0.1:0").await?;
+    client.connect(bound).await?;
+    let (mut sample, attempts) = exchange(&client, count, 1, true).await?;
+    sample.attempts = attempts;
+    runtime.shutdown().await;
+    echo.abort();
+    Ok(ScaleWarmResult {
+        sample,
+        achieved_cardinality: achieved,
+    })
+}
+
+/// Hot with idle: pre-warm `target` associations via one warmup packet each,
+/// then time one hot client's RTT throughput and latency. The hot client's
+/// path runs while the other associations sit idle (no traffic), so any
+/// measurable increase in steady-state latency vs `scale_warm_1` is
+/// attributable to the registry/reaper handling idle entries.
+struct HotWithIdleResult {
+    sample: Sample,
+    achieved_cardinality: usize,
+}
+
+async fn run_hot_with_idle(
+    count: usize,
+    target: usize,
+) -> Result<HotWithIdleResult, Box<dyn std::error::Error>> {
+    let (target_addr, echo) = start_echo().await?;
+    let limits = DatagramRuntimeLimits {
+        max_associations: 8192,
+        ..DatagramRuntimeLimits::default()
+    };
+    let runtime = DatagramRuntime::new(limits)?;
+    let mut proxy = DatagramProxySpec::new(
+        "bench-hot-with-idle",
+        "127.0.0.1:0".parse().unwrap(),
+        target_addr,
+        queue_limits(),
+    )?;
+    proxy.max_associations = 8192;
+    let view = runtime.create_proxy(proxy).await?;
+    let bound = view.bound_addr.expect("bound");
+    let achieved = prewarm_associations(bound, target).await.len();
+    tokio::time::sleep(Duration::from_millis(target.max(1).min(500) as u64)).await;
+    let client = UdpSocket::bind("127.0.0.1:0").await?;
+    client.connect(bound).await?;
+    let (mut sample, attempts) = exchange(&client, count, 1, true).await?;
+    sample.attempts = attempts;
+    runtime.shutdown().await;
+    echo.abort();
+    Ok(HotWithIdleResult {
+        sample,
+        achieved_cardinality: achieved,
+    })
+}
+
+/// Open `target` distinct UDP clients, connect each to the listener, and
+/// send a small warmup packet so the runtime registers a distinct
+/// association for every client. Sequential pre-warming keeps the per-step
+/// runtime registration calm; on failure, return the partially-filled buffer
+/// and let the caller record the achieved cardinality.
+async fn prewarm_associations(bound: SocketAddr, target: usize) -> Vec<UdpSocket> {
+    let mut clients = Vec::with_capacity(target);
+    let warmup = vec![0xA5u8; 64];
+    for _ in 0..target {
+        match open_warmup_client(bound, &warmup).await {
+            Ok(socket) => clients.push(socket),
+            Err(_) => break,
+        }
+        for _ in 0..4 {
+            tokio::time::sleep(Duration::from_micros(50)).await;
+        }
+    }
+    clients
+}
+
+async fn open_warmup_client(
+    bound: SocketAddr,
+    payload: &[u8],
+) -> Result<UdpSocket, std::io::Error> {
+    let socket = UdpSocket::bind("127.0.0.1:0").await?;
+    socket.connect(bound).await?;
+    socket.send(payload).await?;
+    Ok(socket)
 }
 
 /// Core-only scheduler scaling probes at representative ready-queue depths.
