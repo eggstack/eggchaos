@@ -88,8 +88,8 @@ post-M041 tree:
 M042 is `closed`. It corrected the destructive stream-loss benchmark
 contract, added production-representative live-policy stream baselines, and
 extended pre-warmed datagram association-scale measurement. M043 and M044
-are `closed` (at `67ce4ab` and `7a6dbb8`); M045 is `ready` for combined
-exact-head qualification. These plans authorize
+are `closed` (at `67ce4ab` and `7a6dbb8`); M045 is `closed` (evidence
+candidate `a27a67a`, hosted run `36255454409` 13/13). These plans authorize
 no public API, wire, RNG, fault-semantic, fixed-target, or compatibility
 regression.
 

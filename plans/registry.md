@@ -1,6 +1,6 @@
 # Eggchaos Plan Registry
 
-Last reconciled: 2026-09-26 (M044 closed at `7a6dbb8` (WP2 + WP3 + WP5) and M045 now ready for combined exact-head qualification; M043 closed at `67ce4ab`)
+Last reconciled: 2026-09-26 (M045 closed on `a27a67a`, hosted run `36255454409` 13/13; post-M041 performance tranche M042–M045 complete with no successor)
 
 This file is the compact source of truth for active milestone state. Detailed scope lives in the numbered plans. Historical closure evidence belongs in `plans/closure/`.
 
@@ -51,7 +51,7 @@ This file is the compact source of truth for active milestone state. Detailed sc
 | M042 | `042-performance-measurement-authority-and-baseline-correction.md` | **closed** | M041 | Closed on the M042 baseline candidate set (see `plans/closure/M042-performance-measurement-authority-and-baseline-correction-closure.md`); raw artifacts `qualification/performance/2026-09-26-macos-arm64-m042-{stream,stream-probes,datagram}.json`. Destructive stream-loss benchmark semantics corrected; static/live stream distinction + small/vectored write profiles added; TCP hot-path microprobes emitted; datagram harness extended with pre-warmed `scale_warm_<N>` and `hot_with_idle_<N>` cases at N ∈ {1, 8, 256, 1 024, 4 096} and the existing M008/M023/M024 budgets preserved. M042 classifies each M043/M044 WP as `proven-material` / `low-cost-cleanup` / `inconclusive` / `not-material` and freezes the per-target implementation thresholds used in the next milestones. |
 | M043 | `043-stream-hot-path-allocation-policy-timer-and-evidence-optimization.md` | **closed** | M042 (closed) | Closed on exact candidate `67ce4ab`; evidence in `plans/closure/M043-stream-hot-path-allocation-policy-timer-and-evidence-optimization-closure.md`; raw artifacts `qualification/performance/2026-09-26-macos-arm64-m043-{stream,stream-probes,datagram}.json`. WP3 (shared `Arc<FaultPlan>` internal ownership) implemented as low-cost-cleanup; WP7 (bounded preserving-plan vectored prefix copy) implemented but recorded as a no-op disposition against the ≥10 % M042 throughput threshold (the per-call iovec-join allocation save is masked by downstream duplex write synchronization at the harness's small-iovec / short-write profile); proptest properties `accept_vectored_matches_scalar_for_preserving_plans` / `accept_vectored_matches_scalar_for_stream_loss` prove semantic equivalence. WP2, WP4, WP5, WP6 are explicitly skipped per the M042 classification. |
 | M044 | `044-datagram-steady-state-synchronization-and-association-scale-optimization.md` | **closed** | M043 (closed) | Closed on exact candidate `7a6dbb8`; evidence in `plans/closure/M044-datagram-steady-state-synchronization-and-association-scale-optimization-closure.md`; raw artifact `qualification/performance/2026-09-26-macos-arm64-m044-datagram.json`. WP2 (whole-spec clone removal) and WP3 (association-map async mutex → std RwLock + read fast path) implemented, WP3 recorded as a no-op disposition against both M042 ≥10 % scale thresholds (same-host parity, file-baseline deltas inside host noise); WP5 (duplicate-stage capacity reservation) implemented as low-cost-cleanup; WP4/WP6 skipped and WP7 not implemented per the M042 matrix. M023/M024 budgets, latency-tightness, hot-with-idle parity, ADR 003 goldens, OpenAPI drift, and fuzz all green. |
-| M045 | `045-performance-optimization-exact-head-qualification-and-reconciliation.md` | **active** | M043, M044 (both closed) | Combined exact-head performance/API/determinism/oracle/fuzz/security/package/hosted qualification. Consumes M042 thresholds, retains M008/M023/M024 budgets, and closes the tranche without adding new optimization scope. Local evidence gathering on the exact candidate in progress. |
+| M045 | `045-performance-optimization-exact-head-qualification-and-reconciliation.md` | **closed** | M043, M044 (both closed) | Closed on evidence candidate `a27a67a` (production-identical to `e8ff753`); evidence in `plans/closure/M045-performance-optimization-exact-head-qualification-and-reconciliation-closure.md`; raw artifacts `qualification/performance/2026-09-26-macos-arm64-m045-{stream,stream-probes,datagram}.json`. Full local gates green (check/OpenAPI/SDKs/eggfetch/fuzz 9×10k/mandatory v2.12 + post-v2.12 oracles/release-smoke/artifact-smoke/python-native); hosted CI run `36255454409` green 13/13 on `a27a67a`. M042 thresholds unretuned; M043/M044 no-op dispositions stand. The post-M041 performance tranche is closed with no automatic successor. |
 
 ## Execution state
 
@@ -152,11 +152,11 @@ Completed work: M000–M041 and M008 are closed historical work.
 
 Active: none.
 
-Ready: M045.
+Ready: none.
 
 Blocked: none.
 
-Current performance execution order: `M042 (closed) -> M043 (closed) -> M044 (closed) -> M045 (ready)`.
+Current performance execution order: `M042 (closed) -> M043 (closed) -> M044 (closed) -> M045 (closed)`. The post-M041 performance tranche is complete and activates no successor.
 
 Historical pre-tag execution order: `M016 (closed) -> M017 (closed) -> M018 (closed) -> M019 (closed)`. The owner may proceed with the v0.1.0 tag, crates.io publication, and GitHub release as separate release actions.
 
