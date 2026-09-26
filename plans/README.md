@@ -65,19 +65,21 @@ qualification, consolidated duplicated datagram fault mutation semantics between
 HTTP and embed, reconciled current-state planning, and obtained a green exact-head
 hosted qualification result. M035 does not rewrite M032–M034 history.
 
-ADR 007 now activates the post-v2.12 Toxiproxy stream-loss compatibility
-tranche:
+ADR 007's M036–M039 implementation chain has landed. M036 added the
+deterministic core `stream-loss` primitive, M037 propagated it through the
+native/cross-language surfaces, M038 added the opt-in pinned post-v2.12
+`packet_loss` profile, and M039 attempted tranche-level qualification.
 
-`M036 (ready) -> M037 (blocked) -> M038 (blocked) -> M039 (blocked)`
+A post-M039 audit found bounded correctness/qualification/closure defects.
+M040 is now the sole ready handoff:
 
-M036 is the sole ready handoff. It adds the deterministic core `stream-loss`
-primitive with a fixed 32 KiB logical grain and additive evidence while
-preserving the frozen seven-slot activation arrays. M037 propagates that
-semantic authority through native/config/CLI/scenario/OpenAPI/SDK/embed
-surfaces. M038 adds the opt-in `packet_loss` compatibility profile pinned to
-Shopify/Toxiproxy `40f7fd31bee529d824116bd2a11a9e3425e904ec`; strict
-v2.12 remains the default and keeps its existing oracle. M039 is the combined
-exact-candidate qualification/closure gate.
+`M036 (historical) -> M037 (historical) -> M038 (historical) -> M039 (historical closure record) -> M040 (ready)`
+
+M040 does not redesign ADR 007. It corrects profile propagation/conversion,
+replaces observational/non-isolated data-plane “passes” with executable edge
+and stochastic/correlation qualification, completes named stream-loss metrics,
+pins/records the post-v2.12 Go toolchain, requires exact-head hosted
+requalification, and reconciles closure/current-state documentation.
 
 Historical closure records remain preserved at their real candidate commits. M015 remains valid qualification evidence for `cd88b22`; M019 is the final current release-candidate authority at `ca527db`.
 
@@ -107,7 +109,7 @@ The initial architecture is deliberately narrow:
 
 The native admin plane should use the leaf `eggserve-server` + `eggserve-primitives` H1 substrate. The CLI should use a minimal `eggfetch-core` HTTP profile to call it. `eggress-admin` is not used because its state model is specific to Eggress routing, UDP, metrics, and reverse-proxy administration.
 
-The first release is TCP byte-stream focused. UDP/datagram chaos is implemented as the post-release tranche under ADR 003 (M020–M023), with M024/M025 performance and setup-hygiene successors closed, and remains outside the first-release/M019 historical scope. Richer deterministic scenarios are complete under ADR 004 + M026–M028. The consumer-neutral cross-project integration substrate is complete under ADR 005 + M029–M031; EggReplay/EggProbe product-specific adoption remains downstream work. Cross-language control/embedding is implemented under ADR 006 + M032–M034 and correctively qualified under M035 (closed at `a710cd6`: hosted SDK/native-Python qualification, shared datagram mutation authority, exact-head closure). ADR 007 + M036–M039 now own the post-v2.12 deterministic stream-loss/`packet_loss` compatibility line; native stream loss remains distinct from ADR 003 datagram loss and strict v2.12 remains frozen. A generic C ABI remains deferred. Arbitrary outbound proxy chains remain a later roadmap item.
+The first release is TCP byte-stream focused. UDP/datagram chaos is implemented as the post-release tranche under ADR 003 (M020–M023), with M024/M025 performance and setup-hygiene successors closed, and remains outside the first-release/M019 historical scope. Richer deterministic scenarios are complete under ADR 004 + M026–M028. The consumer-neutral cross-project integration substrate is complete under ADR 005 + M029–M031; EggReplay/EggProbe product-specific adoption remains downstream work. Cross-language control/embedding is implemented under ADR 006 + M032–M034 and correctively qualified under M035 (closed at `a710cd6`: hosted SDK/native-Python qualification, shared datagram mutation authority, exact-head closure). ADR 007 + historical M036–M039 implement the post-v2.12 deterministic stream-loss/`packet_loss` line; M040 is the ready corrective requalification authority. Native stream loss remains distinct from ADR 003 datagram loss and strict v2.12 remains frozen. A generic C ABI remains deferred. Arbitrary outbound proxy chains remain a later roadmap item.
 
 ## Research baseline
 
