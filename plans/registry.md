@@ -1,6 +1,6 @@
 # Eggchaos Plan Registry
 
-Last reconciled: 2026-09-25 (ADR 007 + M036–M039 post-v2.12 stream-loss compatibility tranche closed on one exact candidate; dual-oracle gate green)
+Last reconciled: 2026-09-25 (post-M039 audit registered M040 corrective requalification; M040 is the sole ready handoff)
 
 This file is the compact source of truth for active milestone state. Detailed scope lives in the numbered plans. Historical closure evidence belongs in `plans/closure/`.
 
@@ -46,6 +46,7 @@ This file is the compact source of truth for active milestone state. Detailed sc
 | M037 | `037-stream-loss-native-contract-and-cross-language-propagation.md` | **closed** | M036 | Propagate proven StreamLoss semantics through native v1/config/CLI/Scenario/OpenAPI/Python/TypeScript/embed/Python-native surfaces without redefining core behavior. |
 | M038 | `038-pinned-post-v2-12-toxiproxy-packet-loss-profile.md` | **closed** | M037 | Add opt-in pinned post-v2.12 snapshot profile for upstream `packet_loss` at `40f7fd31`; strict v2.12 remains default/frozen. |
 | M039 | `039-post-v2-12-stream-loss-qualification-and-closure.md` | **closed** | M036, M037, M038 | Exact-candidate dual-oracle/native/cross-language/fuzz/performance/hosted qualification and tranche closure. |
+| M040 | `040-post-v2-12-stream-loss-corrective-requalification.md` | **ready** | M039 historical closure + ADR 007 | Correct snapshot-profile propagation/conversion, make packet_loss data-plane/stochastic qualification executable rather than observational, finish named stream-loss metrics, pin/record the post-v2.12 Go toolchain, rerun exact-head hosted qualification, and reconcile closure/current-state evidence. |
 
 ## Execution state
 
@@ -138,13 +139,13 @@ The completed UDP/datagram tranche is listed below; the remaining items are post
 | eggprobe controlled impairment experiments | ready downstream | M031 closure + EggProbe-owned adoption plan; route/probe/report semantics remain EggProbe authority. |
 | cross-language control SDKs / native Python embedding | implemented and correctively qualified | ADR 006 chain M032–M034 plus corrective M035 (closed at `a710cd6`) reconciled hosted SDK/native-Python qualification, datagram mutation authority, and planning closure. Generic C ABI remains no-go pending separate ADR + demand. |
 | richer deterministic scenarios / time-varying schedule files | completed | ADR 004 tranche M026–M028 closed and qualified at `ceb3bae`; ScenarioV1 remains a compatibility surface. Follow-on schedule work requires separate planning. |
-| current-Toxiproxy post-2.12 stream-chunk `packet_loss` extension | implemented | ADR 007 tranche M036–M039 closed on one exact candidate: core primitive, native/CLI/Scenario/OpenAPI/Python/TypeScript/embed/Python-native propagation, opt-in pinned post-v2.12 snapshot profile at `40f7fd31`, dual-oracle gate green. Strict v2.12 remains a separate frozen/default profile. Future tagged Toxiproxy release may justify a separate promotion/reconciliation milestone. |
+| current-Toxiproxy post-2.12 stream-chunk `packet_loss` extension | implemented / corrective requalification ready | ADR 007 implementation chain M036–M039 is historical; post-M039 audit found snapshot-profile propagation, false-positive/underpowered data-plane qualification, metrics, oracle-toolchain, hosted-exact-head, and closure-evidence defects. M040 is the corrective authority. Strict v2.12 remains frozen/default. |
 
 ## Dependency-ready view
 
 Completed work: M000–M039 and M008 are historical closed work.
 
-Ready: none.
+Ready: M040.
 
 Active: none.
 
@@ -172,24 +173,13 @@ Completed cross-language execution order: `ADR 006 -> M032 (closed at ed05f68) -
 
 Corrective qualification successor: `M035 (closed at a710cd6)`. M035 obtained a green exact-head hosted matrix (13/13 jobs) and reconciled planning without rewriting M032–M034 closure evidence. It activates no successor.
 
-Closed post-release stream-loss execution order: `ADR 007 -> M036 (closed) -> M037 (closed) -> M038 (closed) -> M039 (closed)`. The chain activated no automatic successor.
+Historical post-release stream-loss implementation order: `ADR 007 -> M036 (closed) -> M037 (closed) -> M038 (closed) -> M039 (closed)`.
 
-`M036 (closed) -> M037 (closed) -> M038 (closed) -> M039 (closed)`
+A post-M039 audit found bounded corrective debt in the compatibility/qualification/closure layer rather than a redesign need. M040 is therefore the sole ready successor:
 
-M036 added the deterministic `StreamLoss` primitive in core with
-additive evidence and a fixed 32 KiB logical grain (legacy seven-slot
-activation arrays remain frozen). M037 propagated that semantic
-authority through native v1 / config / CLI / Scenario / OpenAPI /
-Python / TypeScript / embed / Python-native without redefining core
-behavior. M038 added the opt-in pinned post-v2.12 Toxiproxy snapshot
-profile at `Shopify/toxiproxy@40f7fd31` for `packet_loss` while the
-strict v2.12 profile remains default and frozen. M039 closed the
-tranche with one exact candidate that passes the dual-oracle gate
-(strict v2.12 + post-v2.12), the SDK/binding/hosted matrix, fuzz,
-dependency-audit, and performance. M039 activates no successor; a
-future tagged Toxiproxy release may justify a separate
-promotion/reconciliation milestone that diffs the real release tag
-against the M038 pinned snapshot.
+`M036 (historical) -> M037 (historical) -> M038 (historical) -> M039 (historical closure record) -> M040 (ready corrective)`
+
+M036–M037's core/native implementation remains the baseline. M040 owns the discovered snapshot-profile `populate`/conversion inconsistencies, the non-isolated and unconditional post-v2.12 data-plane “passes,” missing intermediate/correlation statistical comparators, missing named stream-loss Prometheus metrics, ambient/unrecorded Go oracle toolchain, missing exact-head hosted rerun, and current closure/planning drift. M040 closure supersedes M039 as the final repository-level authority for ADR 007 without rewriting historical evidence.
 
 ## Closure requirements
 
