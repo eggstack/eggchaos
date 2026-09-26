@@ -7,13 +7,63 @@
 # Mirrors the discipline of `fetch_toxiproxy_v2_12.sh` (per-release binary
 # vs. here per-commit source). The post-v2.12 profile is opt-in and never
 # claims equivalence with a moving upstream `main`.
+#
+# Stdout contract (M041):
+# - default (no flag):           executable path on stdout (shell command
+#                                substitution: `TOXIPROXY_POST_V2_12_SERVER="$(..."`).
+# - `--path-only [DEST]`:        same as default, accepts an explicit DEST.
+# - `--json [DEST]`:             one JSON metadata record on stdout.
+# - any other flag:              diagnostic to stderr, exits 2.
+# Diagnostics always go to stderr. The script never mixes JSON metadata and
+# the executable path on the same stdout line.
 set -eu
 
 commit="40f7fd31bee529d824116bd2a11a9e3425e904ec"
 requested_toolchain="${EGGCHAOS_POST_V2_12_GO_TOOLCHAIN:-go1.23.0}"
-mode="${1:-}"
-if [ "$mode" = "--path-only" ]; then shift; else mode="--json"; fi
-dest="${1:-${TMPDIR:-/tmp}/eggchaos-toxiproxy-post-v2-12-40f7fd31/toxiproxy-server}"
+mode="--path-only"
+dest=""
+case "${1:-}" in
+  "")
+    mode="--path-only"
+    ;;
+  --path-only)
+    mode="--path-only"
+    shift
+    if [ "$#" -gt 0 ]; then dest="$1"; shift; fi
+    ;;
+  --json)
+    mode="--json"
+    shift
+    if [ "$#" -gt 0 ]; then dest="$1"; shift; fi
+    ;;
+  --help|-h)
+    cat <<'USAGE' >&2
+usage: fetch_toxiproxy_post_v2_12.sh [--path-only|--json] [DEST]
+  default and --path-only print the oracle executable path on stdout
+  --json prints a single JSON metadata record on stdout
+  diagnostics are emitted on stderr
+USAGE
+    exit 0
+    ;;
+  -*)
+    echo "fetch_toxiproxy_post_v2_12.sh: unknown flag '$1' (use --path-only or --json)" >&2
+    exit 2
+    ;;
+  *)
+    # Bare positional argument: treat as an explicit DEST in the
+    # path-only contract so documented shell substitution with a
+    # custom path still works.
+    mode="--path-only"
+    dest="$1"
+    shift
+    ;;
+esac
+if [ "$#" -gt 0 ]; then
+  echo "fetch_toxiproxy_post_v2_12.sh: unexpected extra arguments: $*" >&2
+  exit 2
+fi
+default_dest="${TMPDIR:-/tmp}/eggchaos-toxiproxy-post-v2-12-40f7fd31/toxiproxy-server"
+if [ -z "$dest" ]; then dest="$default_dest"; fi
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 archive_dir=$(dirname "$dest")
 archive="$archive_dir/toxiproxy-post-v2-12-${commit}.tar.gz"
@@ -66,8 +116,13 @@ if ! printf '%s' "$version_output" | grep -q 'toxiproxy-server version'; then
   exit 1
 fi
 if [ "$mode" = "--json" ]; then
+  # JSON output is the only metadata mode; the executable path must
+  # never appear on stdout in this mode (M041).
   printf '{"requested_toolchain":"%s","resolved_go_version":"%s","resolved_gotoolchain":"%s","source_commit":"%s","source_sha256":"%s","oracle_path":"%s","oracle_version":"%s"}\n' \
     "$requested_toolchain" "$resolved_go" "$resolved_toolchain" "$commit" "$actual" "$dest" "$version_output"
 else
+  # Path-only contract: stdout is exactly one executable path line so
+  # documented `TOXIPROXY_POST_V2_12_SERVER="$(...)"` substitution and
+  # the explicit `--path-only` flag both keep working.
   printf '%s\n' "$dest"
 fi

@@ -30,7 +30,7 @@ eggchaos-native -> embed (PyO3 pilot, standalone maturin crate outside the works
 - `architecture/server-runtime.md` — listeners, `eggress-relay` embedding, `ControlState` authority, full bounds table.
 - `architecture/control-plane-cli.md` — `/v1` route inventory, schema-v1 TOML, CLI command matrix, auth/bounds.
 - `architecture/scenario-observability.md` — scenario driver, evidence/snapshot/metrics types, replay limits.
-- `architecture/toxiproxy-compat.md` — toxic↔fault table, defaults/naming precedence, strict/snapshot divergences and qualification evidence; M041 owns the current narrow metrics/tooling closure correction.
+- `architecture/toxiproxy-compat.md` — toxic↔fault table, defaults/naming precedence, strict/snapshot divergences and qualification evidence; M041 owns the latest narrow metrics/tooling closure correction.
 - `architecture/eggfetch-integration.md` — `ChaosDialer`, ownership split, H1/`http2` profiles, regression map.
 - `architecture/verification-qualification.md` — test layers, exact gate commands, incomplete-evidence rule.
 - `architecture/tooling-distribution.md` — scripts catalog, CI/release workflows, dep policy, plan governance.
@@ -55,6 +55,7 @@ Qualification scripts (release workflow): `scripts/qualify_fuzz.sh`, `scripts/qu
 ## Gotchas agents actually hit
 
 - Toxiproxy differential needs the pinned oracle: `TOXIPROXY_SERVER="$(./scripts/fetch_toxiproxy_v2_12.sh)" EGGCHAOS_REQUIRE_TOXIPROXY_ORACLE=1 ./scripts/qualify_toxiproxy_v2_12.sh`. Developer mode without a verified oracle reports `differential:incomplete` (exit 0) — that is not a pass. Compat server: `cargo run -p eggchaos-toxiproxy --example compat_server -- 127.0.0.1:8474`.
+- Post-v2.12 fetcher stdout contract (M041): default and `--path-only` print exactly one executable path; `--json` prints one metadata record. `TOXIPROXY_POST_V2_12_SERVER="$(./scripts/fetch_toxiproxy_post_v2_12.sh)"` works as documented command substitution. Mandatory mode: `EGGCHAOS_REQUIRE_POST_V2_12_ORACLE=1 ./scripts/qualify_toxiproxy_post_v2_12.sh` (the qualifier itself uses `--path-only` internally so the contract is unambiguous).
 - Fuzz: `cargo-fuzz 0.13.2` cannot build under pinned 1.89 (transitive `cargo-platform` needs rustc 1.91). Release workflow installs it with `RUSTUP_TOOLCHAIN=stable`; the fuzz target itself still builds under 1.89 with `--sanitizer none`. See `release.yml`.
 - Publish order matters (intra-workspace deps use `version = "0.1.0"` registry reqs): `core -> experiment/eggfetch -> protocol -> server/toxiproxy/cli -> embed`. `scripts/release-smoke.sh` asserts this order-proof. The `eggchaos-native` PyO3 pilot stands outside the workspace (plain cargo cannot link a macOS extension-module cdylib); maturin owns its build.
 - Directions are `upstream` (client→target) and `downstream` (target→client). Faults wrap destination writes; reads stay pass-through.
@@ -113,15 +114,16 @@ history. Do not start a generic C ABI, Node native addon, JNI, P/Invoke,
 cgo, UniFFI, or WASM under M035; a generic C ABI still requires
 a separate ADR after demonstrated multi-consumer demand.
 
-ADR 007's M036–M040 implementation/qualification history is preserved. M040
-closed at `48fe0dd8dfc1f995c53a3b1661fe704dbdc5bce0`, but a post-closure
-audit found a narrow regression in its metrics/tooling layer. `M041 (ready)`
-is now the sole handoff. Do not reimplement core/native stream loss or the
-M040 Toxiproxy stochastic qualification. M041 owns only: duplicate/malformed
-stream-loss Prometheus exposition, fetch_toxiproxy_post_v2_12 stdout-mode
-compatibility, remaining M040 planning/docs drift, and exact-head
-requalification. Strict v2.12 remains default/frozen and its current pinned
-oracle behavior must not change.
+ADR 007's M036–M041 implementation/qualification history is preserved.
+M040 closed at `48fe0dd8dfc1f995c53a3b1661fe704dbdc5bce0` and a post-closure
+audit found a narrow metrics/tooling regression. `M041 (closed at <TBD>;
+evidence in plans/closure/M041-...)` is the latest corrective successor;
+the post-v2.12 fetcher now defaults to printing the executable path on
+stdout (with `--path-only` alias and explicit `--json` for the metadata
+record), the per-proxy/direction stream-loss Prometheus samples are
+emitted exactly once with a real newline, and the remaining M040
+planning/doc drift is reconciled. Strict v2.12 remains default/frozen
+and its current pinned oracle behavior must not change.
 
 If the owner asks for new work: `plans/roadmap.md` is the architecture authority, `plans/reference/` holds parity/verification contracts (not status), ADRs live in `plans/adrs/`. Any new numbered plan needs objective, baseline/deps, scope + non-goals, affected crates, ordered work packages, invariants/failure semantics, test commands, acceptance criteria, stop conditions, closure evidence, and follow-on rules — and must update `plans/registry.md` in the same change. Never mark `closed` from source inspection; closure requires running the plan's tests on the exact candidate plus external/differential evidence where declared.
 

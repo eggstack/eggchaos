@@ -61,6 +61,7 @@ jobs:
           node-version: ${{ matrix.node-version }}
       - run: pip install build pytest pyyaml
       - run: sh scripts/tests/test_cleanup_traps.sh
+      - run: sh scripts/tests/test_fetch_toxiproxy_post_v2_12_contract.sh
       - run: ./scripts/check_openapi.sh
       - run: ./scripts/check_python_client.sh
       - run: ./scripts/check_typescript_client.sh

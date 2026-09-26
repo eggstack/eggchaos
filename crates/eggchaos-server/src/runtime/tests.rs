@@ -1845,6 +1845,170 @@ async fn stream_loss_prometheus_metrics_count_final_evidence_once() {
 }
 
 #[tokio::test]
+async fn stream_loss_prometheus_exposition_is_unique_and_well_formed() {
+    // M041 regression: the per-proxy/direction stream-loss sample
+    // renderer must emit exactly one valid exposition line per
+    // (metric, proxy, direction) tuple, never a literal `\\n`
+    // substitute, and must respect the bounded overflow proxy.
+    let (origin_addr, origin_task) = echo_server().await;
+    let control = test_control();
+    let payload = vec![0x5a; 64 * 1024];
+    let mut spec = ProxySpec::new("exposition", "127.0.0.1:0".parse().unwrap(), origin_addr);
+    spec.downstream_faults = FaultPlan::new(vec![fault(
+        "loss",
+        FaultKind::StreamLoss(eggchaos_core::StreamLossConfig {
+            loss_rate: Probability::new(1.0).unwrap(),
+            correlation: Probability::new(0.0).unwrap(),
+        }),
+    )])
+    .unwrap();
+    let (view, _) = control.create_proxy(spec).await.unwrap();
+    let mut client = TcpStream::connect(view.bound_addr.unwrap()).await.unwrap();
+    client.write_all(&payload).await.unwrap();
+    client.shutdown().await.unwrap();
+    let mut response = Vec::new();
+    tokio::time::timeout(Duration::from_secs(5), client.read_to_end(&mut response))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(response.is_empty());
+    // Wait for final evidence to land before snapshotting the
+    // exposition text.
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let metrics = control.metrics_text().await;
+            if metrics
+                .contains("eggchaos_stream_loss_bytes_discarded_total{proxy=\"exposition\",direction=\"downstream\"} 65536\n")
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+
+    let metrics = control.metrics_text().await;
+    // No literal `\\n` (a backslash followed by `n`) may appear as a
+    // substitute for line termination in the rendered exposition.
+    assert!(
+        !metrics.contains("\\n"),
+        "rendered exposition contains literal \\n: {metrics:?}"
+    );
+    // Parse every non-comment, non-empty line into (metric, labelset)
+    // and assert each stream-loss labelset occurs exactly once.
+    let mut seen: std::collections::HashMap<(String, String), Vec<String>> =
+        std::collections::HashMap::new();
+    for line in metrics.lines() {
+        if line.starts_with('#') || line.trim().is_empty() {
+            continue;
+        }
+        if !line.starts_with("eggchaos_stream_loss_") {
+            continue;
+        }
+        let (metric, rest) = match line.split_once('{') {
+            Some(pair) => pair,
+            None => panic!("exposition sample missing labels: {line:?}"),
+        };
+        let labelset = rest
+            .split_once('}')
+            .map(|(labels, _)| labels.to_owned())
+            .unwrap_or_else(|| panic!("exposition sample missing label close: {line:?}"));
+        let value = line
+            .rsplit(' ')
+            .next()
+            .unwrap_or_default()
+            .trim_end()
+            .to_owned();
+        let entry = seen
+            .entry((metric.to_owned(), labelset.clone()))
+            .or_default();
+        entry.push(value);
+    }
+    for ((metric, labelset), values) in &seen {
+        assert_eq!(
+            values.len(),
+            1,
+            "stream-loss sample emitted {values_len} times for {metric}{{{labelset}}}: {values:?}",
+            values_len = values.len(),
+        );
+    }
+    // Every expected (metric, proxy, direction) tuple must exist.
+    for metric in [
+        "eggchaos_stream_loss_chunks_evaluated_total",
+        "eggchaos_stream_loss_chunks_dropped_total",
+        "eggchaos_stream_loss_bytes_discarded_total",
+    ] {
+        let key = (
+            metric.to_owned(),
+            "proxy=\"exposition\",direction=\"downstream\"".to_owned(),
+        );
+        assert!(
+            seen.contains_key(&key),
+            "missing stream-loss sample {metric} for {key:?}"
+        );
+    }
+
+    // Drive enough synthetic proxies through the bounded overflow
+    // path to force a `_overflow` series for the same metric
+    // family and re-assert uniqueness.
+    {
+        {
+            let mut tables = control.runtime.metrics.tables.lock().expect("metrics lock");
+            for index in 0..=MAX_METRIC_PROXIES {
+                tables.record_accept(&format!("synthetic-{index}"));
+                tables.record_complete(&format!("synthetic-{index}"), [0, 0, 0], [0, 0, 0]);
+                tables.record_stream_loss(&format!("synthetic-{index}"), [1, 1, 10], [2, 2, 20]);
+            }
+        }
+        let metrics = control.metrics_text().await;
+        // No literal escape sequence ever.
+        assert!(
+            !metrics.contains("\\n"),
+            "rendered exposition (overflow path) contains literal \\n: {metrics:?}"
+        );
+        let mut overflow_counts: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+        for line in metrics.lines() {
+            if line.starts_with('#') || line.trim().is_empty() {
+                continue;
+            }
+            let (metric, rest) = match line.split_once('{') {
+                Some(pair) => pair,
+                None => continue,
+            };
+            let labelset = match rest.split_once('}') {
+                Some(pair) => pair.0,
+                None => continue,
+            };
+            if metric.starts_with("eggchaos_stream_loss_")
+                && labelset.contains("proxy=\"_overflow\"")
+            {
+                *overflow_counts
+                    .entry(format!("{metric}{{{labelset}}}"))
+                    .or_default() += 1;
+            }
+        }
+        for (key, count) in &overflow_counts {
+            assert_eq!(
+                *count, 1,
+                "overflow stream-loss series emitted {count} times for {key}"
+            );
+        }
+        // Exactly three overflow stream-loss series (one per family)
+        // exist for each direction.
+        assert_eq!(
+            overflow_counts.len(),
+            6,
+            "expected 6 unique overflow stream-loss series, got {overflow_counts:?}"
+        );
+    }
+
+    control.shutdown_and_join().await;
+    origin_task.abort();
+}
+
+#[tokio::test]
 async fn connection_evidence_contains_no_payload_bytes() {
     let (origin_addr, origin_task) = echo_server().await;
     let control = test_control();

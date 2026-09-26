@@ -62,10 +62,24 @@ Qualification:
   ./scripts/qualify_toxiproxy_v2_12.sh`.
 - Post-v2.12: `scripts/fetch_toxiproxy_post_v2_12.sh` fetches the
   pinned `40f7fd31` source archive, verifies its committed SHA-256, and
-  builds the oracle from source with the recorded Go toolchain; for a
-  mandatory run, set `TOXIPROXY_POST_V2_12_SERVER` to that path and run
-  `EGGCHAOS_REQUIRE_POST_V2_12_ORACLE=1
-  ./scripts/qualify_toxiproxy_post_v2_12.sh`. Recorded divergences from
+  builds the oracle from source with the recorded Go toolchain. The
+  fetcher stdout contract (M041):
+
+  ```sh
+  # default and --path-only: prints the executable path on stdout so
+  # documented command substitution keeps working.
+  TOXIPROXY_POST_V2_12_SERVER="$(./scripts/fetch_toxiproxy_post_v2_12.sh)"
+  TOXIPROXY_POST_V2_12_SERVER="$(./scripts/fetch_toxiproxy_post_v2_12.sh --path-only)"
+
+  # --json prints one metadata record on stdout (requested/resolved
+  # toolchain, source commit, source SHA-256, oracle path, -version).
+  ./scripts/fetch_toxiproxy_post_v2_12.sh --json
+  ```
+
+  For a mandatory run, set `TOXIPROXY_POST_V2_12_SERVER` to that path
+  and run `EGGCHAOS_REQUIRE_POST_V2_12_ORACLE=1
+  ./scripts/qualify_toxiproxy_post_v2_12.sh` (which consumes the path
+  via an explicit `--path-only` fetch mode). Recorded divergences from
   the live oracle (verbatim out-of-range `loss_rate`/`correlation`
   storage, mixed int/float JSON acceptance, `{"version":"git"}` instead
   of a numbered release tag) are classified in
