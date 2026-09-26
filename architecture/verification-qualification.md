@@ -481,6 +481,8 @@ TOXIPROXY_POST_V2_12_SERVER="$(./scripts/fetch_toxiproxy_post_v2_12.sh --path-on
 ./scripts/release-artifact-smoke.sh
 sh scripts/tests/test_cleanup_traps.sh
 sh scripts/tests/test_fetch_toxiproxy_post_v2_12_contract.sh
+sh scripts/tests/test_bench_provenance.sh
+sh scripts/tests/test_bench_provenance_artifacts.sh
 ./scripts/check_openapi.sh
 ./scripts/check_python_client.sh
 ./scripts/check_typescript_client.sh

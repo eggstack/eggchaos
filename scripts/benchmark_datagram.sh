@@ -1,7 +1,22 @@
 #!/usr/bin/env sh
+# M047 datagram benchmark wrapper: annotates the report with the shared
+# provenance object from scripts/bench_provenance.py.
+#
+# Top-level `candidate_sha` is retained for compatibility and always equals
+# `provenance.head_sha`; it names the base HEAD, not a clean-tree proof.
+# Only `provenance.authoritative == true` (clean source-relevant tree)
+# qualifies as exact-candidate evidence.
+#
+# Authoritative guard:
+#   EGGCHAOS_BENCH_REQUIRE_CLEAN=1 ./scripts/benchmark_datagram.sh
+# Dirty source state fails before benchmark execution in this mode.
+# Without it, dirty runs proceed but are marked authoritative:false with a
+# source fingerprint plus a stderr warning.
 set -eu
 
-manifest_dir=$(CDPATH= cd -- "$(dirname -- "$0")/../benchmarks" && pwd)
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+repo_root=$(CDPATH= cd -- "$script_dir/.." && pwd)
+manifest_dir="$repo_root/benchmarks"
 output="${EGGCHAOS_DATAGRAM_BENCH_OUTPUT:-}"
 if [ -z "$output" ]; then
   output="$(mktemp)"
@@ -14,15 +29,41 @@ cleanup() {
 }
 trap cleanup EXIT HUP INT TERM
 
+require_clean="${EGGCHAOS_REQUIRE_CLEAN:-${EGGCHAOS_BENCH_REQUIRE_CLEAN:-}}"
+for arg in "$@"; do
+  case "$arg" in
+    --require-clean) require_clean=1 ;;
+    *) echo "benchmark_datagram.sh: unknown argument '$arg'" >&2; exit 2 ;;
+  esac
+done
+
+provenance_envelope=$(python3 "$script_dir/bench_provenance.py" --json --exclude "$output")
+provenance_json=$(printf '%s' "$provenance_envelope" | python3 -c "import json,sys; print(json.dumps(json.load(sys.stdin)['provenance'], sort_keys=True))")
+worktree=$(printf '%s' "$provenance_json" | python3 -c "import json,sys; print(json.loads(sys.stdin.read())['worktree'])")
+head_sha=$(printf '%s' "$provenance_json" | python3 -c "import json,sys; v=json.loads(sys.stdin.read())['head_sha']; print(v if v else 'unknown')")
+
+if [ "$worktree" != "clean" ]; then
+  fingerprint=$(printf '%s' "$provenance_json" | python3 -c "import json,sys; v=json.loads(sys.stdin.read())['source_fingerprint']; print(v if v else 'none')")
+  if [ -n "$require_clean" ] && [ "$require_clean" != "0" ]; then
+    echo "benchmark_datagram.sh: refusing canonical evidence run on dirty source tree (head=$head_sha fingerprint=$fingerprint)" >&2
+    exit 2
+  fi
+  echo "benchmark_datagram.sh: WARNING dirty source worktree (head=$head_sha fingerprint=$fingerprint): report will carry authoritative:false and must not be called exact-candidate evidence" >&2
+fi
+
+export EGGCHAOS_BENCH_PROVENANCE_JSON="$provenance_json"
+
 cargo fmt --manifest-path "$manifest_dir/Cargo.toml" -- --check
 cargo run --manifest-path "$manifest_dir/Cargo.toml" --release --quiet --bin datagram >"$output"
-python3 - "$output" <<'PY'
+PROVENANCE_JSON="$provenance_json" python3 - "$output" <<'PY'
 import json
+import os
 import platform
 import statistics
 import subprocess
 import sys
 
+provenance = json.loads(os.environ["PROVENANCE_JSON"])
 with open(sys.argv[1], encoding="utf-8") as source:
     report = json.load(source)
 try:
@@ -34,9 +75,12 @@ except (OSError, subprocess.CalledProcessError):
     cpu_model = platform.processor() or "unknown"
 report["cpu_model"] = cpu_model
 report["rustc"] = subprocess.check_output(["rustc", "--version"], text=True).strip()
-report["candidate_sha"] = subprocess.check_output(
-    ["git", "rev-parse", "HEAD"], text=True
-).strip()
+# Legacy compatibility: candidate_sha names the base HEAD. It equals
+# provenance.head_sha and is NOT sufficient proof of a clean candidate;
+# authoritative == true is the exact-candidate signal.
+report["candidate_sha"] = provenance["head_sha"]
+report["provenance"] = provenance
+assert report["candidate_sha"] == report["provenance"]["head_sha"]
 with open(sys.argv[1], "w", encoding="utf-8") as destination:
     json.dump(report, destination, indent=2, sort_keys=True)
     destination.write("\n")

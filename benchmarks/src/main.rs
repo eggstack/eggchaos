@@ -77,9 +77,11 @@ async fn main() {
         .and_then(|value| value.parse().ok())
         .unwrap_or(3);
     let selected = std::env::var("EGGCHAOS_BENCH_CASE").ok();
+    let provenance = bench_provenance();
+    let provenance_json = serde_json::to_string(&provenance).expect("provenance serializes");
 
     println!(
-        "{{\"bytes\":{bytes},\"rounds\":{rounds},\"platform\":\"{}\",\"arch\":\"{}\",\"rustc_version\":\"{}\",\"cases\":[",
+        "{{\"bytes\":{bytes},\"rounds\":{rounds},\"platform\":\"{}\",\"arch\":\"{}\",\"rustc_version\":\"{}\",\"provenance\":{provenance_json},\"cases\":[",
         std::env::consts::OS,
         std::env::consts::ARCH,
         rustc_version_runtime(),
@@ -112,8 +114,46 @@ async fn main() {
     }
     println!("]}}");
     if selected.is_none() {
-        emit_probes().await;
+        emit_probes(&provenance).await;
     }
+}
+
+/// Provenance embedded in stream case and probe reports (M047).
+///
+/// The canonical benchmark wrapper (`scripts/benchmark.sh`) collects one
+/// provenance object via `scripts/bench_provenance.py` and supplies it
+/// through `EGGCHAOS_BENCH_PROVENANCE_JSON` (either the bare object or the
+/// collector's `{"provenance": {...}}` envelope) so both JSON documents
+/// from one invocation carry identical provenance. A direct
+/// `cargo run --manifest-path benchmarks/Cargo.toml` that bypasses the
+/// wrapper emits an explicitly non-authoritative `unavailable` marker;
+/// canonical qualification docs must use the wrapper.
+fn bench_provenance() -> Value {
+    let raw = std::env::var("EGGCHAOS_BENCH_PROVENANCE_JSON").unwrap_or_default();
+    if !raw.trim().is_empty() {
+        if let Ok(parsed) = serde_json::from_str::<Value>(&raw) {
+            let inner = parsed.get("provenance").cloned().unwrap_or(parsed);
+            if inner.get("schema").is_some()
+                && inner.get("head_sha").is_some()
+                && inner.get("worktree").is_some()
+                && inner.get("authoritative").is_some()
+            {
+                return inner;
+            }
+        }
+    }
+    json!({
+        "schema": 1,
+        "head_sha": Value::Null,
+        "worktree": "unknown",
+        "authoritative": false,
+        "source_fingerprint": Value::Null,
+        "index_dirty": false,
+        "tracked_dirty": false,
+        "untracked_source": false,
+        "git_describe": Value::Null,
+        "collector": "unavailable",
+    })
 }
 
 fn rustc_version_runtime() -> String {
@@ -768,12 +808,15 @@ async fn run_eggfetch_adapter(bytes: usize) -> io::Result<Value> {
 /// Emit benchmark-only probes that cannot be derived reliably from
 /// end-to-end throughput numbers. Output goes to stderr as a separate JSON
 /// document so the stdout `{"cases":[…]}` keeps its analyzer-friendly shape.
-async fn emit_probes() {
+/// The `provenance` value must be the same object embedded in the stdout
+/// case report from this invocation.
+async fn emit_probes(provenance: &Value) {
     use std::fmt::Write as _;
+    let provenance_json = serde_json::to_string(provenance).expect("provenance serializes");
     let mut buf = String::new();
     let _ = writeln!(
         buf,
-        "{{\"format\":2,\"platform\":\"{}\",\"arch\":\"{}\",\"probes\":[",
+        "{{\"format\":2,\"platform\":\"{}\",\"arch\":\"{}\",\"provenance\":{provenance_json},\"probes\":[",
         std::env::consts::OS,
         std::env::consts::ARCH,
     );

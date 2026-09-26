@@ -180,3 +180,94 @@ the canonical filename points to. The M042 closure's original
 non-resolving `2ce0c238…` SHA is corrected additively in the M042
 closure (transcription error; base HEAD `2ce0c232`, evidence commit
 `fb2c8fc`) — see the M046 closure for the before/after record.
+
+## M047 artifact provenance and clean-tree policy
+
+M047 is the authority for provenance embedded in **newly generated**
+artifacts only. It does not rewrite pre-M047 JSON; M046 remains the
+authority for interpreting M042–M045 evidence.
+
+### Schema (version 1, shared across stream / stream-probe / datagram)
+
+Every new report carries the same object (collected once per invocation
+by `scripts/bench_provenance.py`, the single Git-state authority):
+
+```json
+{
+  "provenance": {
+    "schema": 1,
+    "head_sha": "<40-hex base HEAD, or null when unavailable>",
+    "worktree": "clean | dirty | unknown",
+    "authoritative": true,
+    "source_fingerprint": "<64-hex sha256 of the dirty source delta, or null when clean>",
+    "index_dirty": false,
+    "tracked_dirty": false,
+    "untracked_source": false,
+    "git_describe": "<git describe output or null>",
+    "collector": "bench_provenance.py v1"
+  }
+}
+```
+
+- `head_sha` is the base HEAD from `git rev-parse HEAD`. It is **not**
+  sufficient proof of a clean candidate by itself.
+- `authoritative` is `true` only when `worktree == "clean"` and
+  `head_sha` is a 40-hex SHA. A dirty tree can never be authoritative.
+- `source_fingerprint` is `null` on clean trees and a stable byte-level
+  digest of the source-relevant dirty/untracked delta otherwise
+  (sorted `status + relpath + content-sha` manifest hashed with
+  SHA-256; deterministic for identical content, sensitive to any byte
+  change). It never covers the output artifact itself.
+- Source-relevant state is: staged changes, unstaged tracked changes,
+  and non-ignored untracked files — minus documented generated/output
+  paths (any `target/` component, `__pycache__`/`*.pyc`, any
+  `*.json` under `qualification/performance/`, and the report
+  destination passed via `--exclude`). Ignored files never count.
+- `candidate_sha` (datagram only, retained for compatibility) always
+  equals `provenance.head_sha` and likewise names the base HEAD.
+- Stream reports have no `candidate_sha`; the shared `provenance`
+  object is the authority there.
+- A direct `cargo run --manifest-path benchmarks/Cargo.toml` that
+  bypasses the wrapper emits `collector: "unavailable"`,
+  `worktree: "unknown"`, `authoritative: false`. Canonical
+  qualification docs must use the wrappers.
+
+### Evidence vocabulary
+
+- **Exploratory result**: any run from a dirty worktree. It executes
+  normally, carries `authoritative: false` plus a source fingerprint,
+  and the wrapper prints a stderr warning. Useful for in-progress
+  optimization; never an exact candidate.
+- **Retained authoritative result**: a run from a clean
+  source-relevant tree, carrying `authoritative: true`.
+- **Clean exact candidate**: retained authoritative evidence whose
+  `head_sha` is the commit under discussion — no Git-history inference
+  needed to identify what ran.
+- **Dirty base HEAD**: a dirty run's `head_sha` (equals legacy
+  `candidate_sha`): the base commit, not the measured tree. The
+  fingerprint distinguishes the tree; the content is not recoverable
+  from the SHA.
+- **Evidence commit**: the commit that retains the artifact file; it
+  may differ from the execution `head_sha` (see the M046 map above).
+
+### Operator knobs
+
+- `./scripts/benchmark.sh` — console default prints annotated case JSON
+  to stdout and probe JSON to stderr. `EGGCHAOS_STREAM_BENCH_OUTPUT`
+  and `EGGCHAOS_STREAM_PROBE_OUTPUT` select artifact mode (each file
+  receives its annotated document; the two share identical
+  provenance). `EGGCHAOS_BENCH_CASE` / `EGGCHAOS_BENCH_BYTES` /
+  `EGGCHAOS_BENCH_ROUNDS` shorten workloads without changing case
+  semantics.
+- `./scripts/benchmark_datagram.sh` — annotates with provenance plus
+  `candidate_sha`; `EGGCHAOS_DATAGRAM_BENCH_OUTPUT` selects the retained
+  file. Size knobs as documented above.
+- `EGGCHAOS_BENCH_REQUIRE_CLEAN=1` (or `benchmark.sh --require-clean`)
+  is the canonical retained-evidence guard: a dirty source-relevant
+  tree fails **before** benchmark execution (exit 2). There is no
+  override that labels a dirty result authoritative.
+- `scripts/bench_provenance.py --json [--exclude PATH]...` prints the
+  envelope directly; `--require-clean` exits 2 on dirty trees and
+  nonzero when Git metadata is unavailable. Collection never runs
+  `git add`/`stash`/`commit` and emits no absolute paths, usernames,
+  tokens, environment dumps, or full `git status` text.
