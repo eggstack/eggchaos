@@ -1,6 +1,6 @@
 # Eggchaos Long-Term Roadmap
 
-Status: M008 and M009–M048 are historical closed work. M019 remains the final pre-tag authority at `ca527db`. ADR 003 datagram, ADR 004 scenario, ADR 005 integration, ADR 006 cross-language, and ADR 007 post-v2.12 compatibility tranches are complete. M041 closed on exact candidate `724b967da04579282dd8bfc7a81dc4fe55d034a2` (hosted run `36219464594`, 13/13 jobs) as the latest ADR 007 repository-level authority. The post-M041 performance implementation tranche M042–M045 is complete; M046 closed the historical evidence-provenance reconstruction; M047 closed the artifact-provenance/dirty-worktree guard corrective on exact candidate `493fb03`; M048 closed the hosted qualification/CI integration of that provenance contract on exact candidate `ab61ac7809b9260e44a827567065e1479445f2f7` (hosted run `36331806587`, 14/14 jobs). No active, ready, or blocked plan remains. Strict Toxiproxy v2.12 remains frozen/default.
+Status: M000-M048 are historical closed work. M049-M054 are the registered post-M048 correctness/maintenance corrective tranche: M049 is ready; M050-M054 are blocked behind predecessor closure. M019 remains the final pre-tag authority at ca527db. M041 remains the ADR 007 corrective authority; M046/M047/M048 remain the historical-provenance, new-artifact provenance, and hosted provenance-qualification authorities respectively.
 
 ## 1. Mission
 
@@ -674,6 +674,32 @@ successor: M046 remains the historical provenance authority; M047
 remains the schema/tooling authority for newly generated artifacts;
 M048 is the hosted qualification/CI-ownership authority for that
 tooling.
+
+## 11N. Post-M048 correctness and maintainability corrective tranche
+
+A 2026-09-27 repository audit after M048 found no need for another broad feature milestone, but identified four maintenance/correctness authority gaps plus a final qualification need:
+
+1. core stream-plan invariants can be bypassed through derived Serde deserialization even though constructors document validated types;
+2. Scenario V1/V2 share run IDs and task supervision but duplicate run/token/admission/pruning lifecycle stores;
+3. native HTTP admin and eggchaos-embed still duplicate typed conversion/state-call/error-classification sequences;
+4. several control/translation modules remain multi-responsibility hotspots, and current milestone-status prose has already drifted between registry and architecture summaries.
+
+The registered chain is:
+
+    M049 core deserialization + plan invariants
+      -> M050 scenario run lifecycle authority
+      -> M051 native control operation authority
+      -> M052 private module-boundary maintainability
+      -> M053 planning status authority / drift guard
+      -> M054 exact-head qualification
+
+M049 is ready. M050-M054 are blocked until predecessor closure.
+
+This chain is corrective, not feature expansion. It may not remove or rename existing public Rust items, native routes, CLI commands, Toxiproxy compatibility behavior, SDK/native-binding operations, deterministic identities, or fault capabilities. M050 must preserve the current effective 32-run/record capacity independently for Scenario V1 and Scenario V2 rather than collapsing it into a new 32-total limit. M051 may add only the narrow support seam required to share operation logic across crates; existing public helpers remain compatible wrappers. M052 defaults to non-hot-path control/translation decomposition and does not authorize opportunistic eggchaos-core stream/engine rewrites. M053 keeps plans/registry.md as the sole hand-maintained status authority rather than creating another manifest.
+
+M054 is the mandatory exact-head closure gate with full local, oracle, cross-language, fuzz, package, hosted, public-surface, and targeted performance non-regression evidence.
+
+Scenario enumeration, optional egress chaining, new fault models, generic C ABI/additional native bindings, and downstream EggReplay/EggProbe adapters remain separate feature decisions.
 
 ## 12. Performance targets
 

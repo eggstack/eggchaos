@@ -196,8 +196,8 @@ overview first, then go component by component.
 - `docs/configuration.md`, `docs/control-plane.md`, `docs/eggfetch.md`,
   `docs/toxiproxy.md` — per-surface contracts.
 - `plans/roadmap.md`, `plans/registry.md` — sequencing, invariants, milestone
-  closure (M000–M041 closed; M019 final tag authority, M041 latest
-  corrective authority).
+  closure (M000–M048 closed; M049–M054 registered post-M048 corrective
+  tranche; M019 final pre-tag authority).
 - `plans/adrs/` — durable boundaries (001 stream engine, 002 determinism,
   003 datagrams, 004 schedules, 005 integration, 006 cross-language,
   007 stream-loss).

@@ -151,6 +151,12 @@ authority for M042–M045. Further performance work begins from new measured
 findings, not from another provenance corrective unless hosted regression
 evidence identifies one.
 
+A post-M048 repository audit registered the next bounded corrective tranche:
+
+M049 core deserialization/invariant hardening -> M050 scenario lifecycle authority consolidation -> M051 native operation authority consolidation -> M052 private module-boundary maintainability -> M053 planning-status drift guard -> M054 exact-head qualification
+
+M049 is ready for implementation. M050-M054 are blocked by predecessor closure. The tranche preserves all existing APIs/capabilities; in particular it preserves Scenario V1/V2 semantic separation and the current effective 32-record/active-run allowance per family. Scenario enumeration, egress chaining, additional bindings, and other additive feature work remain outside this chain.
+
 ## Status rules
 
 The registry uses the following states: `ready`, `blocked`, `active`, `implemented-awaiting-evidence`, `closed`, and `superseded`.
