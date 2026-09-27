@@ -6,21 +6,24 @@ workflows (`.github/workflows/`), dependency/supply-chain policy
 (`Cargo.toml`, `deny.toml`, `rust-toolchain.toml`), shipped artifacts
 (`dist/`), and the `plans/` governance authority that gates any release.
 
-Pre-release `0.1.0`. Milestones M000–M041 plus M008 are closed
-(`plans/registry.md` last reconciled 2026-09-26, no successor). M019
+Pre-release `0.1.0`. Milestones M000–M048 plus M008 are closed
+(`plans/registry.md` last reconciled 2026-09-27, no successor). M019
 closed at `ca527db` and remains the final pre-tag release-candidate
 authority; later tranches do not rewrite it. M041 closed at
 `724b967da04579282dd8bfc7a81dc4fe55d034a2` (hosted run `36219464594`,
 13/13 jobs) and is the latest ADR 007 repository-level authority for
-the narrow stream-loss metrics/tooling/closure corrective. Complete:
-ADR 003 datagram tranche (M020–M023 plus M024 performance and M025
-setup/closure hygiene), ADR 004 schedule tranche (M026–M028), ADR 005
-integration-boundary tranche (M029–M031), ADR 006 cross-language
-tranche (M032–M034 plus corrective M035), ADR 007 post-v2.12
-tranche (M036–M039 plus correctives M040–M041). Strict Toxiproxy
-v2.12 remains frozen/default. Tagging, crates.io publication, and
-GitHub release creation remain explicit owner actions
-(`plans/registry.md`, `plans/README.md`,
+the narrow stream-loss metrics/tooling/closure corrective. M048 closed
+at `ab61ac7809b9260e44a827567065e1479445f2f7` (hosted run `36331806587`,
+14/14 jobs) and is the hosted qualification/CI-ownership authority for
+the M047 provenance tooling. Complete: ADR 003 datagram tranche
+(M020–M023 plus M024 performance and M025 setup/closure hygiene), ADR
+004 schedule tranche (M026–M028), ADR 005 integration-boundary tranche
+(M029–M031), ADR 006 cross-language tranche (M032–M034 plus corrective
+M035), ADR 007 post-v2.12 tranche (M036–M039 plus correctives
+M040–M041), and the post-M041 performance/provenance tranche
+(M042–M048). Strict Toxiproxy v2.12 remains frozen/default. Tagging,
+crates.io publication, and GitHub release creation remain explicit
+owner actions (`plans/registry.md`, `plans/README.md`,
 `plans/019-qualification-expansion-and-final-corrective-requalification.md`).
 
 ## 1. Scripts catalog (`scripts/`)
@@ -190,7 +193,7 @@ candidate (see §3).
   fuzz/security/package gates + perf within budget (empty-plan mean
   throughput ≥ 70% of same-session bare relay unless deliberately revised
   with evidence).
-- M041 is the latest repository-level authority at exact candidate
+- M041 is the latest ADR 007 repository-level authority at exact candidate
   `724b967da04579282dd8bfc7a81dc4fe55d034a2` (hosted run `36219464594`,
   13/13 jobs; evidence in
   `plans/closure/M041-stream-loss-metrics-and-closure-hygiene-corrective-closure.md`):
@@ -203,6 +206,23 @@ candidate (see §3).
   `test_fetch_toxiproxy_post_v2_12_contract.sh`, plus
   `check_openapi.sh` (21 paths / 36 operations), `release-smoke.sh`,
   and `release-artifact-smoke.sh` on the candidate.
+- M048 closed the hosted qualification/CI integration of the M047
+  provenance contract on exact candidate
+  `ab61ac7809b9260e44a827567065e1479445f2f7` (hosted run `36331806587`,
+  14/14 jobs; evidence in
+  `plans/closure/M048-hosted-performance-provenance-qualification-and-ci-integration-closure.md`):
+  Tier A (`test_bench_provenance.sh`) added to `check` for
+  `ubuntu-latest` + `macos-latest` (gated `runner.os != 'Windows'`),
+  Tier B (`test_bench_provenance_artifacts.sh`) added to a dedicated
+  `performance-provenance` Linux job (`timeout-minutes: 12`,
+  ubuntu-latest only), structural guard
+  (`test_ci_provenance_integration.sh`) added to `language-clients`.
+  Tier A also lives in `scripts/check.sh`; Tier B stays CI-only.
+  Per-job deltas vs M047 baseline: `check (ubuntu-latest)` 4m52s → 4m51s;
+  `check (macos-latest)` 4m12s → 4m11s; `check (windows-latest)` 4m23s
+  → 4m33s (Tier A intentionally gated off; within noise); new
+  `performance-provenance` job 2m15s of a 12-minute budget. No
+  production/runtime/threshold/schema v1 change.
 - If any fix lands after candidate selection, select a new candidate and
   rerun every affected gate. Planning-only closure-note commits may
   follow only if explicitly distinguished from the qualified code
@@ -270,13 +290,13 @@ Canonical surface is `plans/` (`AGENTS.md`, `plans/README.md`):
 
 | Path | Authority |
 | --- | --- |
-| `plans/roadmap.md` | Long-term architecture, sequencing, invariants, non-goals, release gates. Status line names M019 final pre-tag authority and M041 latest corrective authority. |
-| `plans/registry.md` | Compact source of truth for milestone status, dependencies, activation, closure. Update it in the same change that activates/blocks/closes/supersedes a milestone. M041 row is `closed` at `724b967da04579282dd8bfc7a81dc4fe55d034a2` with hosted run `36219464594` (13/13). |
+| `plans/roadmap.md` | Long-term architecture, sequencing, invariants, non-goals, release gates. Status line names M019 final pre-tag authority, M041 latest ADR 007 corrective authority, and M048 hosted qualification/CI-ownership authority. |
+| `plans/registry.md` | Compact source of truth for milestone status, dependencies, activation, closure. Update it in the same change that activates/blocks/closes/supersedes a milestone. M041 row is `closed` at `724b967da04579282dd8bfc7a81dc4fe55d034a2` with hosted run `36219464594` (13/13); M048 row is `closed` at `ab61ac7809b9260e44a827567065e1479445f2f7` with hosted run `36331806587` (14/14). |
 | `plans/000-architecture-and-scope-baseline.md` | Investigated baseline and boundaries. |
-| `plans/001-*.md` … `plans/041-*.md` | Executable handoffs; filename prefix is the milestone sequence number and must not be reused. |
+| `plans/001-*.md` … `plans/048-*.md` | Executable handoffs; filename prefix is the milestone sequence number and must not be reused. |
 | `plans/adrs/` | Durable decisions (`001-stream-fault-engine-boundary.md`, `002-determinism-and-live-mutation.md`, `003-datagram-impairment-boundary-and-semantics.md`, `004-deterministic-scenario-schedules-and-replay-identity.md`, `005-cross-project-integration-boundary-and-experiment-identity.md`, `006-cross-language-control-contracts-and-native-binding-boundary.md`, `007-post-v2-12-toxiproxy-stream-loss-compatibility.md`); implementation must not silently change them. |
 | `plans/reference/` | Parity/verification contracts (`toxiproxy-parity.md`, `verification-matrix.md`), not status. |
-| `plans/closure/` | Independent closure evidence after implementation (candidate SHA, commands, oracle, artifacts, limitations, verdict). M041 evidence is `M041-stream-loss-metrics-and-closure-hygiene-corrective-closure.md`; M040 remains preserved historical evidence. |
+| `plans/closure/` | Independent closure evidence after implementation (candidate SHA, commands, oracle, artifacts, limitations, verdict). M041 evidence is `M041-stream-loss-metrics-and-closure-hygiene-corrective-closure.md`; M048 evidence is `M048-hosted-performance-provenance-qualification-and-ci-integration-closure.md`; M040 remains preserved historical evidence. |
 | `plans/archive/` | Superseded material only; never delete history to look cleaner. |
 
 Status vocabulary (only these): `ready` (dependencies satisfied,
@@ -322,6 +342,7 @@ closure; neither may claim unsupported behavior.
 | Python / TypeScript remote control SDKs + Python native embedding | implemented; correctively qualified via M035, contract held by M041 | ADR 006 chain M032–M034 closed; M035 reconciles hosted SDK/native-Python qualification, the shared datagram mutation authority, and planning closure (closed at `a710cd6`, hosted 13/13 green). A generic C ABI remains deferred pending a separate ADR and demonstrated multi-consumer demand (M034 decided no-go). |
 | Richer schedulers / time-varying fault scripts | completed (bounded v2 model) | ADR 004 tranche M026–M028 closed and qualified at `ceb3bae`; ScenarioV1 remains a compatibility surface. Ramps, predicates, lifecycle actions, and cron require separate planning and must compile to or compose with the bounded model. |
 | Post-v2.12 Toxiproxy (`packet_loss` etc.) | implemented / correctively qualified | ADR 007 chain M036–M039 plus correctives M040 (closed at `48fe0dd`, hosted `36214657871` green) and M041 (closed at `724b967`, hosted `36219464594` green) are closed. Strict v2.12 remains default/frozen; native name stays `stream-loss` (never ADR 003 datagram loss, never IP/TCP packet loss). Later upstream tags require separate reconciliation against pinned `40f7fd31`. |
+| Post-M041 performance + provenance-corrective tranche | implemented / hosted-qualified | M042–M045 closed the evidence-first optimization tranche; M046 closed the historical provenance reconstruction; M047 added the shared benchmark provenance schema/tooling for newly generated artifacts (closed at `493fb03`); M048 wired Tier A + Tier B + structural guard into hosted CI without altering schema v1, workloads, or thresholds (closed at `ab61ac7`, hosted run `36331806587` 14/14 jobs green). Further performance work begins from new measured findings; the provenance contract is hosted-protected against accidental workflow removal by `scripts/tests/test_ci_provenance_integration.sh`. |
 | TLS interception / HTTP rewriting, forward/CONNECT/SOCKS proxying, QUIC/SSH protocols, plugin ABI, distributed coordination, DB persistence | non-goals (`plans/000-architecture-and-scope-baseline.md`) | Fresh planning pass; none may weaken the fixed-target, protocol-neutral core boundary (`plans/roadmap.md` §14). |
 | SBC target-class benchmarking / service-manager integration | post-v1 follow-up | Target hardware + operational demand. |
 
@@ -332,7 +353,11 @@ closure; neither may claim unsupported behavior.
    (`.github/workflows/ci.yml`, `.github/workflows/release.yml`,
    `plans/015-final-exact-head-release-requalification.md` WP1–WP3;
    M019 at `ca527db` is the final pre-tag authority, M041 at `724b967`
-   the latest corrective authority).
+   the latest ADR 007 corrective authority, M048 at `ab61ac7`
+   the latest hosted qualification/CI-ownership authority for the M047
+   provenance contract). The 13/13-equivalent hosted matrix must
+   remain green, plus the M048 `performance-provenance` Linux job
+   (14/14 jobs total in M048's recorded hosted run `36331806587`).
 2. `scripts/check.sh` clean; `scripts/release-smoke.sh` (incl.
    audit/deny/package-list/order-proof/artifact-smoke) clean, with the
    order-proof asserting `core -> experiment/eggfetch -> protocol ->

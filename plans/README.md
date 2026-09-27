@@ -11,7 +11,7 @@ Eggchaos is intended to be a small Rust-native successor to the useful core of T
 | `roadmap.md` | Long-term architecture, sequencing, release stages, and future extensions. |
 | `registry.md` | Current milestone status and dependency source of truth. |
 | `000-architecture-and-scope-baseline.md` | Investigated baseline, reuse decisions, scope boundaries, and initial dependency graph. |
-| `001-*.md` ... `048-*.md` | Bounded implementation, corrective, cleanup, feature, qualification, maintenance, richer-scenario, integration-boundary, language-binding, post-v2.12 compatibility, performance, and closure handoffs in execution order. |
+| `001-*.md` ... `048-*.md` | Bounded implementation, corrective, cleanup, feature, qualification, maintenance, richer-scenario, integration-boundary, language-binding, post-v2.12 compatibility, performance, hosted qualification/CI integration, and closure handoffs in execution order. |
 | `adrs/` | Durable architecture decisions that should not be silently changed by implementation. |
 | `reference/toxiproxy-parity.md` | Compatibility target and semantic mapping. |
 | `reference/verification-matrix.md` | Required evidence across faults, platforms, APIs, and performance. |
@@ -124,16 +124,32 @@ the M042–M045 provenance map plus the M047 schema/policy section are in
 authority for provenance in newly generated evidence while M046 remains the
 authority for historical artifacts.
 
-A narrow hosted qualification/integration successor is now registered:
+A narrow hosted qualification/integration successor is now closed:
 
 `M048 hosted performance-provenance qualification / CI integration`
 
-M048 is `ready`. It does not change provenance schema v1 or benchmark
-semantics. Its job is to move the two M047 provenance regressions into ordinary
-hosted protection with bounded CI cost: the cheap disposable-Git contract on
-Ubuntu + macOS, one shortened artifact-level stream/probe/datagram qualification
-on Linux, structural protection against accidental workflow removal, exact-head
-hosted evidence, and before/after CI-duration review.
+M048 is `closed` on exact candidate `ab61ac7809b9260e44a827567065e1479445f2f7`
+(hosted run `36331806587`, 14/14 jobs green). It does not change provenance
+schema v1 or benchmark semantics. Its job was to move the two M047 provenance
+regressions into ordinary hosted protection with bounded CI cost: the cheap
+disposable-Git contract on Ubuntu + macOS (Tier A, gated
+`runner.os != 'Windows'`), one shortened artifact-level stream/probe/datagram
+qualification on Linux in a dedicated `performance-provenance` job (Tier B),
+a structural guard against accidental workflow removal running in
+`language-clients`, exact-head hosted evidence, and before/after CI-duration
+review. Tier A also lives in `scripts/check.sh` because it is cheap (Git +
+stdlib Python only); Tier B stays CI-only because it would otherwise
+compile/run release benchmarks on every local full check. Evidence is in
+`plans/closure/M048-hosted-performance-provenance-qualification-and-ci-integration-closure.md`.
+
+The performance execution order now reads
+`M042 -> M043 -> M044 -> M045 -> M046 -> M047 -> M048 (all closed)`.
+M048 is the hosted qualification/CI-ownership authority for the M047
+provenance tooling; M047 remains the schema/tooling authority for newly
+generated artifacts; M046 remains the historical-evidence provenance
+authority for M042–M045. Further performance work begins from new measured
+findings, not from another provenance corrective unless hosted regression
+evidence identifies one.
 
 ## Status rules
 

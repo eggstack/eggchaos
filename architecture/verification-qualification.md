@@ -414,7 +414,7 @@ if a gate was not run, record it as incomplete (see §8).
 | Oracle baseline | `qualification/toxiproxy-v2-12/oracle-baseline-v2.12.0.md` | Live-captured 2026-09-22: identity, routes, reset/populate, 7 toxic defaults, non-API 404s |
 | Client smokes | `qualification/toxiproxy-v2-12/client-smoke/{go/,py_smoke.py,*_results.json}` | Pinned Go client + stdlib Python; rerun fresh per qualification |
 
-## 5. CI matrix + release workflow evidence (M041 exact-HEAD)
+## 5. CI matrix + release workflow evidence (M041 exact-HEAD; M048 hosted provenance qualification added on top)
 
 - Ordinary CI (`.github/workflows/ci.yml`, `check` job): `ubuntu-latest`,
   `macos-latest`, `windows-latest`; `timeout-minutes: 25`;
