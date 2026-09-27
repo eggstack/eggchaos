@@ -160,12 +160,17 @@ Re-exports (`lib.rs:11-34`):
 
 - `RngVersion` (`plan.rs:6-12`): `V1` (default). “SplitMix64 with the
   eggchaos v1 domain-separation encoding.”
-- `FaultId` (`plan.rs:14-38`): opaque validated `String`. `new`
-  (`plan.rs:20-26`) rejects empty or `len > 128` with
-  `ValidationError::InvalidFaultId`. `as_str()`, `Display`.
-- `Probability` (`plan.rs:40-63`): `f64` in closed `[0, 1]`. `new`
-  (`plan.rs:46-52`) rejects NaN/infinite/out-of-range with
-  `ProbabilityOutOfRange`. `get()`. `Default` is `1.0` (`plan.rs:59-63`).
+- `FaultId` (`plan.rs:22-90`): opaque validated `String`. `new`
+  (`plan.rs:26-32`) rejects empty or `len > 128` with
+  `ValidationError::InvalidFaultId`. `as_str()`, `Display`, plus M049
+  manual `Serialize`/`Deserialize` implementations that route scalar
+  deserialization through `FaultId::new` (so the invariant is preserved
+  on every safe construction path, including serde).
+- `Probability` (`plan.rs:66-90`): `f64` in closed `[0, 1]`. `new`
+  (`plan.rs:70-76`) rejects NaN/infinite/out-of-range with
+  `ProbabilityOutOfRange`. `get()`. `Default` is `1.0` (`plan.rs:84-88`).
+  Manual M049 `Serialize`/`Deserialize` route scalar deserialization
+  through `Probability::new`.
 - Config structs, all `Clone, Copy, PartialEq, Eq, Serialize, Deserialize`:
   - `LatencyConfig` (`plan.rs:65-74`):
     `{ delay: Duration, jitter: Duration, max_buffer_bytes: NonZeroU64 }`.
@@ -209,18 +214,22 @@ Re-exports (`lib.rs:11-34`):
 - `FaultSpec` (`plan.rs:238-247`):
   `{ id: FaultId, probability: Probability, kind: FaultKind }` plus
   `validate()`.
-- `FaultPlan` (`plan.rs:249-319`): ordered validated `Vec<FaultSpec>`.
-  `new(Vec<FaultSpec>)` (`plan.rs:257-266`) rejects duplicates and invalid
-  stages; `empty()` (`plan.rs:268-270`), `faults()` (`plan.rs:272-274`),
-  `is_empty()` (`plan.rs:276-278`), `get(id)` (`plan.rs:280-282`),
-  `with_fault` (`plan.rs:284-291`), `without_fault` (order-preserving
-  retain, `plan.rs:293-296`), `replace_fault` (in-place preserve order,
-  append if missing, `plan.rs:298-311`), `validate()`
-  (`plan.rs:313-318`).
-- `FaultSpec::validate` (`plan.rs:321-348`): latency zero-capacity,
+- `FaultPlan` (`plan.rs:296-401`): ordered validated `Vec<FaultSpec>`.
+  `new(Vec<FaultSpec>)` (`plan.rs:326-332`) rejects duplicates and invalid
+  stages; `empty()`, `faults()`, `is_empty()`, `get(id)`,
+  `with_fault`, `without_fault` (order-preserving retain),
+  `replace_fault` (in-place preserve order, append if missing), and a
+  full `validate()` (`plan.rs:389-400`) that is the single plan-level
+  invariant authority: duplicate IDs, defensive scalar re-validation
+  through `Probability::new`, plus every kind-specific bound.
+  Manual M049 `Serialize`/`Deserialize` (`plan.rs:303-322`) keep the
+  pre-M049 wire shape (`{"faults": [...]}`) while routing
+  deserialization through `FaultPlan::new` so invalid stages cannot
+  reach a published policy.
+- `FaultSpec::validate` (`plan.rs:408-430`): latency zero-capacity,
   slice `variation >= average`, bandwidth zero rate/burst, limit zero
   bytes, and stream-loss non-finite/out-of-range probabilities
-  (`plan.rs:337-344`, surfaces as `ProbabilityOutOfRange`).
+  (surfaces as `ProbabilityOutOfRange`).
 - `ValidationError` (`plan.rs:350-374`, `thiserror`):
   `ProbabilityOutOfRange`, `InvalidFaultId` (`1..=128 bytes`),
   `DuplicateFaultId(String)`, `ZeroCapacity`, `InvalidSlice`

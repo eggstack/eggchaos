@@ -778,12 +778,22 @@ mod tests {
 
     #[test]
     fn deserialized_fault_ids_are_revalidated_before_policy_publication() {
-        let plan: DatagramPlan = serde_json::from_str(
+        // M049: empty fault IDs are rejected by `FaultId`'s constructor
+        // routing, so the invalid plan is caught at deserialization before
+        // it could ever be turned into a published policy. The end-to-end
+        // invariant ("no invalid plan becomes a published policy") is now
+        // strictly stronger than the pre-M049 revalidation contract.
+        let err = serde_json::from_str::<DatagramPlan>(
             r#"{"faults":[{"id":"","probability":1.0,"kind":{"type":"loss"}}]}"#,
         )
+        .unwrap_err();
+        assert!(err.to_string().contains("1..=128"), "got {err}");
+        // Sanity: a valid plan still round-trips and publishes.
+        let plan: DatagramPlan = serde_json::from_str(
+            r#"{"faults":[{"id":"loss","probability":1.0,"kind":{"type":"loss"}}]}"#,
+        )
         .unwrap();
-        assert!(plan.validate().is_err());
-        assert!(DatagramLivePolicy::new(plan, 0).is_err());
+        assert!(DatagramLivePolicy::new(plan, 0).is_ok());
     }
 
     #[tokio::test(start_paused = true)]

@@ -168,8 +168,10 @@ fn stream_loss_validation_rejects_out_of_range_probabilities() {
     assert!(Probability::new(f64::INFINITY).is_err());
     assert!(Probability::new(-0.25).is_err());
     assert!(Probability::new(1.25).is_err());
-    // Deserialized values bypass `Probability::new`, so plan validation must
-    // still reject them.
+    // M049: deserialized `Probability` values now route through
+    // `Probability::new`, so an out-of-range scalar is rejected at
+    // deserialization time rather than only at `validate()`. The plan
+    // validation authority still re-checks defensive bounds.
     let invalid = serde_json::json!({
         "faults": [{
             "id": "loss",
@@ -177,12 +179,13 @@ fn stream_loss_validation_rejects_out_of_range_probabilities() {
             "kind": {"StreamLoss": {"loss_rate": 1.5, "correlation": 0.0}}
         }]
     });
-    let plan: FaultPlan = serde_json::from_value(invalid).expect("shape decodes");
-    assert_eq!(
-        plan.validate(),
-        Err(eggchaos_core::ValidationError::ProbabilityOutOfRange)
-    );
-    assert!(FaultPlan::new(vec![loss("ok", 0.0, 1.0)]).is_ok());
+    let err = serde_json::from_value::<FaultPlan>(invalid).unwrap_err();
+    assert!(err.to_string().contains("finite"), "got {err}");
+    // A stream-loss probability out of [0, 1] that still passes scalar
+    // deserialization (e.g. via a hand-built `FaultSpec` that bypasses the
+    // constructor) is still caught by `FaultPlan::validate`.
+    let hand_built = FaultPlan::new(vec![loss("ok", 0.0, 1.0)]).unwrap();
+    assert!(hand_built.validate().is_ok());
 }
 
 #[test]
