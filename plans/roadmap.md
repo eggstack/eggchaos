@@ -1,6 +1,6 @@
 # Eggchaos Long-Term Roadmap
 
-Status: M008 and M009–M041 are historical closed work. M019 remains the final pre-tag authority at `ca527db`. ADR 003 datagram, ADR 004 scenario, ADR 005 integration, ADR 006 cross-language, and ADR 007 post-v2.12 compatibility tranches are complete. M041 closed on exact candidate `724b967da04579282dd8bfc7a81dc4fe55d034a2` (hosted run `36219464594`, 13/13 jobs) as the latest ADR 007 repository-level authority. The post-M041 performance implementation tranche M042–M045 is complete; M046 closed the historical evidence-provenance reconstruction; M047 closed the artifact-provenance/dirty-worktree guard corrective on exact candidate `493fb03` as the authority for provenance in newly generated benchmark evidence. Strict Toxiproxy v2.12 remains frozen/default.
+Status: M008 and M009–M041 are historical closed work. M019 remains the final pre-tag authority at `ca527db`. ADR 003 datagram, ADR 004 scenario, ADR 005 integration, ADR 006 cross-language, and ADR 007 post-v2.12 compatibility tranches are complete. M041 closed on exact candidate `724b967da04579282dd8bfc7a81dc4fe55d034a2` (hosted run `36219464594`, 13/13 jobs) as the latest ADR 007 repository-level authority. The post-M041 performance implementation tranche M042–M045 is complete; M046 closed the historical evidence-provenance reconstruction; M047 closed the artifact-provenance/dirty-worktree guard corrective on exact candidate `493fb03`; M048 is now the sole ready handoff for hosted qualification/CI ownership of that provenance contract. Strict Toxiproxy v2.12 remains frozen/default.
 
 ## 1. Mission
 
@@ -628,6 +628,34 @@ semantics did not change. M046 remains the authority for interpreting
 historical artifacts; M047 is the authority for provenance embedded in
 newly generated evidence.
 
+## 11M. Hosted performance-provenance qualification and CI integration
+
+M047 closed the tooling defect but explicitly left its two provenance-specific
+regressions outside hosted CI. The ordinary M047 closure head later completed
+the existing 13-job matrix successfully, but that matrix still did not execute
+the provenance tests themselves.
+
+M048 is registered as the sole ready qualification/integration successor:
+
+```text
+M042–M045 closed performance tranche
+  -> M046 closed historical provenance reconstruction
+  -> M047 closed provenance schema/tooling authority
+  -> M048 hosted provenance qualification / CI integration (ready)
+```
+
+M048 must add the cheap disposable-Git provenance regression to hosted Ubuntu
+and macOS execution, and run the shortened artifact-level stream/probe/datagram
+qualification exactly once on Linux. CI cost is part of the acceptance
+criteria: do not multiply release-mode benchmark builds across the OS or
+language matrices, do not make provenance failures advisory, and do not raise
+the existing 25-minute job bound simply to absorb poor placement.
+
+A clean M048 records exact-head hosted evidence plus before/after job-duration
+impact. It does not change provenance schema v1, historical artifacts,
+benchmark workloads, M008/M023/M024/M042 thresholds, or production
+runtime/API/fault semantics.
+
 ## 12. Performance targets
 
 No-fault overhead is a first-class regression metric.
@@ -670,7 +698,7 @@ Potential next lines:
 - cross-language bindings are implemented under ADR 006 + M032–M034 and correctively qualified under M035 (closed at `a710cd6`). A generic C ABI remains deferred pending a separate ADR and demand;
 - richer time-varying scenarios and deterministic schedule files are activated under ADR 004 + M026–M028;
 - post-v2.12 Toxiproxy stream-loss/`packet_loss` compatibility is implemented by ADR 007 + M036–M041; M041 closed at `724b967` as the latest narrow metrics/tooling closure corrective; later upstream extensions or a tagged successor require separate reconciliation against the pinned snapshot;
-- the M042–M045 post-M041 performance implementation tranche is closed; M046 is the closed historical provenance authority; M047 (closed at `493fb03`) is the provenance authority for newly generated performance artifacts and did not reduce public API/capability, alter benchmark workloads or deterministic fault semantics, retune thresholds, or change historical performance budgets;
+- the M042–M045 post-M041 performance implementation tranche is closed; M046 is the historical provenance authority; M047 (closed at `493fb03`) owns provenance schema/tooling for newly generated artifacts; M048 is the current hosted qualification/CI-ownership handoff and may not alter schema v1, benchmark workloads, deterministic fault semantics, thresholds, or historical performance budgets;
 - target-class SBC qualification and service-management integration through Eggstack shared updater/service machinery if operational demand exists.
 
 None of these may weaken the fixed-target, protocol-neutral core boundary.

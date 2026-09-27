@@ -1,6 +1,6 @@
 # Eggchaos Plan Registry
 
-Last reconciled: 2026-09-26 (M047 performance artifact-provenance/dirty-worktree guard corrective closed)
+Last reconciled: 2026-09-27 (M048 hosted performance-provenance qualification/CI integration registered ready after M047)
 
 This file is the compact source of truth for active milestone state. Detailed scope lives in the numbered plans. Historical closure evidence belongs in `plans/closure/`.
 
@@ -54,6 +54,7 @@ This file is the compact source of truth for active milestone state. Detailed sc
 | M045 | `045-performance-optimization-exact-head-qualification-and-reconciliation.md` | **closed** | M043, M044 (both closed) | Closed on evidence candidate `a27a67a` (production-identical to `e8ff753`); evidence in `plans/closure/M045-performance-optimization-exact-head-qualification-and-reconciliation-closure.md`; raw artifacts `qualification/performance/2026-09-26-macos-arm64-m045-{stream,stream-probes,datagram}.json`. Full local gates green (check/OpenAPI/SDKs/eggfetch/fuzz 9×10k/mandatory v2.12 + post-v2.12 oracles/release-smoke/artifact-smoke/python-native); hosted CI run `36255454409` green 13/13 on `a27a67a`. M042 thresholds unretuned; M043/M044 no-op dispositions stand. The post-M041 performance tranche is closed with no automatic successor. |
 | M046 | `046-performance-evidence-provenance-and-closure-lineage-corrective.md` | **closed** | M045 historical closure | Narrow evidence-provenance corrective. M042 invalid exact-candidate SHA replaced additively (transcription error; base HEAD `2ce0c232`, evidence commit `fb2c8fc`); M045 `e8ff753` original local run distinguished from later `a27a67a` refresh with both datagram generations preserved additively; provenance map in `qualification/performance/README.md`. No production/benchmark change, no threshold retuning. |
 | M047 | `047-performance-artifact-provenance-capture-and-dirty-worktree-guard-corrective.md` | **closed** | M046 | Closed on exact candidate `493fb03`; evidence in `plans/closure/M047-performance-artifact-provenance-capture-and-dirty-worktree-guard-corrective-closure.md`; raw artifacts `qualification/performance/2026-09-26-macos-arm64-m047-{stream,stream-probes,datagram}.json`. Shared provenance schema v1 across stream/probe/datagram reports, clean authoritative vs dirty exploratory policy with stable source fingerprint, legacy datagram `candidate_sha` preserved as base HEAD, and `EGGCHAOS_BENCH_REQUIRE_CLEAN=1` canonical-evidence guard. No workload, threshold, production, or historical-artifact change. M047 activates no successor. |
+| M048 | `048-hosted-performance-provenance-qualification-and-ci-integration.md` | **ready** | M047 | Hosted qualification/CI-integration successor for the M047 provenance contract. Add cheap Git-state provenance regressions on Ubuntu + macOS, one shortened artifact-level wrapper qualification on Linux, structural protection against CI de-integration, exact-head hosted evidence, and CI-duration review without changing schema v1, workloads, thresholds, production behavior, or historical artifacts. |
 
 ## Execution state
 
@@ -154,11 +155,11 @@ Completed work: M000–M047 and M008 are closed historical work.
 
 Active: none.
 
-Ready: none.
+Ready: M048.
 
 Blocked: none.
 
-Current performance execution order: `M042 (closed) -> M043 (closed) -> M044 (closed) -> M045 (closed) -> M046 (closed provenance corrective) -> M047 (closed artifact-provenance hardening)`. M047 fixes future artifact self-description/clean-tree enforcement and does not reopen optimization conclusions.
+Current performance execution order: `M042 (closed) -> M043 (closed) -> M044 (closed) -> M045 (closed) -> M046 (closed provenance corrective) -> M047 (closed artifact-provenance hardening) -> M048 (ready hosted qualification/CI integration)`. M048 adds hosted enforcement for M047 without reopening optimization conclusions.
 
 Historical pre-tag execution order: `M016 (closed) -> M017 (closed) -> M018 (closed) -> M019 (closed)`. The owner may proceed with the v0.1.0 tag, crates.io publication, and GitHub release as separate release actions.
 

@@ -11,7 +11,7 @@ Eggchaos is intended to be a small Rust-native successor to the useful core of T
 | `roadmap.md` | Long-term architecture, sequencing, release stages, and future extensions. |
 | `registry.md` | Current milestone status and dependency source of truth. |
 | `000-architecture-and-scope-baseline.md` | Investigated baseline, reuse decisions, scope boundaries, and initial dependency graph. |
-| `001-*.md` ... `047-*.md` | Bounded implementation, corrective, cleanup, feature, qualification, maintenance, richer-scenario, integration-boundary, language-binding, post-v2.12 compatibility, performance, and closure handoffs in execution order. |
+| `001-*.md` ... `048-*.md` | Bounded implementation, corrective, cleanup, feature, qualification, maintenance, richer-scenario, integration-boundary, language-binding, post-v2.12 compatibility, performance, and closure handoffs in execution order. |
 | `adrs/` | Durable architecture decisions that should not be silently changed by implementation. |
 | `reference/toxiproxy-parity.md` | Compatibility target and semantic mapping. |
 | `reference/verification-matrix.md` | Required evidence across faults, platforms, APIs, and performance. |
@@ -123,6 +123,17 @@ the M042–M045 provenance map plus the M047 schema/policy section are in
 `qualification/performance/README.md`. M047 activates no successor; it is the
 authority for provenance in newly generated evidence while M046 remains the
 authority for historical artifacts.
+
+A narrow hosted qualification/integration successor is now registered:
+
+`M048 hosted performance-provenance qualification / CI integration`
+
+M048 is `ready`. It does not change provenance schema v1 or benchmark
+semantics. Its job is to move the two M047 provenance regressions into ordinary
+hosted protection with bounded CI cost: the cheap disposable-Git contract on
+Ubuntu + macOS, one shortened artifact-level stream/probe/datagram qualification
+on Linux, structural protection against accidental workflow removal, exact-head
+hosted evidence, and before/after CI-duration review.
 
 ## Status rules
 
