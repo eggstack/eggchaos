@@ -50,8 +50,9 @@ than re-implementing their steps.
 | `scripts/qualify_language_clients.sh` | Loopback servers (plain + auth-token configs): equivalent Python `pytest` (sync/async) and TS `npm test` flows with `EGGCHAOS_ADMIN_URL`/`EGGCHAOS_AUTH_URL`/`EGGCHAOS_BASE_URL`, then `python -m build` sdist/wheel and `npm pack` artifact builds. Uses status-preserving child cleanup (captured qualification status, guarded `wait` reaping, temp removal) so expected SIGTERM reaping never leaks exit 143. | Cross-language qualification. |
 | `scripts/tests/test_cleanup_traps.sh` | Regression for the qualification cleanup pattern: static trap-shape checks on both server-spawning qualification scripts plus pass/fail fixtures proving exit preservation, child reaping, and temp cleanup. | Binding-qualification hygiene; runs in the `language-clients` CI job. |
 | `scripts/tests/test_fetch_toxiproxy_post_v2_12_contract.sh` | M041 regression freezing the fetcher stdout contract: pattern checks (qualifier uses `--path-only`; fetcher emits `requested_toolchain`/`oracle_path`, documents `default (no flag)`, defaults to `mode="--path-only"`), `--help` (exit 0, usage on stderr) and `--bogus` (exit 2) arg parsing, plus end-to-end default/`--path-only`/`--json` single-line/executable/JSON-field/stderr-clean checks when a cached oracle exists (otherwise `partial:pattern-and-args-only`). | Fetcher-contract hygiene; runs in the `language-clients` CI job. |
-| `scripts/tests/test_bench_provenance.sh` | M047 WP6 regression: disposable-repo Git-state matrix for `scripts/bench_provenance.py` (clean, tracked-unstaged, staged, untracked source, ignored/generated-only, excluded output artifact, detached HEAD, subdirectory, missing-Git failure, fingerprint determinism/sensitivity, no Git mutation, no absolute paths) plus single-authority wiring (both benchmark wrappers delegate; no direct HEAD stamping). | Benchmark-provenance changes. |
-| `scripts/tests/test_bench_provenance_artifacts.sh` | M047 WP7 regression: shortened wrapper runs asserting shared provenance in stream/probe/datagram JSON (identical case/probe object, `candidate_sha == head_sha`), authoritative-iff-clean consistency, no path/secret leaks, legacy fields intact, datagram budget acceptance, unavailable bypass provenance, and `EGGCHAOS_BENCH_REQUIRE_CLEAN=1` guard behavior. | Benchmark-provenance changes. |
+| `scripts/tests/test_bench_provenance.sh` | M047 WP6 regression: disposable-repo Git-state matrix for `scripts/bench_provenance.py` (clean, tracked-unstaged, staged, untracked source, ignored/generated-only, excluded output artifact, detached HEAD, subdirectory, missing-Git failure, fingerprint determinism/sensitivity, no Git mutation, no absolute paths) plus single-authority wiring (both benchmark wrappers delegate; no direct HEAD stamping). M048 wires this into the `check` job for `ubuntu-latest` + `macos-latest` and into `scripts/check.sh`. | Benchmark-provenance changes; cheap Tier A gate runs in CI. |
+| `scripts/tests/test_bench_provenance_artifacts.sh` | M047 WP7 regression: shortened wrapper runs asserting shared provenance in stream/probe/datagram JSON (identical case/probe object, `candidate_sha == head_sha`), authoritative-iff-clean consistency, no path/secret leaks, legacy fields intact, datagram budget acceptance, unavailable bypass provenance, and `EGGCHAOS_BENCH_REQUIRE_CLEAN=1` guard behavior. M048 wires this into the dedicated `performance-provenance` Linux CI job (timeout 12 min, ubuntu-latest only) so the schema/wrapper qualification is hosted but never multiplied across the OS or language matrices. | Benchmark-provenance changes; Tier B release-mode artifact qualification in CI. |
+| `scripts/tests/test_ci_provenance_integration.sh` | M048 WP6 structural guard: cheap `grep` checks against `.github/workflows/ci.yml` verifying both provenance tests are still referenced, that Tier A is guarded with a `runner.os` condition (Windows intentionally has no POSIX-shell coverage), that Tier B lives in a dedicated job outside the `check` matrix, and that the dedicated job is `ubuntu-latest` with its own `timeout-minutes`. No YAML parser dependency. Runs in the `language-clients` CI matrix. | Proves CI-integration against accidental de-integration. |
 | `scripts/check_python_native.sh` | `eggchaos-embed` + binding-crate tests, unsafe-boundary audit (`grep` forbids handwritten `unsafe` blocks/fns/impls; asserts `allow(unsafe_code)` in `lib.rs`), binding-crate audit (`cargo audit --file bindings/python-native/Cargo.lock`), abi3 wheel build via `maturin build`, abi3 `.so` zip check, per-wheel import smoke + server-independent Python tests. Target selection is host-aware (OS + architecture; Apple targets only on Darwin; `EGGCHAOS_NATIVE_TARGET` override for intentional cross builds). | Native binding changes. |
 | `scripts/qualify_python_native.sh` | Remote/native conformance + control-overhead measurements against a loopback daemon. Same host-aware target selection and status-preserving server cleanup as above. | Binding qualification. |
 | `scripts/build_python_native_artifacts.sh` | Host-native abi3 wheel + sdist + per-artifact import smoke (no publication). Apple cross-arch wheels are only produced on a Darwin host with the target installed; cross-built wheels are never import-smoked without a matching interpreter (selects the wheel matching `platform.machine()` for the smoke). | Wheel builds. |
@@ -75,9 +76,14 @@ targets), `benchmarks/` (relay comparison harness).
   `rustfmt, clippy`; `Swatinem/rust-cache@v2`.
 - Pinned scanners: `cargo-audit --locked --version 0.22.2`,
   `cargo-deny --locked --version 0.20.2` (installed from source each run).
-- Steps in order: `cargo fmt --all -- --check`; `cargo clippy --workspace
-  --all-targets --all-features -- -D warnings`; `cargo test --workspace
-  --all-features`; `cargo test -p eggchaos-server --all-features
+- Steps in order: `cargo install cargo-audit --locked --version 0.22.2`;
+  `cargo install cargo-deny --locked --version 0.20.2`;
+  `sh scripts/tests/test_bench_provenance.sh` (M048 Tier A: cheap M047
+  Git-state provenance contract on Linux + macOS only, gated with
+  `runner.os != 'Windows'` since the script is POSIX `sh`); `cargo fmt
+  --all -- --check`; `cargo clippy --workspace --all-targets --all-features
+  -- -D warnings`; `cargo test --workspace --all-features`;
+  `cargo test -p eggchaos-server --all-features
   runtime::datagram::tests::ipv6_loopback_works_when_host_capability_is_available
   -- --exact --nocapture` (IPv6 loopback capability reported visibly, not
   silently skipped); `cargo doc --workspace --all-features --no-deps`;
@@ -88,13 +94,27 @@ Ordinary three-platform CI is necessary but not sufficient for release —
 the dedicated release workflow must additionally pass on the exact
 candidate (see §3).
 
+- Job `performance-provenance` (M048 Tier B): `timeout-minutes: 12`,
+  `ubuntu-latest` only, `RUST_TEST_THREADS: 4`, Rust 1.89 + Swatinem
+  rust-cache; one shortened M047 artifact-level stream/probe/datagram
+  qualification (`sh scripts/tests/test_bench_provenance_artifacts.sh`).
+  Schema/wrapper qualification only — no throughput-value assertions;
+  the canonical `EGGCHAOS_BENCH_REQUIRE_CLEAN=1` guard exercises the
+  authoritative-iff-clean branch on the hosted clean checkout. The
+  dedicated job exists so release-mode benchmark compilation is not
+  multiplied across the OS or language matrices and the existing 25-min
+  check bound is not raised.
 - Job `language-clients` (`timeout-minutes: 25`, matrix
   `[ubuntu-latest, macos-latest] × python ["3.11", "3.12"] × node
   ["20", "22"]`, `actions/setup-python@v5` + `actions/setup-node@v4`,
   `pip install build pytest pyyaml`): `sh
   scripts/tests/test_cleanup_traps.sh`, `sh
   scripts/tests/test_fetch_toxiproxy_post_v2_12_contract.sh` (M041
-  fetcher-contract regression), `./scripts/check_openapi.sh`,
+  fetcher-contract regression), `sh
+  scripts/tests/test_ci_provenance_integration.sh` (M048 structural
+  guard against accidental provenance CI de-integration; lives here, not
+  in the `check`/`performance-provenance` jobs, so removing either of
+  those jobs still trips this independent check), `./scripts/check_openapi.sh`,
   `./scripts/check_python_client.sh`,
   `./scripts/check_typescript_client.sh`,
   `./scripts/qualify_language_clients.sh`.

@@ -431,17 +431,50 @@ if a gate was not run, record it as incomplete (see §8).
 - Hosted SDK/native gates (`.github/workflows/ci.yml`): job
   `language-clients` (`[ubuntu-latest, macos-latest] × python
   3.11/3.12 × node 20/22`: cleanup-trap regression, fetcher-contract
-  regression (`test_fetch_toxiproxy_post_v2_12_contract.sh`), OpenAPI
-  drift, Python/TS checks, live cross-language qualification) and job
-  `python-native` (M035; `[ubuntu-latest, macos-latest] × python
+  regression (`test_fetch_toxiproxy_post_v2_12_contract.sh`), M048
+  CI-integration structural guard (`test_ci_provenance_integration.sh`),
+  OpenAPI drift, Python/TS checks, live cross-language qualification)
+  and job `python-native` (M035; `[ubuntu-latest, macos-latest] × python
   3.12` with `maturin==1.9.5`: embed/binding checks plus
   remote/native conformance on native-host wheels).
+- M048 hosted performance-provenance qualification
+  (`.github/workflows/ci.yml`): the M047 provenance contract gets real
+  hosted protection at bounded CI cost —
+  - **Tier A** (`test_bench_provenance.sh`) is wired into the existing
+    `check` job for `ubuntu-latest` and `macos-latest` only (gated with
+    `runner.os != 'Windows'` because the script is POSIX `sh` and Windows
+    intentionally has no provenance-script coverage). Runs after checkout
+    and toolchain setup, before `cargo fmt`/`clippy`/`test`, so failures
+    surface in seconds and never duplicate build work.
+  - **Tier B** (`test_bench_provenance_artifacts.sh`) is wired into a
+    dedicated `performance-provenance` Linux job
+    (`timeout-minutes: 12`, ubuntu-latest only, with
+    `Swatinem/rust-cache@v2` for benchmarks). The shortened
+    workload (stream 128 KiB × 1 round + bypass 64 KiB × 1 round +
+    datagram 50 datagrams × 1 round) is schema/wrapper qualification
+    only — no throughput-value assertions — and the
+    `EGGCHAOS_BENCH_REQUIRE_CLEAN=1` canonical guard exercises the
+    authoritative-iff-clean branch on the hosted clean checkout.
+  - **Structural guard** (`test_ci_provenance_integration.sh`) runs in
+    the `language-clients` matrix: cheap `grep` assertions that the
+    workflow still references `test_bench_provenance.sh` and
+    `test_bench_provenance_artifacts.sh`, that Tier A is guarded with a
+    `runner.os` condition, that Tier B is in a dedicated job (not the
+    `check` matrix), and that the dedicated job is Linux-only with its
+    own `timeout-minutes`. No YAML parser dependency.
+  - Tier A also lives in `scripts/check.sh` so the local developer gate
+    exercises the same cheap contract (no benchmarks). Tier B is
+    intentionally CI-only because it would otherwise compile/run
+    release benchmarks on every local full check.
 - M041 exact-head hosted qualification: GitHub Actions run
   [36219464594](https://github.com/eggstack/eggchaos/actions/runs/36219464594)
   on candidate `724b967`, conclusion `success` — 13/13 jobs green
   (3 `check` + 8 `language-clients` + 2 `python-native`; see the M041
   closure § "Exact-head hosted qualification"). The older M015 runs
-  (`35810065730`, `35810310455` on `cd88b22`) are historical.
+  (`35810065730`, `35810310455` on `cd88b22`) are historical. M048
+  adds the `performance-provenance` job on top of this matrix; the
+  per-OS `check` / `language-clients` / `python-native` counts above
+  are unchanged at the time of M048's recorded hosted run.
 - Release qualification (`.github/workflows/release.yml`, `workflow_dispatch`
   + `v*.*.*` tags): `qualify` job on ubuntu (`timeout-minutes: 60`:
   `release-smoke.sh` → `benchmark_datagram.sh` → fuzz 10k → toxiproxy

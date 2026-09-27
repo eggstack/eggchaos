@@ -27,7 +27,7 @@ User contracts: `docs/architecture.md`, `docs/configuration.md`, `docs/control-p
 
 ## Commands (trust these, not guesses)
 
-Full gate: `./scripts/check.sh` (= `fmt --check` + `clippy --workspace --all-targets --all-features -- -D warnings` + `cargo test --workspace --all-features` + `cargo doc --workspace --all-features --no-deps`). CI (`ci.yml`, 25-min timeout, `RUST_TEST_THREADS=4`, ubuntu/macos/windows) additionally runs `cargo audit --deny warnings` and `cargo deny check advisories licenses bans sources`, plus `language-clients` and `python-native` jobs.
+Full gate: `./scripts/check.sh` (= `sh scripts/tests/test_bench_provenance.sh` + `fmt --check` + `clippy --workspace --all-targets --all-features -- -D warnings` + `cargo test --workspace --all-features` + `cargo doc --workspace --all-features --no-deps`). CI (`ci.yml`, 25-min timeout, `RUST_TEST_THREADS=4`, ubuntu/macos/windows) additionally runs `cargo audit --deny warnings` and `cargo deny check advisories licenses bans sources`, plus `language-clients`, `python-native`, and the dedicated M048 `performance-provenance` Linux job (Tier B `sh scripts/tests/test_bench_provenance_artifacts.sh`, timeout 12 min); the M048 Tier A (`sh scripts/tests/test_bench_provenance.sh`) is wired into `check` on `ubuntu-latest` + `macos-latest` only (gated `runner.os != 'Windows'`) and the M048 structural guard (`sh scripts/tests/test_ci_provenance_integration.sh`) lives in the `language-clients` matrix so removing the `check` or `performance-provenance` provenance steps still trips an independent check.
 
 Focused runs:
 
@@ -38,6 +38,9 @@ cargo test -p eggchaos-eggfetch --all-features          # add --features http2 f
 cargo run --manifest-path benchmarks/Cargo.toml --release
 ./scripts/benchmark_datagram.sh
 ./scripts/check_openapi.sh                             # protocol/OpenAPI drift (36 ops)
+sh scripts/tests/test_bench_provenance.sh              # M047/M048 Tier A (cheap)
+sh scripts/tests/test_bench_provenance_artifacts.sh    # M047/M048 Tier B (release benchmarks)
+sh scripts/tests/test_ci_provenance_integration.sh     # M048 CI-integration guard
 ```
 
 Qualification (release workflow): `release-smoke.sh` (fmt/clippy/test/doc/audit/deny/package + publish-order proof + artifact smoke), `qualify_fuzz.sh`, `qualify_toxiproxy_v2_12.sh`, `qualify_toxiproxy_post_v2_12.sh`, `qualify_eggfetch.sh`, `qualify_language_clients.sh`, `qualify_python_native.sh`, `release-artifact-smoke.sh`.

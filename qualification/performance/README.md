@@ -271,3 +271,50 @@ by `scripts/bench_provenance.py`, the single Git-state authority):
   nonzero when Git metadata is unavailable. Collection never runs
   `git add`/`stash`/`commit` and emits no absolute paths, usernames,
   tokens, environment dumps, or full `git status` text.
+
+## M048 hosted qualification and CI ownership
+
+M047 left the two provenance regressions as locally qualified only. M048
+moves them into ordinary hosted protection at bounded CI cost. The
+authoritative runtime/API/production behavior, benchmark case
+semantics, M008/M023/M024/M042 thresholds, and historical M042–M047
+artifacts are all unchanged; M048 is purely a CI-ownership move plus
+one new structural guard.
+
+- **Tier A** — `sh scripts/tests/test_bench_provenance.sh` is wired
+  into the `check` job for `ubuntu-latest` + `macos-latest` only
+  (gated with `runner.os != 'Windows'`; the script is POSIX `sh` and
+  Windows intentionally has no provenance-script coverage here). It
+  runs in seconds, depends only on Git + stdlib Python, and surfaces
+  failures before any benchmark build.
+- **Tier B** — `sh scripts/tests/test_bench_provenance_artifacts.sh`
+  is wired into a dedicated `performance-provenance` Linux CI job
+  (`ubuntu-latest` only, `timeout-minutes: 12`, Swatinem rust-cache for
+  the benchmarks workspace). It uses the existing shortened workload
+  knobs (stream 128 KiB × 1 round + bypass 64 KiB × 1 round + datagram
+  50 datagrams × 1 round). It is schema/wrapper qualification, **not**
+  a throughput benchmark — no numeric ratios are asserted. The canonical
+  `EGGCHAOS_BENCH_REQUIRE_CLEAN=1` guard exercises the
+  authoritative-iff-clean branch on the hosted clean checkout.
+- **Structural guard** — `sh
+  scripts/tests/test_ci_provenance_integration.sh` lives in the
+  `language-clients` matrix (not in `check` or `performance-provenance`)
+  so removing either of those jobs still trips this independent check.
+  It asserts `.github/workflows/ci.yml` still references both
+  provenance scripts, that Tier A is guarded with a `runner.os`
+  condition, that Tier B lives in a dedicated job outside the `check`
+  matrix, and that the dedicated job is `ubuntu-latest` with its own
+  `timeout-minutes`. No YAML parser dependency.
+- **Local `scripts/check.sh` ownership** — Tier A lives there too
+  (cheap; no benchmarks). Tier B is intentionally CI-only because
+  adding it would compile/run release benchmarks on every local full
+  check, defeating M048's cost model.
+
+Run locally:
+
+```sh
+sh scripts/tests/test_bench_provenance.sh                # Tier A
+sh scripts/tests/test_bench_provenance_artifacts.sh      # Tier B
+sh scripts/tests/test_ci_provenance_integration.sh       # structural guard
+./scripts/check.sh                                       # includes Tier A
+```
