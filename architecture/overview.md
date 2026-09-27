@@ -6,9 +6,11 @@ This document summarizes each discrete module/component in one place and is
 the index for systematic review — each section links to its deep dive in
 this directory. Read this file first, then go component by component.
 
-Pre-release `0.1.0`. Milestones M000–M041 are closed; `M041` (closed at
-`724b967`) is the latest corrective authority and `M019` (`ca527db`) remains
-the final pre-tag authority — later tranches do not rewrite it.
+Pre-release `0.1.0`. Milestones M000–M048 are closed. A post-M048
+corrective tranche is registered as M049–M054; M049 is ready and M050–M054
+are blocked by predecessor closure. M019 (`ca527db`) remains the final
+pre-tag authority; M041 remains the ADR 007 corrective authority and
+M046/M047/M048 retain their performance-provenance authority roles.
 Canonical planning surface is `plans/` (see `AGENTS.md`); user-facing
 implementation boundaries live in `docs/architecture.md`,
 `docs/configuration.md`, `docs/control-plane.md`, `docs/toxiproxy.md`, and
