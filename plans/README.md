@@ -155,7 +155,7 @@ A post-M048 repository audit registered the next bounded corrective tranche:
 
 M049 core deserialization/invariant hardening -> M050 scenario lifecycle authority consolidation -> M051 native operation authority consolidation -> M052 private module-boundary maintainability -> M053 planning-status drift guard -> M054 exact-head qualification
 
-M049-M053 are closed. M054 is ready for implementation. The tranche preserves all existing APIs/capabilities; in particular it preserves Scenario V1/V2 semantic separation and the current effective 32-record/active-run allowance per family. Scenario enumeration, egress chaining, additional bindings, and other additive feature work remain outside this chain.
+M049-M054 are closed. M054 qualified the combined tranche on exact head `3b4fd9f` (hosted run `36461914295`, 14/14) and activates no successor. The tranche preserves all existing APIs/capabilities; in particular it preserves Scenario V1/V2 semantic separation and the current effective 32-record/active-run allowance per family. Scenario enumeration, egress chaining, additional bindings, and other additive feature work remain outside this chain.
 
 ## Status rules
 
@@ -231,11 +231,8 @@ pinned snapshot oracle rather than moving `main`.
 
 ## Current planning state
 
-**Ready (next milestone):**
-- `M054` (ready; plan `054-post-m048-corrective-tranche-exact-head-qualification.md`)
+**Highest closed milestone:** `M054` (see registry for closure evidence).
 
-**Highest closed milestone:** `M053` (see registry for closure evidence).
-
-**Execution order:** `M054`
+**Execution order:** no active or ready milestones.
 
 <!-- END eggchaos:planning-state -->

@@ -50,7 +50,12 @@ with tempfile.TemporaryDirectory() as tmp:
     doc.write_text("# t\n\n" + expected, encoding="utf-8")
     assert cps.check_target(doc, expected), "fresh block must verify"
     import contextlib, io
-    doc.write_text("# t\n\n" + expected.replace("M053", "M099"), encoding="utf-8")
+    # Corrupt the highest-closed milestone token actually rendered in
+    # the block (state-independent: hardcoding one milestone ID breaks
+    # as soon as that milestone leaves the rendered state).
+    highest = [r.milestone for r in rows if r.status == "closed"][-1]
+    assert highest in expected, "highest closed milestone must be rendered"
+    doc.write_text("# t\n\n" + expected.replace(highest, "M099", 1), encoding="utf-8")
     with contextlib.redirect_stderr(io.StringIO()):
         assert not cps.check_target(doc, expected), "stale block must fail"
 print("deliberate-drift negative test ok")

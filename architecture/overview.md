@@ -6,9 +6,9 @@ This document summarizes each discrete module/component in one place and is
 the index for systematic review — each section links to its deep dive in
 this directory. Read this file first, then go component by component.
 
-Pre-release `0.1.0`. Milestones M000–M053 are closed. A post-M048
-corrective tranche is registered as M049–M054; M049–M053 are closed
-and M054 is ready. M019 (`ca527db`)
+Pre-release `0.1.0`. Milestones M000–M054 are closed. A post-M048
+corrective tranche is registered as M049–M054; M049–M054 are closed
+and the tranche is complete with no successor. M019 (`ca527db`)
 remains the final pre-tag authority; M041 remains the ADR 007
 corrective authority and M046/M047/M048 retain their
 performance-provenance authority roles.
@@ -199,8 +199,8 @@ overview first, then go component by component.
 - `docs/configuration.md`, `docs/control-plane.md`, `docs/eggfetch.md`,
   `docs/toxiproxy.md` — per-surface contracts.
 - `plans/roadmap.md`, `plans/registry.md` — sequencing, invariants, milestone
-  closure (M000–M053 closed; M049–M054 registered post-M048 corrective
-  tranche with M054 ready; M019 final pre-tag authority).
+  closure (M000–M054 closed; M049–M054 registered post-M048 corrective
+  tranche, complete with no successor; M019 final pre-tag authority).
 - `plans/adrs/` — durable boundaries (001 stream engine, 002 determinism,
   003 datagrams, 004 schedules, 005 integration, 006 cross-language,
   007 stream-loss).
@@ -218,11 +218,8 @@ overview first, then go component by component.
 
 ## Current planning state
 
-**Ready (next milestone):**
-- `M054` (ready; plan `054-post-m048-corrective-tranche-exact-head-qualification.md`)
+**Highest closed milestone:** `M054` (see registry for closure evidence).
 
-**Highest closed milestone:** `M053` (see registry for closure evidence).
-
-**Execution order:** `M054`
+**Execution order:** no active or ready milestones.
 
 <!-- END eggchaos:planning-state -->
