@@ -1,6 +1,6 @@
 # Eggchaos Plan Registry
 
-Last reconciled: 2026-09-28 (M000-M055 closed; unreleased 0.2.0 development baseline; no ready milestone)
+Last reconciled: 2026-09-28 (M000-M055 closed; M056 release-workflow contract-gate corrective ready)
 
 This file is the compact source of truth for active milestone state. Detailed scope lives in the numbered plans. Historical closure evidence belongs in `plans/closure/`.
 
@@ -62,6 +62,7 @@ This file is the compact source of truth for active milestone state. Detailed sc
 | M053 | 053-planning-status-authority-and-drift-guard-corrective.md | **closed** | M052 | Closed on exact candidate `9390008`; evidence in `plans/closure/M053-planning-status-authority-and-drift-guard-corrective-closure.md`. `plans/registry.md` remains the sole hand-maintained status authority; stdlib-only `scripts/check_planning_state.py` parses/validates the registry table and generates/checks deterministic `Current planning state` blocks in AGENTS.md / plans/README.md / plans/roadmap.md / architecture/overview.md; `sh scripts/tests/test_planning_state.sh` (fixture + drift + wiring regression) runs in `scripts/check.sh` and bare `--check` runs independently in the `language-clients` matrix. No production Rust change; no historical plan/archive/closure rewrite. |
 | M054 | 054-post-m048-corrective-tranche-exact-head-qualification.md | **closed** | M049-M053 | Closed on exact candidate `3b4fd9f`; evidence in `plans/closure/M054-post-m048-corrective-tranche-exact-head-qualification-closure.md`. Qualification-only gate: Tier 1 local gate + OpenAPI/SDK drift green; mandatory pinned Toxiproxy v2.12 differential 50/50 and post-v2.12 snapshot differential 12/12 green; Eggfetch/language-client/Python-native green; bounded fuzz 9x10k + release/package smoke green; hosted run `36461914295` success 14/14 on `3b4fd9f`; datagram budgets pass and stream no-fault path tracks bare relay within run-to-run noise; public/capability census shows no regression vs M048 baseline. M054 activates no successor. |
 | M055 | `055-post-v0-1-0-release-state-and-v0-2-0-development-baseline.md` | **closed** | M054 | Closed on exact candidate `b0ecbf1`; evidence in `plans/closure/M055-post-v0-1-0-release-state-and-v0-2-0-development-baseline-closure.md`. Unreleased 0.2.0 baseline coherent across workspace and first-party language packages; tag/version guards green; no tag or publication action. |
+| M056 | `056-release-workflow-contract-gate-corrective.md` | **ready** | M055 | Gate both release qualification and the five-target artifact matrix behind one cheap tag/package contract job; strengthen structural regression so invalid tags cannot start expensive release work. No publication action. |
 
 A post-M048 repository audit registered a bounded correctness/maintenance corrective chain:
 
@@ -70,6 +71,8 @@ M049 core deserialization/invariants -> M050 scenario lifecycle authority -> M05
 M049-M054 are closed. The chain is explicitly non-regressive: no existing Rust API, native route, CLI command, compatibility profile, deterministic contract, scenario semantic model, SDK/binding operation, or effective per-family scenario capacity was removed. M054 qualified the combined tranche on exact head `3b4fd9f` (hosted run `36461914295`, 14/14) and activates no successor. Scenario enumeration and egress chaining are not part of this corrective tranche.
 
 M055 is a separate release-state/version-coherence corrective. It is closed on `b0ecbf1` and established the unreleased 0.2.0 development baseline while preserving the published v0.1.0 tag/release as immutable history. M055 did not tag, publish, or create a GitHub release, and activates no successor.
+
+M056 is ready as a narrow release-workflow orchestration corrective. It closes the post-M055 gap where `qualify` is guarded but the artifact matrix can still start in parallel on an invalid tag. M056 changes workflow scheduling/tests only and does not reopen M055 release-state/version metadata.
 
 ## Execution state
 
@@ -170,7 +173,7 @@ Completed work: M000–M055 are closed (M008 closed as historical work alongside
 
 Active: none.
 
-Ready: none.
+Ready: M056.
 
 Blocked: none.
 

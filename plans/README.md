@@ -159,6 +159,8 @@ M049-M054 are closed. M054 qualified the combined tranche on exact head `3b4fd9f
 
 M055 is closed as the release-state reconciliation milestone. It preserved the published v0.1.0 lineage, established 0.2.0 as the unreleased development package baseline for current `main`, aligned first-party manifest versions, and added release tag/package-version coherence guards. M055 performed no tag, registry publication, or GitHub release action, and activates no successor.
 
+M056 is ready as a narrow release-workflow contract-gate corrective. It makes the M055 tag/package guard a shared prerequisite for both qualification and artifact builds, with no package/version/publication change.
+
 ## Status rules
 
 The registry uses the following states: `active`, `blocked`, `closed`, and `ready`. `plans/registry.md` is the sole hand-maintained status authority; the `Current planning state` blocks in AGENTS.md, `plans/README.md`, `plans/roadmap.md`, and `architecture/overview.md` are generated projections rewritten by `python3 scripts/check_planning_state.py --write` and checked by `sh scripts/tests/test_planning_state.sh`.
@@ -233,8 +235,11 @@ pinned snapshot oracle rather than moving `main`.
 
 ## Current planning state
 
+**Ready (next milestone):**
+- `M056` (ready; plan `056-release-workflow-contract-gate-corrective.md`)
+
 **Highest closed milestone:** `M055` (see registry for closure evidence).
 
-**Execution order:** no active or ready milestones.
+**Execution order:** `M056`
 
 <!-- END eggchaos:planning-state -->

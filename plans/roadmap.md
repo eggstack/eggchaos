@@ -1,6 +1,6 @@
 # Eggchaos Long-Term Roadmap
 
-Status: M000-M055 are closed. Current `main` is the unreleased 0.2.0 development baseline (M055 closed; no tag, publication, or GitHub release performed). The published v0.1.0 release remains historical and immutable; M019 is its final pre-tag qualification authority. M041 remains the ADR 007 corrective authority; M046/M047/M048 retain the historical-provenance, new-artifact provenance, and hosted provenance-qualification authority roles.
+Status: M000-M055 are closed. M056 is ready as the release-workflow contract-gate corrective for the unreleased 0.2.0 baseline. The published v0.1.0 release remains historical and immutable; M019 is its final pre-tag qualification authority. M041 remains the ADR 007 corrective authority; M046/M047/M048 retain the historical-provenance, new-artifact provenance, and hosted provenance-qualification authority roles.
 
 ## 1. Mission
 
@@ -723,6 +723,25 @@ contract. It does not create a tag, publish packages, or create a GitHub
 release. Publication remains a separate owner-controlled action after
 qualification.
 
+## 11P. Release workflow contract-gate corrective
+
+M056 is registered after a post-M055 audit found a narrow orchestration gap:
+the M055 tag/package-version guard runs in the long `qualify` job, but the
+five-target `artifacts` matrix is independent and can start in parallel.
+Therefore a mismatched tag can fail qualification while still consuming
+artifact runners and producing workflow artifacts.
+
+M056 makes one cheap release-contract job the prerequisite for both expensive
+branches. After the gate succeeds, qualification and artifact production may
+fan out in parallel; if it fails, neither branch may start. The corrective
+also strengthens the structural regression to fail if either dependency is
+removed.
+
+This is release-workflow scheduling/test work only. It does not alter the
+unreleased 0.2.0 package metadata, release targets, artifact naming, native
+`/v1`, runtime semantics, or owner-controlled publication policy, and it
+does not rewrite M055 closure evidence.
+
 ## 12. Performance targets
 
 No-fault overhead is a first-class regression metric.
@@ -780,8 +799,11 @@ None of these may weaken the fixed-target, protocol-neutral core boundary.
 
 ## Current planning state
 
+**Ready (next milestone):**
+- `M056` (ready; plan `056-release-workflow-contract-gate-corrective.md`)
+
 **Highest closed milestone:** `M055` (see registry for closure evidence).
 
-**Execution order:** no active or ready milestones.
+**Execution order:** `M056`
 
 <!-- END eggchaos:planning-state -->
