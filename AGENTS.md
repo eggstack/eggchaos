@@ -27,7 +27,7 @@ User contracts: `docs/architecture.md`, `docs/configuration.md`, `docs/control-p
 
 ## Commands (trust these, not guesses)
 
-Full gate: `./scripts/check.sh` (= `sh scripts/tests/test_bench_provenance.sh` + `fmt --check` + `clippy --workspace --all-targets --all-features -- -D warnings` + `cargo test --workspace --all-features` + `cargo doc --workspace --all-features --no-deps`). CI (`ci.yml`, 25-min timeout, `RUST_TEST_THREADS=4`, ubuntu/macos/windows) additionally runs `cargo audit --deny warnings` and `cargo deny check advisories licenses bans sources`, plus `language-clients`, `python-native`, and the dedicated M048 `performance-provenance` Linux job (Tier B `sh scripts/tests/test_bench_provenance_artifacts.sh`, timeout 12 min); the M048 Tier A (`sh scripts/tests/test_bench_provenance.sh`) is wired into `check` on `ubuntu-latest` + `macos-latest` only (gated `runner.os != 'Windows'`) and the M048 structural guard (`sh scripts/tests/test_ci_provenance_integration.sh`) lives in the `language-clients` matrix so removing the `check` or `performance-provenance` provenance steps still trips an independent check.
+Full gate: `./scripts/check.sh` (= `sh scripts/tests/test_bench_provenance.sh` + `sh scripts/tests/test_planning_state.sh` + `fmt --check` + `clippy --workspace --all-targets --all-features -- -D warnings` + `cargo test --workspace --all-features` + `cargo doc --workspace --all-features --no-deps`). CI (`ci.yml`, 25-min timeout, `RUST_TEST_THREADS=4`, ubuntu/macos/windows) additionally runs `cargo audit --deny warnings` and `cargo deny check advisories licenses bans sources`, plus `language-clients`, `python-native`, and the dedicated M048 `performance-provenance` Linux job (Tier B `sh scripts/tests/test_bench_provenance_artifacts.sh`, timeout 12 min); the M048 Tier A (`sh scripts/tests/test_bench_provenance.sh`) is wired into `check` on `ubuntu-latest` + `macos-latest` only (gated `runner.os != 'Windows'`) and the M048 structural guard (`sh scripts/tests/test_ci_provenance_integration.sh`) lives in the `language-clients` matrix so removing the `check` or `performance-provenance` provenance steps still trips an independent check. The M053 planning-state guard (`python3 scripts/check_planning_state.py --check`, stdlib-only, <1s) runs inside `check` via `test_planning_state.sh` and independently in the `language-clients` matrix so removing either still trips the other.
 
 Focused runs:
 
@@ -41,6 +41,9 @@ cargo run --manifest-path benchmarks/Cargo.toml --release
 sh scripts/tests/test_bench_provenance.sh              # M047/M048 Tier A (cheap)
 sh scripts/tests/test_bench_provenance_artifacts.sh    # M047/M048 Tier B (release benchmarks)
 sh scripts/tests/test_ci_provenance_integration.sh     # M048 CI-integration guard
+python3 scripts/check_planning_state.py --check        # M053 planning-state drift guard (cheap)
+sh scripts/tests/test_planning_state.sh                # M053 fixture + drift + wiring regression
+python3 scripts/check_planning_state.py --write        # regenerate current-state blocks after registry edits
 ```
 
 Qualification (release workflow): `release-smoke.sh` (fmt/clippy/test/doc/audit/deny/package + publish-order proof + artifact smoke), `qualify_fuzz.sh`, `qualify_toxiproxy_v2_12.sh`, `qualify_toxiproxy_post_v2_12.sh`, `qualify_eggfetch.sh`, `qualify_language_clients.sh`, `qualify_python_native.sh`, `release-artifact-smoke.sh`.
@@ -62,10 +65,32 @@ Qualification (release workflow): `release-smoke.sh` (fmt/clippy/test/doc/audit/
 
 ## Planning state
 
-M000–M048 are closed. A post-M048 corrective tranche is registered: M049 is ready; M050–M054 are blocked by predecessor closure. M019 (`ca527db`) remains the final pre-tag authority; M041 (`724b967`, hosted run `36219464594` 13/13) is the latest ADR 007 corrective authority. Performance implementation tranche M042–M045 is closed; M046 owns historical performance-evidence reconstruction; M047 (`493fb03`) owns provenance schema/tooling for newly generated artifacts; M048 (`ab61ac7`, hosted run `36331806587` 14/14) owns the hosted qualification/CI-ownership authority for that provenance tooling. The registered corrective execution order is M049 -> M050 -> M051 -> M052 -> M053 -> M054. Only M049 is currently ready. The post-M041 performance execution order reads `M042 -> M043 -> M044 -> M045 -> M046 -> M047 -> M048` (all closed). Provenance failures on `check` (Linux + macOS), the dedicated `performance-provenance` Linux job, or the `language-clients` structural guard are blocking, not advisory. Do not call a performance artifact "exact-candidate evidence" unless its `provenance.authoritative == true` and its `provenance.head_sha` is the candidate under discussion (M047 schema; pre-M047 artifacts use the M046 provenance map). Do not rewrite `plans/archive/` history. Do not start a generic C ABI, Node native addon, JNI, P/Invoke, cgo, UniFFI, or WASM without a separate ADR after demonstrated multi-consumer demand; do not add `eggreplay-*`/`eggprobe-*` production dependencies (downstream adoption only).
+M000–M052 are closed. A post-M048 corrective tranche is registered: M049–M052 closed; M053 is ready; M054 is blocked by M053 closure. M019 (`ca527db`) remains the final pre-tag authority; M041 (`724b967`, hosted run `36219464594` 13/13) is the latest ADR 007 corrective authority. Performance implementation tranche M042–M045 is closed; M046 owns historical performance-evidence reconstruction; M047 (`493fb03`) owns provenance schema/tooling for newly generated artifacts; M048 (`ab61ac7`, hosted run `36331806587` 14/14) owns the hosted qualification/CI-ownership authority for that provenance tooling. The registered corrective execution order is M049 -> M050 -> M051 -> M052 -> M053 -> M054. Only M053 is currently ready. The post-M041 performance execution order reads `M042 -> M043 -> M044 -> M045 -> M046 -> M047 -> M048` (all closed). Provenance failures on `check` (Linux + macOS), the dedicated `performance-provenance` Linux job, or the `language-clients` structural guard are blocking, not advisory. Planning-state drift failures on `check` (via `test_planning_state.sh`) or the `language-clients` guard are likewise blocking. Do not call a performance artifact "exact-candidate evidence" unless its `provenance.authoritative == true` and its `provenance.head_sha` is the candidate under discussion (M047 schema; pre-M047 artifacts use the M046 provenance map). Do not rewrite `plans/archive/` history. Do not start a generic C ABI, Node native addon, JNI, P/Invoke, cgo, UniFFI, or WASM without a separate ADR after demonstrated multi-consumer demand; do not add `eggreplay-*`/`eggprobe-*` production dependencies (downstream adoption only).
 
-If the owner asks for new work: `plans/roadmap.md` is the architecture authority, `plans/reference/` holds parity/verification contracts (not status), ADRs live in `plans/adrs/`. Any new numbered plan needs objective, baseline/deps, scope + non-goals, affected crates, ordered work packages, invariants/failure semantics, test commands, acceptance criteria, stop conditions, closure evidence, and follow-on rules — and must update `plans/registry.md` in the same change. Never mark `closed` from source inspection; closure requires running the plan's tests on the exact candidate plus external/differential evidence where declared.
+If the owner asks for new work: `plans/roadmap.md` is the architecture authority, `plans/reference/` holds parity/verification contracts (not status), ADRs live in `plans/adrs/`. Any new numbered plan needs objective, baseline/deps, scope + non-goals, affected crates, ordered work packages, invariants/failure semantics, test commands, acceptance criteria, stop conditions, closure evidence, and follow-on rules — and must update `plans/registry.md` in the same change. `plans/registry.md` is the sole hand-maintained milestone-status authority (vocabulary: `active`, `blocked`, `closed`, `ready`); the `Current planning state` blocks in AGENTS.md / `plans/README.md` / `plans/roadmap.md` / `architecture/overview.md` are generated projections, never independent authorities. After any registry edit: 1. add/update the numbered plan; 2. update `registry.md`; 3. run `python3 scripts/check_planning_state.py --write`; 4. run `sh scripts/tests/test_planning_state.sh`. Never mark `closed` from source inspection; closure requires running the plan's tests on the exact candidate plus external/differential evidence where declared.
 
 ## Verification
 
 Prefer deterministic Tokio-time tests; wall-clock assertions need justified tolerances and must not be sole evidence. Cover: fault state machines, byte-conservation where faults preserve bytes, half-close/shutdown, bounded-buffer/backpressure, RNG golden vectors, exact JSON/TOML round trips, OpenAPI drift (21 paths / 36 ops), Toxiproxy differential (strict corpus 50/50 vs pinned v2.12.0), no-fault throughput/latency vs bare `eggress-relay`, exact datagram traces and the measured fixed-target UDP budget. Record un-runnable oracles/platforms as incomplete evidence. Authoritative semantics: `docs/architecture.md`, `docs/configuration.md`, `docs/control-plane.md`, `docs/toxiproxy.md`, `docs/eggfetch.md`.
+
+<!-- BEGIN eggchaos:planning-state -->
+<!--
+  Generated by scripts/check_planning_state.py --write.
+  Do not hand-edit between the markers; this script rewrites
+  the block from plans/registry.md, the only hand-maintained
+  source of truth for milestone state.
+-->
+
+## Current planning state
+
+**Ready (next milestone):**
+- `M053` (ready; plan `053-planning-status-authority-and-drift-guard-corrective.md`)
+
+**Blocked (waiting on a predecessor closure):**
+- M054
+
+**Highest closed milestone:** `M052` (see registry for closure evidence).
+
+**Execution order:** `M053`
+
+<!-- END eggchaos:planning-state -->

@@ -1,6 +1,6 @@
 # Eggchaos Plan Registry
 
-Last reconciled: 2026-09-27 (post-M048 corrective audit registered M049-M054; M049 ready, M050-M054 blocked by predecessor closure)
+Last reconciled: 2026-09-28 (M049-M052 closed; M053 ready, M054 blocked by predecessor closure)
 
 This file is the compact source of truth for active milestone state. Detailed scope lives in the numbered plans. Historical closure evidence belongs in `plans/closure/`.
 
@@ -66,7 +66,7 @@ A post-M048 repository audit registered a bounded correctness/maintenance correc
 
 M049 core deserialization/invariants -> M050 scenario lifecycle authority -> M051 native operation authority -> M052 private module boundaries -> M053 planning drift guard -> M054 exact-head qualification
 
-M049 is ready. M050-M054 remain blocked until their named predecessor closes. The chain is explicitly non-regressive: no existing Rust API, native route, CLI command, compatibility profile, deterministic contract, scenario semantic model, SDK/binding operation, or effective per-family scenario capacity may be removed. Scenario enumeration and egress chaining are not part of this corrective tranche.
+M049-M052 are closed. M053 is ready. M054 remains blocked until M053 closes. The chain is explicitly non-regressive: no existing Rust API, native route, CLI command, compatibility profile, deterministic contract, scenario semantic model, SDK/binding operation, or effective per-family scenario capacity may be removed. Scenario enumeration and egress chaining are not part of this corrective tranche.
 
 ## Execution state
 
@@ -163,13 +163,13 @@ The completed UDP/datagram tranche is listed below; the remaining items are post
 
 ## Dependency-ready view
 
-Completed work: M000–M048 and M008 are closed historical work.
+Completed work: M000–M052 are closed (M008 closed as historical work alongside the main chain).
 
 Active: none.
 
-Ready: none.
+Ready: M053.
 
-Blocked: none.
+Blocked: M054 (blocked by M053 closure).
 
 Current performance execution order: `M042 (closed) -> M043 (closed) -> M044 (closed) -> M045 (closed) -> M046 (closed historical provenance) -> M047 (closed artifact-provenance hardening) -> M048 (closed hosted qualification/CI integration)`. M048 adds hosted enforcement for M047 without reopening optimization conclusions.
 

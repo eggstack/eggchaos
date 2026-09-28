@@ -92,6 +92,12 @@ jobs:
       # check or the dedicated provenance job itself) so a regression in
       # those jobs still triggers this independent check.
       - run: sh scripts/tests/test_ci_provenance_integration.sh
+      # M053: structural guard against removing the cheap planning-state
+      # drift check from `check`. Runs here (not in `check` itself) so a
+      # regression in the local check still triggers this independent
+      # check. Python stdlib only, well under one second on normal
+      # hardware.
+      - run: python3 scripts/check_planning_state.py --check
       - run: ./scripts/check_openapi.sh
       - run: ./scripts/check_python_client.sh
       - run: ./scripts/check_typescript_client.sh

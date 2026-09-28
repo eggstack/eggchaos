@@ -6,8 +6,17 @@
 # stays CI-only — it would compile/run release benchmarks on every
 # local full check. Hosted Tier B lives in the dedicated
 # `performance-provenance` CI job.
+#
+# M053 ownership: the planning-state drift guard
+# (test_planning_state.sh: fixture + --check + deliberate-drift
+# negative test + wiring assertion) is also wired here. It needs only
+# Python stdlib and well under a second, so it can run on every local
+# full check. The bare --check is additionally wired into the
+# `language-clients` CI job so removing the local check still trips
+# an independent check.
 set -eu
 sh scripts/tests/test_bench_provenance.sh
+sh scripts/tests/test_planning_state.sh
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
