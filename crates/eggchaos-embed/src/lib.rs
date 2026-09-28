@@ -7,6 +7,7 @@
 //!   |
 //! eggchaos-embed (this crate: lifecycle + coarse control)
 //!   |
+//!   +--> eggchaos-server::operations (typed native operation authority)
 //!   +--> eggchaos-protocol value/request types
 //!   +--> eggchaos-server lifecycle + ControlState authority
 //!   +--> eggchaos-experiment Scenario V2 authority
@@ -14,11 +15,15 @@
 //!
 //! This crate owns lifecycle and delegates every state change to the
 //! existing authorities. It never re-implements networking, policy
-//! publication, RNG derivation, or schedule compilation. Each embedded
-//! service owns one private Tokio runtime on the calling thread's terms:
-//! every method blocks the caller until the operation completes, so
-//! foreign callers never observe Rust futures, `Arc`s, borrowed
-//! references, or `tokio::time::Instant`.
+//! publication, RNG derivation, or schedule compilation. Every public
+//! method delegates its conversion/state-call sequence to the typed
+//! `eggchaos_server::operations` facade (M051); this module adds only
+//! the blocking runtime, the start/shutdown lifecycle, and the
+//! `EmbedError` mapping on top. Each embedded service owns one
+//! private Tokio runtime on the calling thread's terms: every method
+//! blocks the caller until the operation completes, so foreign
+//! callers never observe Rust futures, `Arc`s, borrowed references,
+//! or `tokio::time::Instant`.
 //!
 //! Blocking contract: do not call these methods from inside an async
 //! context running on the embedded runtime (the runtime is private, so
@@ -30,19 +35,21 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+use eggchaos_protocol::DatagramFaultSpecV1;
 use eggchaos_protocol::{
-    DatagramFaultPatchV1, DatagramFaultSpecV1, DatagramFaultUpsertV1, ErrorEnvelopeV1,
-    FaultPatchV1, FaultUpsertV1, HealthV1, NativeDatagramAssociationViewV1,
-    NativeDatagramProxyPatchV1, NativeDatagramProxyRequestV1, NativeDatagramProxyViewV1,
-    NativeFaultViewV1, NativeProxyPatchV1, NativeProxyRequestV1, NativeProxyViewV1,
-    RuntimeConfigV1, ScenarioRunV1, ScenarioScheduleV2Dto, ScenarioV1, ScheduleCompileV2,
-    ScheduleRunV2, ScheduleValidateV2, VersionV1,
+    DatagramFaultPatchV1, DatagramFaultUpsertV1, ErrorEnvelopeV1, FaultPatchV1, FaultUpsertV1,
+    HealthV1, NativeDatagramAssociationViewV1, NativeDatagramProxyPatchV1,
+    NativeDatagramProxyRequestV1, NativeDatagramProxyViewV1, NativeFaultViewV1, NativeProxyPatchV1,
+    NativeProxyRequestV1, NativeProxyViewV1, RuntimeConfigV1, ScenarioRunV1, ScenarioScheduleV2Dto,
+    ScenarioV1, ScheduleCompileV2, ScheduleRunV2, ScheduleValidateV2, VersionV1,
 };
 use eggchaos_server::{
-    compile_schedule, datagram_fault_patch_into_runtime, datagram_fault_upsert_into_runtime,
-    datagram_proxy_request_into_spec, fault_patch_into_runtime, fault_upsert_into_runtime,
-    proxy_request_into_spec, runtime_admission_limits, runtime_datagram_limits,
-    scenario_v1_into_runtime, ControlState, ServiceBuilder,
+    apply_datagram_fault_patch, apply_datagram_fault_upsert, apply_datagram_proxy_patch,
+    apply_datagram_proxy_request, apply_proxy_patch, apply_proxy_request, apply_runtime_config,
+    apply_scenario_v1, apply_scenario_v2_dto, apply_stream_fault_patch, apply_stream_fault_upsert,
+    cancel_scenario_run, compile_scenario_v2_dto, get_connection, get_scenario_run,
+    kill_connection, kill_datagram_association, reset_service, validate_scenario_v2_dto,
+    ControlState, RuntimeLimitApply, ServiceBuilder,
 };
 use thiserror::Error;
 
@@ -88,6 +95,29 @@ impl From<eggchaos_server::ControlError> for EmbedError {
     }
 }
 
+impl From<eggchaos_server::DatagramRuntimeError> for EmbedError {
+    fn from(error: eggchaos_server::DatagramRuntimeError) -> Self {
+        Self::Validation(error.to_string())
+    }
+}
+
+impl From<eggchaos_server::EggchaosError> for EmbedError {
+    fn from(error: eggchaos_server::EggchaosError) -> Self {
+        match error {
+            eggchaos_server::EggchaosError::Control(inner) => Self::from(inner),
+            eggchaos_server::EggchaosError::Io { source, .. } => {
+                Self::Lifecycle(source.to_string())
+            }
+            eggchaos_server::EggchaosError::Join(detail) => Self::Lifecycle(detail),
+            eggchaos_server::EggchaosError::InvalidProxy(detail) => Self::Validation(detail),
+            eggchaos_server::EggchaosError::InvalidPlan(detail) => {
+                Self::Validation(detail.to_string())
+            }
+            eggchaos_server::EggchaosError::DuplicateProxy(detail) => Self::Conflict(detail),
+        }
+    }
+}
+
 /// Options for [`EmbeddedService::start`].
 #[derive(Debug, Clone, Default)]
 pub struct EmbedOptions {
@@ -127,29 +157,22 @@ impl EmbeddedService {
             .thread_name("eggchaos-embed")
             .build()
             .map_err(|error| EmbedError::Lifecycle(error.to_string()))?;
+        let RuntimeLimitApply {
+            admission,
+            datagram,
+            relay_buffer,
+            termination_grace,
+        } = apply_runtime_config(options.runtime).map_err(EmbedError::from)?;
         let service = ServiceBuilder::new(options.seed)
-            .limits(runtime_admission_limits(options.runtime).map_err(EmbedError::Validation)?)
-            .relay_buffer(
-                options
-                    .runtime
-                    .relay_buffer()
-                    .map_err(EmbedError::Validation)?,
-            )
-            .termination_grace(
-                options
-                    .runtime
-                    .termination_grace()
-                    .map_err(EmbedError::Validation)?,
-            )
-            .datagram_limits(
-                runtime_datagram_limits(options.runtime.datagram)
-                    .map_err(EmbedError::Validation)?,
-            )
+            .limits(admission)
+            .relay_buffer(relay_buffer.into())
+            .termination_grace(termination_grace)
+            .datagram_limits(datagram)
             .build()
-            .map_err(|error| EmbedError::Validation(error.to_string()))?;
+            .map_err(EmbedError::from)?;
         let control = runtime
             .block_on(service.start())
-            .map_err(|error| EmbedError::Lifecycle(error.to_string()))?
+            .map_err(EmbedError::from)?
             .control_state();
         Ok(Self {
             runtime,
@@ -223,7 +246,7 @@ impl EmbeddedService {
 
     /// Reset stream and datagram state to configured definitions.
     pub fn reset(&self) -> Result<eggchaos_server::ResetReport, EmbedError> {
-        self.block_on(async { self.control.reset().await.map_err(EmbedError::from) })
+        self.block_on(async { reset_service(&self.control).await.map_err(EmbedError::from) })
     }
 
     // ------------------------------------------------------------ stream proxies
@@ -234,13 +257,10 @@ impl EmbeddedService {
         request: NativeProxyRequestV1,
     ) -> Result<(NativeProxyViewV1, u64), EmbedError> {
         self.block_on(async {
-            let spec = proxy_request_into_spec(request).map_err(EmbedError::Validation)?;
-            let (view, generation) = self
-                .control
-                .create_proxy(spec)
+            let outcome = apply_proxy_request(&self.control, request)
                 .await
                 .map_err(EmbedError::from)?;
-            Ok((NativeProxyViewV1::from(view), generation))
+            Ok((outcome.proxy, outcome.generation))
         })
     }
 
@@ -276,12 +296,10 @@ impl EmbeddedService {
     ) -> Result<(NativeProxyViewV1, u64), EmbedError> {
         self.block_on(async {
             patch.validate().map_err(EmbedError::Validation)?;
-            let (view, generation) = self
-                .control
-                .update_proxy(name, patch.into())
+            let outcome = apply_proxy_patch(&self.control, name, patch)
                 .await
                 .map_err(EmbedError::from)?;
-            Ok((NativeProxyViewV1::from(view), generation))
+            Ok((outcome.proxy, outcome.generation))
         })
     }
 
@@ -304,13 +322,10 @@ impl EmbeddedService {
         upsert: FaultUpsertV1,
     ) -> Result<(eggchaos_core::Direction, NativeFaultViewV1, u64), EmbedError> {
         self.block_on(async {
-            let upsert = fault_upsert_into_runtime(upsert).map_err(EmbedError::Validation)?;
-            let (direction, fault, generation) = self
-                .control
-                .add_fault(proxy, upsert)
+            let outcome = apply_stream_fault_upsert(&self.control, proxy, upsert)
                 .await
                 .map_err(EmbedError::from)?;
-            Ok((direction, NativeFaultViewV1::from(&fault), generation))
+            Ok((outcome.direction, outcome.fault, outcome.generation))
         })
     }
 
@@ -356,18 +371,10 @@ impl EmbeddedService {
         patch: FaultPatchV1,
     ) -> Result<(eggchaos_core::Direction, NativeFaultViewV1, u64), EmbedError> {
         self.block_on(async {
-            let patch = fault_patch_into_runtime(patch).map_err(EmbedError::Validation)?;
-            if patch.probability.is_none() && patch.kind.is_none() {
-                return Err(EmbedError::Validation(
-                    "fault patch must include probability or kind".into(),
-                ));
-            }
-            let (direction, fault, generation) = self
-                .control
-                .update_fault(proxy, id, patch)
+            let outcome = apply_stream_fault_patch(&self.control, proxy, id, patch)
                 .await
                 .map_err(EmbedError::from)?;
-            Ok((direction, NativeFaultViewV1::from(&fault), generation))
+            Ok((outcome.direction, outcome.fault, outcome.generation))
         })
     }
 
@@ -394,8 +401,7 @@ impl EmbeddedService {
         id: u64,
     ) -> Result<eggchaos_server::ConnectionSnapshot, EmbedError> {
         self.block_on(async {
-            self.control
-                .get_connection(id)
+            get_connection(&self.control, id)
                 .await
                 .ok_or_else(|| EmbedError::NotFound(format!("connection {id}")))
         })
@@ -403,7 +409,7 @@ impl EmbeddedService {
 
     /// Terminate one active stream connection.
     pub fn kill_connection(&self, id: u64) -> Result<bool, EmbedError> {
-        self.block_on(async { Ok(self.control.kill(id).await) })
+        self.block_on(async { Ok(kill_connection(&self.control, id).await) })
     }
 
     /// Snapshot bounded closed-connection history.
@@ -416,13 +422,9 @@ impl EmbeddedService {
     /// Apply a Scenario V1 document; returns the run record view.
     pub fn apply_scenario_v1(&self, scenario: ScenarioV1) -> Result<ScenarioRunV1, EmbedError> {
         self.block_on(async {
-            let scenario = scenario_v1_into_runtime(scenario).map_err(EmbedError::Validation)?;
-            let record = self
-                .control
-                .start_scenario(scenario)
+            apply_scenario_v1(&self.control, scenario)
                 .await
-                .map_err(|error| EmbedError::Validation(error.to_string()))?;
-            Ok(ScenarioRunV1::from(record))
+                .map_err(EmbedError::from)
         })
     }
 
@@ -431,10 +433,7 @@ impl EmbeddedService {
         &self,
         schedule: ScenarioScheduleV2Dto,
     ) -> Result<ScheduleValidateV2, EmbedError> {
-        let source = schedule.into_internal().map_err(EmbedError::Validation)?;
-        let compiled =
-            compile_schedule(&source).map_err(|error| EmbedError::Validation(error.to_string()))?;
-        Ok(ScheduleValidateV2::from_compiled(&compiled))
+        validate_scenario_v2_dto(schedule).map_err(EmbedError::from)
     }
 
     /// Compile a Scenario V2 schedule without creating a run.
@@ -442,10 +441,7 @@ impl EmbeddedService {
         &self,
         schedule: ScenarioScheduleV2Dto,
     ) -> Result<ScheduleCompileV2, EmbedError> {
-        let source = schedule.into_internal().map_err(EmbedError::Validation)?;
-        let compiled =
-            compile_schedule(&source).map_err(|error| EmbedError::Validation(error.to_string()))?;
-        Ok(ScheduleCompileV2::from_compiled(&compiled))
+        compile_scenario_v2_dto(schedule).map_err(EmbedError::from)
     }
 
     /// Apply a Scenario V2 schedule; returns the run view.
@@ -454,39 +450,35 @@ impl EmbeddedService {
         schedule: ScenarioScheduleV2Dto,
     ) -> Result<ScheduleRunV2, EmbedError> {
         self.block_on(async {
-            let source = schedule.into_internal().map_err(EmbedError::Validation)?;
-            let record = self
-                .control
-                .start_schedule_v2(source)
+            apply_scenario_v2_dto(&self.control, schedule)
                 .await
-                .map_err(|error| EmbedError::Validation(error.to_string()))?;
-            Ok(ScheduleRunV2::from(record))
+                .map_err(EmbedError::from)
         })
     }
 
     /// Get a Scenario V1 or V2 run record.
     pub fn get_scenario(&self, run_id: u64) -> Result<ScenarioRunView, EmbedError> {
         self.block_on(async {
-            if let Some(record) = self.control.get_scenario(run_id).await {
-                return Ok(ScenarioRunView::V1(ScenarioRunV1::from(record)));
-            }
-            if let Some(record) = self.control.get_schedule_v2(run_id).await {
-                return Ok(ScenarioRunView::V2(ScheduleRunV2::from(record)));
-            }
-            Err(EmbedError::NotFound(format!("scenario run {run_id}")))
+            get_scenario_run(&self.control, run_id)
+                .await
+                .map(|record| match record {
+                    eggchaos_server::ScenarioRunLookup::V1(record) => ScenarioRunView::V1(record),
+                    eggchaos_server::ScenarioRunLookup::V2(record) => ScenarioRunView::V2(record),
+                })
+                .ok_or_else(|| EmbedError::NotFound(format!("scenario run {run_id}")))
         })
     }
 
     /// Cancel a Scenario V1 or V2 run.
     pub fn cancel_scenario(&self, run_id: u64) -> Result<ScenarioRunView, EmbedError> {
         self.block_on(async {
-            if let Some(record) = self.control.cancel_scenario(run_id).await {
-                return Ok(ScenarioRunView::V1(ScenarioRunV1::from(record)));
-            }
-            if let Some(record) = self.control.cancel_schedule_v2(run_id).await {
-                return Ok(ScenarioRunView::V2(ScheduleRunV2::from(record)));
-            }
-            Err(EmbedError::NotFound(format!("scenario run {run_id}")))
+            cancel_scenario_run(&self.control, run_id)
+                .await
+                .map(|record| match record {
+                    eggchaos_server::ScenarioRunLookup::V1(record) => ScenarioRunView::V1(record),
+                    eggchaos_server::ScenarioRunLookup::V2(record) => ScenarioRunView::V2(record),
+                })
+                .ok_or_else(|| EmbedError::NotFound(format!("scenario run {run_id}")))
         })
     }
 
@@ -498,13 +490,10 @@ impl EmbeddedService {
         request: NativeDatagramProxyRequestV1,
     ) -> Result<(NativeDatagramProxyViewV1, u64), EmbedError> {
         self.block_on(async {
-            let spec = datagram_proxy_request_into_spec(request).map_err(EmbedError::Validation)?;
-            let (view, generation) = self
-                .control
-                .create_datagram_proxy(spec)
+            let outcome = apply_datagram_proxy_request(&self.control, request)
                 .await
                 .map_err(EmbedError::from)?;
-            Ok((NativeDatagramProxyViewV1::from(view), generation))
+            Ok((outcome.proxy, outcome.generation))
         })
     }
 
@@ -539,27 +528,10 @@ impl EmbeddedService {
         patch: NativeDatagramProxyPatchV1,
     ) -> Result<(NativeDatagramProxyViewV1, u64), EmbedError> {
         self.block_on(async {
-            if patch.enabled.is_none()
-                && patch.listen.is_none()
-                && patch.upstream.is_none()
-                && patch.max_associations.is_none()
-                && patch.association_idle_timeout_ms.is_none()
-            {
-                return Err(EmbedError::Validation("empty datagram proxy patch".into()));
-            }
-            let (view, generation) = self
-                .control
-                .update_datagram_proxy(
-                    name,
-                    patch.listen,
-                    patch.upstream,
-                    patch.max_associations,
-                    patch.association_idle_timeout_ms,
-                    patch.enabled,
-                )
+            let outcome = apply_datagram_proxy_patch(&self.control, name, patch)
                 .await
                 .map_err(EmbedError::from)?;
-            Ok((NativeDatagramProxyViewV1::from(view), generation))
+            Ok((outcome.proxy, outcome.generation))
         })
     }
 
@@ -577,29 +549,18 @@ impl EmbeddedService {
     ///
     /// Mutation semantics (duplicate/cross-direction conflicts, plan
     /// reconstruction, generation-guarded publication) are owned by the
-    /// shared [`ControlState`] authority; this method only converts the
-    /// wire DTO and maps the result.
+    /// shared [`ControlState`] authority; this method only delegates
+    /// through the typed operation facade (M051).
     pub fn add_datagram_fault(
         &self,
         proxy: &str,
         upsert: DatagramFaultUpsertV1,
-    ) -> Result<
-        (
-            eggchaos_core::Direction,
-            eggchaos_protocol::DatagramFaultSpecV1,
-            u64,
-        ),
-        EmbedError,
-    > {
+    ) -> Result<(eggchaos_core::Direction, DatagramFaultSpecV1, u64), EmbedError> {
         self.block_on(async {
-            let (direction, fault) =
-                datagram_fault_upsert_into_runtime(upsert).map_err(EmbedError::Validation)?;
-            let (direction, fault, next) = self
-                .control
-                .add_datagram_fault(proxy, direction, fault)
+            let outcome = apply_datagram_fault_upsert(&self.control, proxy, upsert)
                 .await
                 .map_err(EmbedError::from)?;
-            Ok((direction, DatagramFaultSpecV1::from(fault), next))
+            Ok((outcome.direction, outcome.fault, outcome.generation))
         })
     }
 
@@ -608,23 +569,14 @@ impl EmbeddedService {
         &self,
         proxy: &str,
         id: &str,
-    ) -> Result<
-        (
-            eggchaos_core::Direction,
-            eggchaos_protocol::DatagramFaultSpecV1,
-        ),
-        EmbedError,
-    > {
+    ) -> Result<(eggchaos_core::Direction, DatagramFaultSpecV1), EmbedError> {
         self.block_on(async {
             let (direction, fault) = self
                 .control
                 .get_datagram_fault(proxy, id)
                 .await
                 .ok_or_else(|| EmbedError::NotFound(format!("fault {id} on {proxy}")))?;
-            Ok((
-                direction,
-                eggchaos_protocol::DatagramFaultSpecV1::from(fault),
-            ))
+            Ok((direction, DatagramFaultSpecV1::from(fault)))
         })
     }
 
@@ -632,13 +584,7 @@ impl EmbeddedService {
     pub fn list_datagram_faults(
         &self,
         proxy: &str,
-    ) -> Result<
-        (
-            Vec<eggchaos_protocol::DatagramFaultSpecV1>,
-            Vec<eggchaos_protocol::DatagramFaultSpecV1>,
-        ),
-        EmbedError,
-    > {
+    ) -> Result<(Vec<DatagramFaultSpecV1>, Vec<DatagramFaultSpecV1>), EmbedError> {
         self.block_on(async {
             let (upstream, downstream) = self
                 .control
@@ -648,11 +594,11 @@ impl EmbeddedService {
             Ok((
                 upstream
                     .into_iter()
-                    .map(eggchaos_protocol::DatagramFaultSpecV1::from)
+                    .map(DatagramFaultSpecV1::from)
                     .collect(),
                 downstream
                     .into_iter()
-                    .map(eggchaos_protocol::DatagramFaultSpecV1::from)
+                    .map(DatagramFaultSpecV1::from)
                     .collect(),
             ))
         })
@@ -664,38 +610,26 @@ impl EmbeddedService {
         proxy: &str,
         id: &str,
         patch: DatagramFaultPatchV1,
-    ) -> Result<
-        (
-            eggchaos_core::Direction,
-            eggchaos_protocol::DatagramFaultSpecV1,
-            u64,
-        ),
-        EmbedError,
-    > {
+    ) -> Result<(eggchaos_core::Direction, DatagramFaultSpecV1, u64), EmbedError> {
         self.block_on(async {
-            let patch = datagram_fault_patch_into_runtime(patch).map_err(EmbedError::Validation)?;
-            let (direction, fault, next) = self
-                .control
-                .update_datagram_fault(proxy, id, patch)
+            let outcome = apply_datagram_fault_patch(&self.control, proxy, id, patch)
                 .await
                 .map_err(EmbedError::from)?;
-            Ok((
-                direction,
-                eggchaos_protocol::DatagramFaultSpecV1::from(fault),
-                next,
-            ))
+            Ok((outcome.direction, outcome.fault, outcome.generation))
         })
     }
 
     /// Remove a datagram fault; returns the generation.
-    pub fn remove_datagram_fault(&self, proxy: &str, id: &str) -> Result<u64, EmbedError> {
+    pub fn remove_datagram_fault(
+        &self,
+        proxy: &str,
+        id: &str,
+    ) -> Result<(eggchaos_core::Direction, u64), EmbedError> {
         self.block_on(async {
-            let (_, next) = self
-                .control
+            self.control
                 .remove_datagram_fault(proxy, id)
                 .await
-                .map_err(EmbedError::from)?;
-            Ok(next)
+                .map_err(EmbedError::from)
         })
     }
 
@@ -716,7 +650,7 @@ impl EmbeddedService {
 
     /// Terminate one datagram association.
     pub fn kill_datagram_association(&self, id: u64) -> Result<bool, EmbedError> {
-        self.block_on(async { Ok(self.control.kill_datagram_association(id).await) })
+        self.block_on(async { Ok(kill_datagram_association(&self.control, id).await) })
     }
 
     /// Render the shared native error envelope for an embed error.

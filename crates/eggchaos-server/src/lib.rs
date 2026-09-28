@@ -6,6 +6,7 @@ mod admin;
 mod config;
 mod native;
 mod native_v2;
+mod operations;
 mod runtime;
 pub mod scenario;
 pub mod scenario_v2;
@@ -35,6 +36,16 @@ pub use native_v2::{
     ScenarioRepeatV2Dto, ScenarioScheduleV2Dto, ScenarioScheduleV2Toml, ScheduleCleanupResourceV2,
     ScheduleCleanupV2, ScheduleCompileV2, ScheduleCompiledEventV2, ScheduleRunEventV2,
     ScheduleRunV2, ScheduleValidateV2,
+};
+pub use operations::{
+    apply_datagram_fault_patch, apply_datagram_fault_upsert, apply_datagram_proxy_patch,
+    apply_datagram_proxy_request, apply_proxy_patch, apply_proxy_request, apply_runtime_config,
+    apply_scenario_v1, apply_scenario_v2_dto, apply_stream_fault_patch, apply_stream_fault_upsert,
+    apply_stream_plan, cancel_scenario_run, compile_scenario_v2_dto, get_connection,
+    get_scenario_run, kill_connection, kill_datagram_association, reset_service,
+    validate_scenario_v2_dto, DatagramFaultApplyOutcome, DatagramProxyApplyOutcome,
+    NonZeroUsizeShim, ProxyApplyOutcome, RuntimeLimitApply, ScenarioApplyOutcome,
+    ScenarioRunLookup, StreamFaultApplyOutcome,
 };
 pub use runtime::{
     AdmissionLimits, ClosedConnection, ConnectionEvidence, ConnectionOutcome, ConnectionSnapshot,

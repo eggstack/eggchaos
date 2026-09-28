@@ -270,6 +270,7 @@ fn parse_json<T: serde::de::DeserializeOwned>(body: &[u8]) -> Result<T, RouteOut
 }
 
 async fn route(method: &str, segments: &[&str], body: &[u8], state: &ControlState) -> RouteOutcome {
+    use crate::operations as ops;
     match (method, segments) {
         ("GET", ["v1", "health"]) => RouteOutcome::Response(json_response(
             StatusCode::OK,
@@ -280,7 +281,7 @@ async fn route(method: &str, segments: &[&str], body: &[u8], state: &ControlStat
             &serde_json::json!({"version": env!("CARGO_PKG_VERSION"), "api": "v1"}),
         )),
         ("GET", ["metrics"]) => RouteOutcome::Response(text_response(state.metrics_text().await)),
-        ("POST", ["v1", "reset"]) => match state.reset().await {
+        ("POST", ["v1", "reset"]) => match ops::reset_service(state).await {
             Ok(report) => RouteOutcome::Response(json_response(StatusCode::OK, &report)),
             Err(error) => RouteOutcome::ControlError(error),
         },
@@ -298,14 +299,10 @@ async fn route(method: &str, segments: &[&str], body: &[u8], state: &ControlStat
                 Ok(value) => value,
                 Err(error) => return error,
             };
-            let spec = match crate::native::datagram_proxy_request_into_spec(request) {
-                Ok(value) => value,
-                Err(error) => return RouteOutcome::ControlError(ControlError::Invalid(error)),
-            };
-            match state.create_datagram_proxy(spec).await {
-                Ok((view, generation)) => RouteOutcome::Response(json_response(
+            match ops::apply_datagram_proxy_request(state, request).await {
+                Ok(outcome) => RouteOutcome::Response(json_response(
                     StatusCode::CREATED,
-                    &serde_json::json!({"proxy": crate::NativeDatagramProxyViewV1::from(view), "generation": generation}),
+                    &serde_json::json!({"proxy": outcome.proxy, "generation": outcome.generation}),
                 )),
                 Err(error) => RouteOutcome::ControlError(error),
             }
@@ -322,30 +319,10 @@ async fn route(method: &str, segments: &[&str], body: &[u8], state: &ControlStat
                 Ok(value) => value,
                 Err(error) => return error,
             };
-            if patch.enabled.is_none()
-                && patch.listen.is_none()
-                && patch.upstream.is_none()
-                && patch.max_associations.is_none()
-                && patch.association_idle_timeout_ms.is_none()
-            {
-                return RouteOutcome::ControlError(ControlError::Invalid(
-                    "empty datagram proxy patch".into(),
-                ));
-            }
-            match state
-                .update_datagram_proxy(
-                    name,
-                    patch.listen,
-                    patch.upstream,
-                    patch.max_associations,
-                    patch.association_idle_timeout_ms,
-                    patch.enabled,
-                )
-                .await
-            {
-                Ok((view, generation)) => RouteOutcome::Response(json_response(
+            match ops::apply_datagram_proxy_patch(state, name, patch).await {
+                Ok(outcome) => RouteOutcome::Response(json_response(
                     StatusCode::OK,
-                    &serde_json::json!({"proxy": crate::NativeDatagramProxyViewV1::from(view), "generation": generation}),
+                    &serde_json::json!({"proxy": outcome.proxy, "generation": outcome.generation}),
                 )),
                 Err(error) => RouteOutcome::ControlError(error),
             }
@@ -378,15 +355,10 @@ async fn route(method: &str, segments: &[&str], body: &[u8], state: &ControlStat
                 Ok(value) => value,
                 Err(error) => return error,
             };
-            let (direction, fault) = match crate::native::datagram_fault_upsert_into_runtime(upsert)
-            {
-                Ok(value) => value,
-                Err(error) => return RouteOutcome::ControlError(ControlError::Invalid(error)),
-            };
-            match state.add_datagram_fault(name, direction, fault).await {
-                Ok((direction, fault, generation)) => RouteOutcome::Response(json_response(
+            match ops::apply_datagram_fault_upsert(state, name, upsert).await {
+                Ok(outcome) => RouteOutcome::Response(json_response(
                     StatusCode::CREATED,
-                    &serde_json::json!({"direction": direction.as_str(), "fault": crate::DatagramFaultSpecV1::from(fault), "generation": generation}),
+                    &serde_json::json!({"direction": outcome.direction.as_str(), "fault": outcome.fault, "generation": outcome.generation}),
                 )),
                 Err(error) => RouteOutcome::ControlError(error),
             }
@@ -407,14 +379,10 @@ async fn route(method: &str, segments: &[&str], body: &[u8], state: &ControlStat
                 Ok(value) => value,
                 Err(error) => return error,
             };
-            let patch = match crate::native::datagram_fault_patch_into_runtime(patch) {
-                Ok(value) => value,
-                Err(error) => return RouteOutcome::ControlError(ControlError::Invalid(error)),
-            };
-            match state.update_datagram_fault(name, id, patch).await {
-                Ok((direction, fault, generation)) => RouteOutcome::Response(json_response(
+            match ops::apply_datagram_fault_patch(state, name, id, patch).await {
+                Ok(outcome) => RouteOutcome::Response(json_response(
                     StatusCode::OK,
-                    &serde_json::json!({"direction": direction.as_str(), "fault": crate::DatagramFaultSpecV1::from(fault), "generation": generation}),
+                    &serde_json::json!({"direction": outcome.direction.as_str(), "fault": outcome.fault, "generation": outcome.generation}),
                 )),
                 Err(error) => RouteOutcome::ControlError(error),
             }
@@ -452,7 +420,7 @@ async fn route(method: &str, segments: &[&str], body: &[u8], state: &ControlStat
             )),
         },
         ("DELETE", ["v1", "datagram-associations", id]) => match id.parse::<u64>() {
-            Ok(id) if state.kill_datagram_association(id).await => {
+            Ok(id) if ops::kill_datagram_association(state, id).await => {
                 RouteOutcome::Response(json_response(
                     StatusCode::OK,
                     &serde_json::json!({"id": id, "terminated": true}),
@@ -479,14 +447,10 @@ async fn route(method: &str, segments: &[&str], body: &[u8], state: &ControlStat
                 Ok(spec) => spec,
                 Err(outcome) => return outcome,
             };
-            let spec = match crate::native::proxy_request_into_spec(request) {
-                Ok(spec) => spec,
-                Err(error) => return RouteOutcome::ControlError(ControlError::Invalid(error)),
-            };
-            match state.create_proxy(spec).await {
-                Ok((view, generation)) => RouteOutcome::Response(json_response(
+            match ops::apply_proxy_request(state, request).await {
+                Ok(outcome) => RouteOutcome::Response(json_response(
                     StatusCode::CREATED,
-                    &serde_json::json!({"proxy": crate::NativeProxyViewV1::from(view), "generation": generation}),
+                    &serde_json::json!({"proxy": outcome.proxy, "generation": outcome.generation}),
                 )),
                 Err(error) => RouteOutcome::ControlError(error),
             }
@@ -503,10 +467,10 @@ async fn route(method: &str, segments: &[&str], body: &[u8], state: &ControlStat
                 Ok(patch) => patch,
                 Err(outcome) => return outcome,
             };
-            match state.update_proxy(name, patch.into()).await {
-                Ok((view, generation)) => RouteOutcome::Response(json_response(
+            match ops::apply_proxy_patch(state, name, patch).await {
+                Ok(outcome) => RouteOutcome::Response(json_response(
                     StatusCode::OK,
-                    &serde_json::json!({"proxy": crate::NativeProxyViewV1::from(view), "generation": generation}),
+                    &serde_json::json!({"proxy": outcome.proxy, "generation": outcome.generation}),
                 )),
                 Err(error) => RouteOutcome::ControlError(error),
             }
@@ -533,17 +497,13 @@ async fn route(method: &str, segments: &[&str], body: &[u8], state: &ControlStat
                 Ok(upsert) => upsert,
                 Err(outcome) => return outcome,
             };
-            let upsert = match crate::native::fault_upsert_into_runtime(upsert) {
-                Ok(upsert) => upsert,
-                Err(error) => return RouteOutcome::ControlError(ControlError::Invalid(error)),
-            };
-            match state.add_fault(name, upsert).await {
-                Ok((direction, fault, generation)) => RouteOutcome::Response(json_response(
+            match ops::apply_stream_fault_upsert(state, name, upsert).await {
+                Ok(outcome) => RouteOutcome::Response(json_response(
                     StatusCode::CREATED,
                     &serde_json::json!({
-                        "direction": direction.as_str(),
-                        "fault": crate::NativeFaultViewV1::from(&fault),
-                        "generation": generation,
+                        "direction": outcome.direction.as_str(),
+                        "fault": outcome.fault,
+                        "generation": outcome.generation,
                     }),
                 )),
                 Err(error) => RouteOutcome::ControlError(error),
@@ -563,17 +523,13 @@ async fn route(method: &str, segments: &[&str], body: &[u8], state: &ControlStat
                 Ok(patch) => patch,
                 Err(outcome) => return outcome,
             };
-            let patch = match crate::native::fault_patch_into_runtime(patch) {
-                Ok(patch) => patch,
-                Err(error) => return RouteOutcome::ControlError(ControlError::Invalid(error)),
-            };
-            match state.update_fault(name, id, patch).await {
-                Ok((direction, fault, generation)) => RouteOutcome::Response(json_response(
+            match ops::apply_stream_fault_patch(state, name, id, patch).await {
+                Ok(outcome) => RouteOutcome::Response(json_response(
                     StatusCode::OK,
                     &serde_json::json!({
-                        "direction": direction.as_str(),
-                        "fault": crate::NativeFaultViewV1::from(&fault),
-                        "generation": generation,
+                        "direction": outcome.direction.as_str(),
+                        "fault": outcome.fault,
+                        "generation": outcome.generation,
                     }),
                 )),
                 Err(error) => RouteOutcome::ControlError(error),
@@ -592,7 +548,7 @@ async fn route(method: &str, segments: &[&str], body: &[u8], state: &ControlStat
             RouteOutcome::Response(json_response(StatusCode::OK, &state.connections().await))
         }
         ("GET", ["v1", "connections", id]) => match id.parse::<u64>() {
-            Ok(id) => match state.get_connection(id).await {
+            Ok(id) => match ops::get_connection(state, id).await {
                 Some(snapshot) => RouteOutcome::Response(json_response(StatusCode::OK, &snapshot)),
                 None => {
                     RouteOutcome::ControlError(ControlError::NotFound(format!("connection {id}")))
@@ -604,7 +560,7 @@ async fn route(method: &str, segments: &[&str], body: &[u8], state: &ControlStat
         },
         ("DELETE", ["v1", "connections", id]) => match id.parse::<u64>() {
             Ok(id) => {
-                if state.kill(id).await {
+                if ops::kill_connection(state, id).await {
                     RouteOutcome::Response(json_response(
                         StatusCode::OK,
                         &serde_json::json!({"id": id, "terminated": true}),
@@ -622,110 +578,82 @@ async fn route(method: &str, segments: &[&str], body: &[u8], state: &ControlStat
         }
         ("POST", ["v1", "scenarios", "apply"]) => match version_of(body) {
             Some(2) => match serde_json::from_slice::<crate::ScenarioScheduleV2Dto>(body) {
-                Ok(dto) => match dto.into_internal() {
-                    Ok(source) => match state.start_schedule_v2(source).await {
-                        Ok(record) => RouteOutcome::Response(json_response(
-                            StatusCode::new(202).expect("accepted status"),
-                            &crate::ScheduleRunV2::from(record),
-                        )),
-                        Err(error) => RouteOutcome::ControlError(crate::ControlError::Invalid(
-                            error.to_string(),
-                        )),
-                    },
-                    Err(error) => RouteOutcome::ControlError(crate::ControlError::Invalid(error)),
+                Ok(dto) => match ops::apply_scenario_v2_dto(state, dto).await {
+                    Ok(record) => RouteOutcome::Response(json_response(
+                        StatusCode::new(202).expect("accepted status"),
+                        &record,
+                    )),
+                    Err(error) => RouteOutcome::ControlError(error),
                 },
                 Err(error) => RouteOutcome::BadJson(error.to_string()),
             },
             _ => match serde_json::from_slice::<crate::ScenarioV1>(body) {
-                Ok(scenario) => match crate::native::scenario_v1_into_runtime(scenario) {
-                    Ok(scenario) => match state.start_scenario(scenario).await {
-                        Ok(record) => RouteOutcome::Response(json_response(
-                            StatusCode::new(202).expect("accepted status"),
-                            &crate::ScenarioRunV1::from(record),
-                        )),
-                        Err(error) => RouteOutcome::ControlError(crate::ControlError::Invalid(
-                            error.to_string(),
-                        )),
-                    },
-                    Err(error) => RouteOutcome::ControlError(crate::ControlError::Invalid(error)),
+                Ok(scenario) => match ops::apply_scenario_v1(state, scenario).await {
+                    Ok(record) => RouteOutcome::Response(json_response(
+                        StatusCode::new(202).expect("accepted status"),
+                        &record,
+                    )),
+                    Err(error) => RouteOutcome::ControlError(error),
                 },
                 Err(error) => RouteOutcome::BadJson(error.to_string()),
             },
         },
         ("POST", ["v1", "scenarios", "validate"]) => {
             match serde_json::from_slice::<crate::ScenarioScheduleV2Dto>(body) {
-                Ok(dto) => match dto.into_internal() {
-                    Ok(source) => match crate::compile_schedule(&source) {
-                        Ok(compiled) => RouteOutcome::Response(json_response(
-                            StatusCode::OK,
-                            &crate::ScheduleValidateV2::from_compiled(&compiled),
-                        )),
-                        Err(error) => RouteOutcome::ControlError(crate::ControlError::Invalid(
-                            error.to_string(),
-                        )),
-                    },
-                    Err(error) => RouteOutcome::ControlError(crate::ControlError::Invalid(error)),
+                Ok(dto) => match ops::validate_scenario_v2_dto(dto) {
+                    Ok(value) => RouteOutcome::Response(json_response(StatusCode::OK, &value)),
+                    Err(error) => RouteOutcome::ControlError(error),
                 },
                 Err(error) => RouteOutcome::BadJson(error.to_string()),
             }
         }
         ("POST", ["v1", "scenarios", "compile"]) => {
             match serde_json::from_slice::<crate::ScenarioScheduleV2Dto>(body) {
-                Ok(dto) => match dto.into_internal() {
-                    Ok(source) => match crate::compile_schedule(&source) {
-                        Ok(compiled) => RouteOutcome::Response(json_response(
-                            StatusCode::OK,
-                            &crate::ScheduleCompileV2::from_compiled(&compiled),
-                        )),
-                        Err(error) => RouteOutcome::ControlError(crate::ControlError::Invalid(
-                            error.to_string(),
-                        )),
-                    },
-                    Err(error) => RouteOutcome::ControlError(crate::ControlError::Invalid(error)),
+                Ok(dto) => match ops::compile_scenario_v2_dto(dto) {
+                    Ok(value) => RouteOutcome::Response(json_response(StatusCode::OK, &value)),
+                    Err(error) => RouteOutcome::ControlError(error),
                 },
                 Err(error) => RouteOutcome::BadJson(error.to_string()),
             }
         }
         ("GET", ["v1", "scenarios", id]) => match id.parse::<u64>() {
-            Ok(run_id) => {
-                if let Some(record) = state.get_scenario(run_id).await {
-                    RouteOutcome::Response(json_response(
-                        StatusCode::OK,
-                        &crate::ScenarioRunV1::from(record),
-                    ))
-                } else if let Some(record) = state.get_schedule_v2(run_id).await {
-                    RouteOutcome::Response(json_response(
-                        StatusCode::OK,
-                        &crate::ScheduleRunV2::from(record),
-                    ))
-                } else {
-                    RouteOutcome::ControlError(crate::ControlError::NotFound(format!(
-                        "scenario run {run_id}"
-                    )))
-                }
-            }
+            Ok(run_id) => match ops::get_scenario_run(state, run_id).await {
+                Some(record) => RouteOutcome::Response(json_response(
+                    StatusCode::OK,
+                    &match record {
+                        crate::ScenarioRunLookup::V1(record) => {
+                            serde_json::json!(record)
+                        }
+                        crate::ScenarioRunLookup::V2(record) => {
+                            serde_json::json!(record)
+                        }
+                    },
+                )),
+                None => RouteOutcome::ControlError(crate::ControlError::NotFound(format!(
+                    "scenario run {run_id}"
+                ))),
+            },
             Err(_) => RouteOutcome::ControlError(crate::ControlError::Invalid(
                 "scenario run id must be an integer".into(),
             )),
         },
         ("DELETE", ["v1", "scenarios", id]) => match id.parse::<u64>() {
-            Ok(run_id) => {
-                if let Some(record) = state.cancel_scenario(run_id).await {
-                    RouteOutcome::Response(json_response(
-                        StatusCode::OK,
-                        &crate::ScenarioRunV1::from(record),
-                    ))
-                } else if let Some(record) = state.cancel_schedule_v2(run_id).await {
-                    RouteOutcome::Response(json_response(
-                        StatusCode::OK,
-                        &crate::ScheduleRunV2::from(record),
-                    ))
-                } else {
-                    RouteOutcome::ControlError(crate::ControlError::NotFound(format!(
-                        "scenario run {run_id}"
-                    )))
-                }
-            }
+            Ok(run_id) => match ops::cancel_scenario_run(state, run_id).await {
+                Some(record) => RouteOutcome::Response(json_response(
+                    StatusCode::OK,
+                    &match record {
+                        crate::ScenarioRunLookup::V1(record) => {
+                            serde_json::json!(record)
+                        }
+                        crate::ScenarioRunLookup::V2(record) => {
+                            serde_json::json!(record)
+                        }
+                    },
+                )),
+                None => RouteOutcome::ControlError(crate::ControlError::NotFound(format!(
+                    "scenario run {run_id}"
+                ))),
+            },
             Err(_) => RouteOutcome::ControlError(crate::ControlError::Invalid(
                 "scenario run id must be an integer".into(),
             )),

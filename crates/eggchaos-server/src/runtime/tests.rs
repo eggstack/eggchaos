@@ -1,10 +1,13 @@
 use super::*;
 use crate::scenario::{Scenario, ScenarioAction, ScenarioEvent, ScenarioRunStatus};
 use crate::scenario_v2::{
-    CleanupPolicyV2, IsolationPolicyV2, SchedulePhaseV2, ScenarioScheduleRunRecord,
-    ScenarioScheduleV2, ScheduleRunStatus,
+    CleanupPolicyV2, IsolationPolicyV2, ScenarioScheduleRunRecord, ScenarioScheduleV2,
+    SchedulePhaseV2, ScheduleRunStatus,
 };
-use eggchaos_core::{derive_policy_seed, DatagramFaultKind, DatagramFaultSpec, DatagramQueueLimits, FaultId, Probability};
+use eggchaos_core::{
+    derive_policy_seed, DatagramFaultKind, DatagramFaultSpec, DatagramQueueLimits, FaultId,
+    Probability,
+};
 use std::num::NonZeroU64;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -2173,9 +2176,7 @@ async fn m050_mixed_family_full_capacity_is_supported() {
     }
     // Once V1 is at retention capacity, a fresh V1 admission evicts
     // the oldest finished V1 entry (per-family pruning).
-    let v1_over = control
-        .start_scenario(v1_scenario("udp", "v1-over"))
-        .await;
+    let v1_over = control.start_scenario(v1_scenario("udp", "v1-over")).await;
     assert!(
         v1_over.is_ok(),
         "v1 retention allows replacement: {:?}",
@@ -2225,9 +2226,7 @@ async fn m050_active_capacity_admission_is_per_family() {
             .unwrap_or_else(|e| panic!("admit V1 #{i}: {e}"));
         v1_ids.push(r.run_id);
     }
-    let overflow = control
-        .start_scenario(v1_scenario("udp", "overflow"))
-        .await;
+    let overflow = control.start_scenario(v1_scenario("udp", "overflow")).await;
     assert!(overflow.is_err(), "33rd V1 active should be rejected");
 
     // V2 admission is unaffected by the V1 active cap.
@@ -2307,4 +2306,3 @@ async fn m050_shutdown_cancels_both_families() {
         Some(ScheduleRunStatus::Cancelled)
     ));
 }
-
