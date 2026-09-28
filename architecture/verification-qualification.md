@@ -106,10 +106,15 @@ if a gate was not run, record it as incomplete (see §8).
 
 ### JSON / config round-trips
 
-- Core plan: `fuzz/fuzz_targets/plan_json.rs:11-15` asserts
+- Core plan: `fuzz/fuzz_targets/plan_json.rs` asserts
   validated-plan serialize → parse round-trip equality; unit tests cover
   ordered-fault order preservation through round trip
-  (`verification-matrix.md` §1).
+  (`verification-matrix.md` §1). M049 extends the fuzz target with explicit
+  invalid-construction seeds (`m049_empty_id`, `m049_dup_id`,
+  `m049_bad_prob`, `m049_oversized_id`) so malformed scalar values and
+  duplicate IDs are explicit targets rather than incidental cases; invalid
+  documents are rejected at the deserialization boundary instead of
+  reaching a publication path.
 - Control/API (`verification-matrix.md` §4): exact JSON success schemas,
   stable error envelope, invalid JSON / body-too-large (1 MiB cap per
   `docs/control-plane.md`), invalid duration/rate/buffer/probability,
