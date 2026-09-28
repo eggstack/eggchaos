@@ -34,6 +34,12 @@ jobs:
       - name: "M048 Tier A: bench provenance Git-state contract"
         if: runner.os != 'Windows'
         run: sh scripts/tests/test_bench_provenance.sh
+      # M055 release tag/version agreement guard: cheap POSIX sh +
+      # stdlib Python structural/behavioral contract on Linux and macOS
+      # only (same Windows gate as the M048 Tier A POSIX script).
+      - name: "M055: release tag/version agreement guard"
+        if: runner.os != 'Windows'
+        run: sh scripts/tests/test_release_tag_version.sh
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       - run: cargo test --workspace --all-features
@@ -98,6 +104,11 @@ jobs:
       # check. Python stdlib only, well under one second on normal
       # hardware.
       - run: python3 scripts/check_planning_state.py --check
+      # M055: version-coherence guard against manifest/tag drift.
+      # Runs here (not in `check` itself) so removing the local check
+      # still trips this independent check. Python stdlib only, well
+      # under one second on normal hardware.
+      - run: python3 scripts/check_version_coherence.py --check
       - run: ./scripts/check_openapi.sh
       - run: ./scripts/check_python_client.sh
       - run: ./scripts/check_typescript_client.sh

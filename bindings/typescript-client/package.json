@@ -1,6 +1,6 @@
 {
   "name": "@eggstack/eggchaos-client",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Native control client for eggchaos (/v1, derived from the M032 OpenAPI contract)",
   "license": "MIT",
   "type": "module",

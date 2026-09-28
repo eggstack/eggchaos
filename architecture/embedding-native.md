@@ -62,10 +62,10 @@ Blocking contract (`lib.rs:15-27`):
 `crates/eggchaos-embed/Cargo.toml:15-23`:
 
 ```toml
-eggchaos-core = { path = "../eggchaos-core", version = "0.1.0" }
-eggchaos-experiment = { path = "../eggchaos-experiment", version = "0.1.0" }
-eggchaos-protocol = { path = "../eggchaos-protocol", version = "0.1.0" }
-eggchaos-server = { path = "../eggchaos-server", version = "0.1.0" }
+eggchaos-core = { path = "../eggchaos-core", version = "0.2.0" }
+eggchaos-experiment = { path = "../eggchaos-experiment", version = "0.2.0" }
+eggchaos-protocol = { path = "../eggchaos-protocol", version = "0.2.0" }
+eggchaos-server = { path = "../eggchaos-server", version = "0.2.0" }
 serde, serde_json, thiserror, tokio
 ```
 
@@ -237,8 +237,8 @@ the link step):
 
 ```toml
 [lib] name = "eggchaos_native" crate-type = ["cdylib"]
-eggchaos-embed = { path = "../../crates/eggchaos-embed", version = "0.1.0" }
-eggchaos-protocol = { path = "../../crates/eggchaos-protocol", version = "0.1.0" }
+eggchaos-embed = { path = "../../crates/eggchaos-embed", version = "0.2.0" }
+eggchaos-protocol = { path = "../../crates/eggchaos-protocol", version = "0.2.0" }
 pyo3 = { version = "0.29", features = ["extension-module", "abi3-py311"] }
 serde 1 (derive), serde_json 1
 ```

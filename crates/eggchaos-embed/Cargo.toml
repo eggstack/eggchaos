@@ -13,10 +13,10 @@ categories.workspace = true
 description = "Safe coarse embedding facade over the eggchaos runtime authorities"
 
 [dependencies]
-eggchaos-core = { path = "../eggchaos-core", version = "0.1.0" }
-eggchaos-experiment = { path = "../eggchaos-experiment", version = "0.1.0" }
-eggchaos-protocol = { path = "../eggchaos-protocol", version = "0.1.0" }
-eggchaos-server = { path = "../eggchaos-server", version = "0.1.0" }
+eggchaos-core = { path = "../eggchaos-core", version = "0.2.0" }
+eggchaos-experiment = { path = "../eggchaos-experiment", version = "0.2.0" }
+eggchaos-protocol = { path = "../eggchaos-protocol", version = "0.2.0" }
+eggchaos-server = { path = "../eggchaos-server", version = "0.2.0" }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

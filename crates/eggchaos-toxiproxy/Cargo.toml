@@ -13,8 +13,8 @@ categories.workspace = true
 description = "Toxiproxy v2.12 compatibility adapter for eggchaos"
 
 [dependencies]
-eggchaos-core = { path = "../eggchaos-core", version = "0.1.0" }
-eggchaos-server = { path = "../eggchaos-server", version = "0.1.0" }
+eggchaos-core = { path = "../eggchaos-core", version = "0.2.0" }
+eggchaos-server = { path = "../eggchaos-server", version = "0.2.0" }
 eggserve-primitives.workspace = true
 eggserve-server.workspace = true
 serde.workspace = true

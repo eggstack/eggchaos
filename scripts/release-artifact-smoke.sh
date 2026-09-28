@@ -33,5 +33,10 @@ curl -fsS "$admin_url/v1/health" | grep -q '"running":true'
 "$binary" --admin "$admin_url" --json proxy list | grep -q '"name":"smoke"'
 "$binary" --admin "$admin_url" --json datagram proxy list | grep -q '"name":"udp-smoke"'
 "$binary" --admin "$admin_url" --json reset | grep -q '"reset":true'
-"$binary" --json version | grep -q '"version":"0.1.0"'
+# M055: the reported binary version must equal the canonical workspace
+# package version (derived, never hard-coded), so the smoke tracks the
+# development baseline across releases.
+ws_version=$(python3 -c 'import tomllib,pathlib; print(tomllib.loads(pathlib.Path("Cargo.toml").read_text())["workspace"]["package"]["version"])')
+test -n "$ws_version"
+"$binary" --json version | grep -q "\"version\":\"$ws_version\""
 printf '%s\n' '{"artifact_smoke":"pass"}'

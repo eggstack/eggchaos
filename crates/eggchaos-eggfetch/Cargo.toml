@@ -17,14 +17,14 @@ default = []
 http2 = ["eggfetch-core/http2"]
 
 [dependencies]
-eggchaos-core = { path = "../eggchaos-core", version = "0.1.0" }
+eggchaos-core = { path = "../eggchaos-core", version = "0.2.0" }
 eggfetch-core.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]
 bytes.workspace = true
-eggchaos-experiment = { path = "../eggchaos-experiment", version = "0.1.0" }
+eggchaos-experiment = { path = "../eggchaos-experiment", version = "0.2.0" }
 h2.workspace = true
 http.workspace = true
 rcgen.workspace = true

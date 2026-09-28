@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "eggchaos-native"
-version = "0.1.0"
+version = "0.2.0"
 description = "Native in-process embedding pilot for eggchaos (PyO3 over eggchaos-embed)"
 readme = "README.md"
 requires-python = ">=3.11"

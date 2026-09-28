@@ -15,6 +15,9 @@ checksums, or lower-layer packet behavior.
 
 ## Install
 
+Latest published release: `0.1.0` (historical release, tagged 2026-09-24;
+current `main` is the unreleased `0.2.0` development baseline — see below).
+
 ```sh
 cargo install eggchaos-cli --version 0.1.0
 ```
@@ -26,6 +29,15 @@ cargo add eggchaos-core --version 0.1.0
 cargo add eggchaos-server --version 0.1.0
 cargo add eggchaos-toxiproxy --version 0.1.0
 cargo add eggchaos-eggfetch --version 0.1.0
+```
+
+Development / `main` (unreleased `0.2.0` tree — build from source, do not
+`cargo install --version 0.2.0` until the owner publishes it):
+
+```sh
+git clone https://github.com/eggstack/eggchaos
+cd eggchaos
+cargo run -p eggchaos-cli -- serve --config eggchaos.toml
 ```
 
 Requires Rust 1.89+.

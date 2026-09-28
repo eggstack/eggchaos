@@ -21,6 +21,12 @@ jobs:
           components: rustfmt, clippy
       - run: cargo install cargo-audit --locked --version 0.22.2
       - run: cargo install cargo-deny --locked --version 0.20.2
+      # M055 tag/version agreement: on tag-triggered runs the tag must
+      # equal the canonical workspace package version; mismatch fails
+      # here, before any expensive qualification or artifact build.
+      # workflow_dispatch runs skip the tag comparison but still run
+      # ordinary manifest coherence. No tag creation or publication.
+      - run: ./scripts/check_release_tag_version.sh
       # cargo-fuzz 0.13.2's transitive cargo-platform@0.3.3 requires rustc
       # 1.91 to compile, so it cannot be built by the pinned 1.89.0 MSRV
       # toolchain (observed: exit 101 in CI). Build the cargo-fuzz binary

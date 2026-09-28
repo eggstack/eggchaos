@@ -14,9 +14,9 @@ description = "Fixed-target chaos proxy runtime and native control plane"
 
 [dependencies]
 bytes.workspace = true
-eggchaos-core = { path = "../eggchaos-core", version = "0.1.0" }
-eggchaos-experiment = { path = "../eggchaos-experiment", version = "0.1.0" }
-eggchaos-protocol = { path = "../eggchaos-protocol", version = "0.1.0" }
+eggchaos-core = { path = "../eggchaos-core", version = "0.2.0" }
+eggchaos-experiment = { path = "../eggchaos-experiment", version = "0.2.0" }
+eggchaos-protocol = { path = "../eggchaos-protocol", version = "0.2.0" }
 egress-relay.workspace = true
 eggserve-primitives.workspace = true
 eggserve-server.workspace = true

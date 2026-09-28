@@ -14,9 +14,18 @@
 # full check. The bare --check is additionally wired into the
 # `language-clients` CI job so removing the local check still trips
 # an independent check.
+#
+# M055 ownership: the version-coherence guard
+# (test_version_coherence.sh: fixture + --check + deliberate-mismatch
+# negative test + wiring assertion) is wired here for the same reason.
+# It needs only Python stdlib and well under a second. The bare
+# --check is additionally wired into the `language-clients` CI job so
+# removing the local check still trips an independent check.
 set -eu
 sh scripts/tests/test_bench_provenance.sh
 sh scripts/tests/test_planning_state.sh
+sh scripts/tests/test_version_coherence.sh
+sh scripts/tests/test_release_tag_version.sh
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features

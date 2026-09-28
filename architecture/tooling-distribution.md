@@ -6,9 +6,13 @@ workflows (`.github/workflows/`), dependency/supply-chain policy
 (`Cargo.toml`, `deny.toml`, `rust-toolchain.toml`), shipped artifacts
 (`dist/`), and the `plans/` governance authority that gates any release.
 
-Pre-release `0.1.0`. Milestones M000–M048 plus M008 are closed
-(`plans/registry.md` last reconciled 2026-09-27, no successor). M019
-closed at `ca527db` and remains the final pre-tag release-candidate
+Published `v0.1.0` (tag target `81994dbc427365f1dfdaabfa39bdf077850e69ec`,
+published 2026-09-24) is the historical first release. Current `main` is the
+unreleased `0.2.0` development baseline (M055 closed): workspace and
+first-party language packages resolve to `0.2.0`; native `/v1`, config schema
+v1, RNG v1, and provenance schema v1 are unchanged. Milestones M000–M055 are
+closed (`plans/registry.md` is the status authority). M019
+closed at `ca527db` and remains the final v0.1.0 pre-tag release-candidate
 authority; later tranches do not rewrite it. M041 closed at
 `724b967da04579282dd8bfc7a81dc4fe55d034a2` (hosted run `36219464594`,
 13/13 jobs) and is the latest ADR 007 repository-level authority for
@@ -47,6 +51,8 @@ than re-implementing their steps.
 | `scripts/fetch_toxiproxy_post_v2_12.sh` | Pinned post-v2.12 oracle: fetches the exact upstream commit `40f7fd31bee529d824116bd2a11a9e3425e904ec` source archive (pinned SHA-256 `26351cc7…042b13d`), builds `cmd/server` with recorded Go toolchain `${EGGCHAOS_POST_V2_12_GO_TOOLCHAIN:-go1.23.0}` (asserts `GOTOOLCHAIN` identity and `toxiproxy-server version` output). M041 stdout contract: default (no flag) and `--path-only [DEST]` print exactly one executable path on stdout (shell substitution `TOXIPROXY_POST_V2_12_SERVER="$(...)"`); `--json [DEST]` prints one JSON metadata record (`requested_toolchain`, `resolved_go_version`, `resolved_gotoolchain`, `source_commit`, `source_sha256`, `oracle_path`, `oracle_version`); `--help` exits 0 with usage on stderr; unknown flags exit 2. Diagnostics always go to stderr; path and JSON are never mixed on one stdout line. | Before post-v2.12 snapshot qualification. The qualifier itself uses `--path-only` internally so the contract is unambiguous. |
 | `scripts/qualify_toxiproxy_post_v2_12.sh` | Opt-in post-v2.12 gate: reaps stale snapshot oracles, runs `eggchaos-toxiproxy` unit tests, resolves the oracle via explicit `fetch_toxiproxy_post_v2_12.sh --path-only`, then runs `--test post_v212_differential` with `TOXIPROXY_POST_V2_12_SERVER`, `TOXIPROXY_POST_V2_12_COMMIT=40f7fd31…`, and `EGGCHAOS_REQUIRE_POST_V2_12_ORACLE=1`. Mandatory mode (`EGGCHAOS_REQUIRE_POST_V2_12_ORACLE=1`) fails closed on missing oracle; developer mode reports `differential:incomplete` (exit 0). | Post-v2.12 `packet_loss` profile work. Strict v2.12 stays on its own pinned oracle. |
 | `scripts/check_openapi.sh` | `cargo test -p eggchaos-protocol --all-features` (OpenAPI drift + golden fixtures) + `cargo test -p eggchaos-server --all-features --test native_route_inventory` (live 36-operation inventory proof) + a YAML shape assertion (`openapi == 3.0.3`, 21 paths, 36 operations). | Native contract gate after any protocol/server/OpenAPI change; part of the release qualify lane via language-clients CI. |
+| `scripts/check_version_coherence.py` | M055 single version-coherence authority (stdlib-only): derives the intended development version from `[workspace.package].version` and verifies all 8 workspace crates, every intra-workspace path requirement, Python/TypeScript client manifests (+ TS lockfile), Python-native Python/Rust manifests, and the internal benchmarks crate. `--check` verifies (no mutation, no network); `--fixture` runs the inline mismatch self-test. Prints `{"version_coherence":"pass",...}`; mismatches print `FAIL:` and exit 1. | Manifest changes; `scripts/tests/test_version_coherence.sh` pins fixture + real-tree + deliberate-mismatch + wiring. Runs in `scripts/check.sh` and bare `--check` runs independently in the `language-clients` CI job (same dual-wiring pattern as the M053 planning guard). |
+| `scripts/check_release_tag_version.sh` | M055 release-only guard: always runs manifest coherence, then on tag-triggered runs (`GITHUB_REF_TYPE=tag`) strips the leading `v` and requires the tag version to equal the workspace version; mismatch fails before expensive qualification/artifact builds. Non-tag (dispatch) runs skip only the tag comparison. No tag creation or publication. | First step of the release `qualify` lane (before `release-smoke.sh`); `scripts/tests/test_release_tag_version.sh` pins match/mismatch/dispatch behavior plus workflow ordering. |
 | `scripts/sync_sdk_contract.py` | Derives SDK artifacts from `api/openapi/eggchaos-v1.yaml`: `bindings/_contract/operations.json` + `bindings/python-client/eggchaos_client/_generated.py` + `bindings/typescript-client/src/generated.ts` (deterministic sorted output; 36 operations + stream/datagram/scenario tag unions). Prints `{"sync":"pass","operations":36,...}`. | Before SDK checks; `check_python_client.sh` / `check_typescript_client.sh` rerun it and assert `git diff --exit-code` on all three generated artifacts. |
 | `scripts/check_python_client.sh` | Regeneration drift (`sync_sdk_contract.py` + `git diff --exit-code` on operations snapshot + both generated tables) + Python unit tests (no server: `test_models.py`, `test_contract.py`, `test_cross_language.py`) + `Client`/`AsyncClient` import proof. | Python SDK changes. |
 | `scripts/check_typescript_client.sh` | Same regeneration drift gate + `npm install` if needed + `tsc --noEmit` + `tsc` build + `node --test` contract/cross-language tests (no server). | TypeScript SDK changes. |
@@ -60,7 +66,7 @@ than re-implementing their steps.
 | `scripts/qualify_python_native.sh` | Remote/native conformance + control-overhead measurements against a loopback daemon. Same host-aware target selection and status-preserving server cleanup as above. | Binding qualification. |
 | `scripts/build_python_native_artifacts.sh` | Host-native abi3 wheel + sdist + per-artifact import smoke (no publication). Apple cross-arch wheels are only produced on a Darwin host with the target installed; cross-built wheels are never import-smoked without a matching interpreter (selects the wheel matching `platform.machine()` for the smoke). | Wheel builds. |
 | `scripts/release-smoke.sh` | Full pre-publish gate: fmt + clippy (`-D warnings`) + workspace tests + doc + `cargo build --workspace --release` + `cargo audit --deny warnings` + `cargo deny check advisories licenses bans sources` + `cargo package -p eggchaos-core --allow-dirty` + `cargo package --list --allow-dirty` for all workspace crates (core, experiment, protocol, server, eggfetch, toxiproxy, embed, cli) + `cargo build --release --locked --package eggchaos-cli` + `./scripts/release-artifact-smoke.sh` + an embedded Python `cargo metadata --locked` order-publishability proof asserting every intra-workspace path dependency requires exactly `^{workspace_version}` from the registry, documenting order `core -> experiment/eggfetch -> protocol -> server/toxiproxy/cli -> embed`. | Before any tag; first job step of the release `qualify` lane. |
-| `scripts/release-artifact-smoke.sh` | Boots `target/release/eggchaos serve --config qualification/release/eggchaos.toml` (overridable as `$1`/`$2`), waits up to ~5 s for the `eggchaos listening; admin=` log line, then asserts: `/v1/health`; TCP `proxy list`; UDP `datagram proxy list`; `reset`; and `version`. Prints `{"artifact_smoke":"pass"}`; cleans up the child process and log on exit via trap. | Standalone after a release build; also called at the end of `release-smoke.sh` and as the last step of the release `qualify` job. |
+| `scripts/release-artifact-smoke.sh` | Boots `target/release/eggchaos serve --config qualification/release/eggchaos.toml` (overridable as `$1`/`$2`), waits up to ~5 s for the `eggchaos listening; admin=` log line, then asserts: `/v1/health`; TCP `proxy list`; UDP `datagram proxy list`; `reset`; and `version` equals the derived workspace version (M055: never hard-coded). Prints `{"artifact_smoke":"pass"}`; cleans up the child process and log on exit via trap. | Standalone after a release build; also called at the end of `release-smoke.sh` and as the last step of the release `qualify` job. |
 
 Supporting evidence directories: `qualification/release/` (smoke TOML),
 `qualification/toxiproxy-v2-12/` (pinned oracle baseline + Go/Python client
@@ -83,7 +89,10 @@ targets), `benchmarks/` (relay comparison harness).
   `cargo install cargo-deny --locked --version 0.20.2`;
   `sh scripts/tests/test_bench_provenance.sh` (M048 Tier A: cheap M047
   Git-state provenance contract on Linux + macOS only, gated with
-  `runner.os != 'Windows'` since the script is POSIX `sh`); `cargo fmt
+  `runner.os != 'Windows'` since the script is POSIX `sh`);
+  `sh scripts/tests/test_release_tag_version.sh` (M055 release
+  tag/version agreement guard on Linux + macOS only, same Windows
+  gate); `cargo fmt
   --all -- --check`; `cargo clippy --workspace --all-targets --all-features
   -- -D warnings`; `cargo test --workspace --all-features`;
   `cargo test -p eggchaos-server --all-features
@@ -116,8 +125,12 @@ candidate (see §3).
   fetcher-contract regression), `sh
   scripts/tests/test_ci_provenance_integration.sh` (M048 structural
   guard against accidental provenance CI de-integration; lives here, not
-  in the `check`/`performance-provenance` jobs, so removing either of
-  those jobs still trips this independent check), `./scripts/check_openapi.sh`,
+   in the `check`/`performance-provenance` jobs, so removing either of
+   those jobs still trips this independent check),
+   `python3 scripts/check_version_coherence.py --check` (M055 manifest
+   coherence; lives here, not in `check` itself, so removing the local
+   check still trips this independent check),
+   `./scripts/check_openapi.sh`,
   `./scripts/check_python_client.sh`,
   `./scripts/check_typescript_client.sh`,
   `./scripts/qualify_language_clients.sh`.
@@ -141,7 +154,10 @@ candidate (see §3).
   0.13.2`) because its transitive `cargo-platform@0.3.3` needs rustc
   1.91 while the MSRV toolchain is pinned 1.89.0; the fuzz target
   itself still builds/runs under 1.89.0 with `--sanitizer none`.
-  Steps: `./scripts/release-smoke.sh`;
+   Steps: `./scripts/check_release_tag_version.sh` (M055 tag/version
+   agreement: tag runs require tag == workspace version, dispatch runs
+   require manifest coherence; fails before expensive steps);
+   `./scripts/release-smoke.sh`;
   `./scripts/benchmark_datagram.sh`;
   `EGGCHAOS_FUZZ_RUNS=10000 ./scripts/qualify_fuzz.sh`; acquire the
   checksum-pinned oracle via `echo
@@ -396,7 +412,7 @@ closure; neither may claim unsupported behavior.
 9. `plans/registry.md` updated in the same change; closure note under
    `plans/closure/` names candidate, commands, platforms, oracle,
    artifacts, limitations, verdict, and successor; `docs/` and
-   `plans/reference/` match implementation; version `0.1.0` census done.
+   `plans/reference/` match implementation; version `0.2.0` census done.
    `plans/roadmap.md` status names M019 final and M041 latest; no
    `closed` from source inspection alone.
 10. Tag / crates.io publish (order `core -> experiment/eggfetch -> protocol ->
