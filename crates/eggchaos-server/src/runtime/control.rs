@@ -1444,50 +1444,18 @@ impl ControlState {
             trail: Vec::new(),
         };
         {
-            let mut runs = self.runtime.scenario_runs.lock().await;
-            // Prune oldest finished runs first; active runs always fit
-            // until the active cap, which fails fast instead of queuing.
-            let active = runs
-                .values()
-                .filter(|record| {
-                    matches!(
-                        record.status,
-                        crate::scenario::ScenarioRunStatus::Pending
-                            | crate::scenario::ScenarioRunStatus::Running
-                            | crate::scenario::ScenarioRunStatus::Cancelling
-                    )
-                })
-                .count();
-            if active >= Self::MAX_SCENARIO_RUNS {
-                return Err(EggchaosError::Control(ControlError::Conflict(
+            let mut registry = self.runtime.scenario_registry.lock().await;
+            registry.admit_v1(run_id, record.clone()).map_err(|_| {
+                EggchaosError::Control(ControlError::Conflict(
                     "too many active scenario runs".into(),
-                )));
-            }
-            while runs.len() >= Self::MAX_SCENARIO_RUNS {
-                let oldest_finished = runs
-                    .iter()
-                    .find(|(_, record)| {
-                        !matches!(
-                            record.status,
-                            crate::scenario::ScenarioRunStatus::Pending
-                                | crate::scenario::ScenarioRunStatus::Running
-                                | crate::scenario::ScenarioRunStatus::Cancelling
-                        )
-                    })
-                    .map(|(id, _)| *id);
-                let Some(oldest) = oldest_finished else {
-                    break;
-                };
-                runs.remove(&oldest);
-            }
-            runs.insert(run_id, record.clone());
+                ))
+            })?;
         }
         let token = self.runtime.shutdown_token.child_token();
-        self.runtime
-            .scenario_tokens
-            .lock()
-            .await
-            .insert(run_id, token.clone());
+        {
+            let mut registry = self.runtime.scenario_registry.lock().await;
+            registry.insert_token_v1(run_id, token.clone());
+        }
         let state = self.clone();
         self.runtime
             .scenario_tasks
@@ -1501,19 +1469,17 @@ impl ControlState {
 
     /// Fetch one scenario run record.
     pub async fn get_scenario(&self, run_id: u64) -> Option<crate::scenario::ScenarioRunRecord> {
-        self.runtime
-            .scenario_runs
-            .lock()
-            .await
-            .get(&run_id)
-            .cloned()
+        self.runtime.scenario_registry.lock().await.get_v1(run_id)
     }
 
     /// Cancel an active scenario run, returning its latest record.
     /// Returns `None` for unknown run IDs. Cancelling a finished run
     /// returns its final record unchanged.
     pub async fn cancel_scenario(&self, run_id: u64) -> Option<crate::scenario::ScenarioRunRecord> {
-        let token = self.runtime.scenario_tokens.lock().await.remove(&run_id);
+        let token = {
+            let mut registry = self.runtime.scenario_registry.lock().await;
+            registry.take_token_v1(run_id)
+        };
         if let Some(token) = token {
             token.cancel();
             self.update_scenario_run(run_id, |record| {
@@ -1536,14 +1502,20 @@ impl ControlState {
         run_id: u64,
         update: impl FnOnce(&mut crate::scenario::ScenarioRunRecord),
     ) {
-        if let Some(record) = self.runtime.scenario_runs.lock().await.get_mut(&run_id) {
-            update(record);
-        }
+        self.runtime
+            .scenario_registry
+            .lock()
+            .await
+            .update_v1(run_id, update);
     }
 
     /// Drop a finished run's cancellation token.
     pub async fn remove_scenario_token(&self, run_id: u64) {
-        self.runtime.scenario_tokens.lock().await.remove(&run_id);
+        self.runtime
+            .scenario_registry
+            .lock()
+            .await
+            .drop_token_v1(run_id);
     }
 
     /// Reset the service: retain definitions and listen/upstream addresses,
@@ -1667,6 +1639,11 @@ impl ControlState {
     /// Idempotent.
     pub async fn shutdown_and_join(&self) {
         self.initiate_shutdown();
+        // Cascade cancellation to every active scenario/run token so the
+        // JoinSet tasks below observe the shutdown signal without waiting
+        // for the parent token alone. Records stay in the registry so a
+        // post-shutdown observer can still inspect final statuses.
+        self.runtime.scenario_registry.lock().await.cancel_all();
         let tracked: Vec<(String, JoinHandle<()>)> = {
             let mut root = self.runtime.root.lock().await;
             std::mem::take(&mut *root)
@@ -1729,48 +1706,18 @@ impl ControlState {
             cleanup: None,
         };
         {
-            let mut runs = self.runtime.schedule_v2_runs.lock().await;
-            let active = runs
-                .values()
-                .filter(|record| {
-                    matches!(
-                        record.status,
-                        crate::scenario_v2::ScheduleRunStatus::Pending
-                            | crate::scenario_v2::ScheduleRunStatus::Running
-                            | crate::scenario_v2::ScheduleRunStatus::Cancelling
-                    )
-                })
-                .count();
-            if active >= Self::MAX_SCENARIO_RUNS {
-                return Err(EggchaosError::Control(ControlError::Conflict(
+            let mut registry = self.runtime.scenario_registry.lock().await;
+            registry.admit_v2(run_id, record.clone()).map_err(|_| {
+                EggchaosError::Control(ControlError::Conflict(
                     "too many active scenario runs".into(),
-                )));
-            }
-            while runs.len() >= Self::MAX_SCENARIO_RUNS {
-                let oldest_finished = runs
-                    .iter()
-                    .find(|(_, record)| {
-                        !matches!(
-                            record.status,
-                            crate::scenario_v2::ScheduleRunStatus::Pending
-                                | crate::scenario_v2::ScheduleRunStatus::Running
-                                | crate::scenario_v2::ScheduleRunStatus::Cancelling
-                        )
-                    })
-                    .map(|(id, _)| *id);
-                let Some(oldest) = oldest_finished else {
-                    break;
-                };
-                runs.remove(&oldest);
-            }
-            runs.insert(run_id, record.clone());
+                ))
+            })?;
         }
         let token = self.runtime.shutdown_token.child_token();
-        self.runtime
-            .schedule_v2_tokens
-            .lock()
-            .await
-            .insert(run_id, token.clone());
+        {
+            let mut registry = self.runtime.scenario_registry.lock().await;
+            registry.insert_token_v2(run_id, token.clone());
+        }
         self.runtime
             .metrics
             .schedule_v2_runs
@@ -1787,12 +1734,7 @@ impl ControlState {
         &self,
         run_id: u64,
     ) -> Option<crate::scenario_v2::ScenarioScheduleRunRecord> {
-        self.runtime
-            .schedule_v2_runs
-            .lock()
-            .await
-            .get(&run_id)
-            .cloned()
+        self.runtime.scenario_registry.lock().await.get_v2(run_id)
     }
 
     /// Cancel an active v2 schedule run, returning its latest record.
@@ -1802,7 +1744,10 @@ impl ControlState {
         &self,
         run_id: u64,
     ) -> Option<crate::scenario_v2::ScenarioScheduleRunRecord> {
-        let token = self.runtime.schedule_v2_tokens.lock().await.remove(&run_id);
+        let token = {
+            let mut registry = self.runtime.scenario_registry.lock().await;
+            registry.take_token_v2(run_id)
+        };
         if let Some(token) = token {
             token.cancel();
             self.update_schedule_v2_run(run_id, |record| {
@@ -1825,9 +1770,11 @@ impl ControlState {
         run_id: u64,
         update: impl FnOnce(&mut crate::scenario_v2::ScenarioScheduleRunRecord),
     ) {
-        if let Some(record) = self.runtime.schedule_v2_runs.lock().await.get_mut(&run_id) {
-            update(record);
-        }
+        self.runtime
+            .scenario_registry
+            .lock()
+            .await
+            .update_v2(run_id, update);
     }
 
     /// Append one per-event evidence entry to a v2 run record and bump
@@ -1840,10 +1787,14 @@ impl ControlState {
         event: crate::scenario_v2::ScheduleEventResult,
     ) {
         let late = event.late_by_ns > 0;
-        if let Some(record) = self.runtime.schedule_v2_runs.lock().await.get_mut(&run_id) {
-            record.applied += 1;
-            record.events.push(event);
-        }
+        self.runtime
+            .scenario_registry
+            .lock()
+            .await
+            .update_v2(run_id, |record| {
+                record.applied += 1;
+                record.events.push(event);
+            });
         self.runtime
             .metrics
             .schedule_v2_events
@@ -1858,7 +1809,11 @@ impl ControlState {
 
     /// Drop a finished v2 run's cancellation token.
     pub async fn remove_schedule_v2_token(&self, run_id: u64) {
-        self.runtime.schedule_v2_tokens.lock().await.remove(&run_id);
+        self.runtime
+            .scenario_registry
+            .lock()
+            .await
+            .drop_token_v2(run_id);
     }
 
     /// Actual bound addresses for running proxies.

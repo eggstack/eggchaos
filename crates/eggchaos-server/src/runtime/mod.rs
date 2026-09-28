@@ -30,6 +30,7 @@ mod control;
 mod datagram;
 mod metrics;
 mod model;
+mod scenario_registry;
 mod supervisor;
 mod transport;
 use connection::*;
@@ -42,6 +43,7 @@ pub use metrics::{
     OUTCOME_CLASS_NAMES,
 };
 pub use model::*;
+use scenario_registry::ScenarioRegistry;
 use supervisor::*;
 pub use transport::{ResetResult, ResettableTcpStream, TcpResetHandle};
 
@@ -307,17 +309,14 @@ pub struct RuntimeInner {
     /// outlives the service untracked. V2 schedule runs share this
     /// JoinSet so no second supervisor registry exists.
     scenario_tasks: Mutex<JoinSet<()>>,
-    /// Scenario run records by run ID, bounded (finished runs prune FIFO).
-    scenario_runs: Mutex<BTreeMap<u64, crate::scenario::ScenarioRunRecord>>,
-    /// Cancellation tokens for active scenario runs.
-    scenario_tokens: Mutex<HashMap<u64, CancellationToken>>,
-    /// V2 schedule run records by run ID, bounded like v1 (finished
-    /// runs prune FIFO). Separate map because the record shape differs,
-    /// but the same MAX_SCENARIO_RUNS bound and JoinSet apply.
-    schedule_v2_runs: Mutex<BTreeMap<u64, crate::scenario_v2::ScenarioScheduleRunRecord>>,
-    /// Cancellation tokens for active v2 schedule runs.
-    schedule_v2_tokens: Mutex<HashMap<u64, CancellationToken>>,
-    /// Next scenario run ID.
+    /// Unified scenario lifecycle registry (M050): owns V1 and V2 run
+    /// records plus their cancellation tokens, with per-family
+    /// `MAX_SCENARIO_RUNS` admission/pruning. Replaces the four
+    /// pre-M050 per-family maps; the public `ControlState` methods are
+    /// thin wrappers over this registry.
+    scenario_registry: Mutex<ScenarioRegistry>,
+    /// Next scenario run ID. M050 keeps this as the single global
+    /// allocator so V1 and V2 run IDs are unique across families.
     next_run_id: AtomicU64,
 }
 
@@ -343,10 +342,7 @@ impl RuntimeInner {
             shutdown_token,
             root: Mutex::new(Vec::new()),
             scenario_tasks: Mutex::new(JoinSet::new()),
-            scenario_runs: Mutex::new(BTreeMap::new()),
-            scenario_tokens: Mutex::new(HashMap::new()),
-            schedule_v2_runs: Mutex::new(BTreeMap::new()),
-            schedule_v2_tokens: Mutex::new(HashMap::new()),
+            scenario_registry: Mutex::new(ScenarioRegistry::new()),
             next_run_id: AtomicU64::new(1),
         }
     }

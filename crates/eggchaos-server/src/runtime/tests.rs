@@ -1,6 +1,11 @@
 use super::*;
 use crate::scenario::{Scenario, ScenarioAction, ScenarioEvent, ScenarioRunStatus};
-use eggchaos_core::{derive_policy_seed, FaultId, Probability};
+use crate::scenario_v2::{
+    CleanupPolicyV2, IsolationPolicyV2, SchedulePhaseV2, ScenarioScheduleRunRecord,
+    ScenarioScheduleV2, ScheduleRunStatus,
+};
+use eggchaos_core::{derive_policy_seed, DatagramFaultKind, DatagramFaultSpec, DatagramQueueLimits, FaultId, Probability};
+use std::num::NonZeroU64;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 fn fault(id: &str, kind: FaultKind) -> FaultSpec {
@@ -2049,3 +2054,257 @@ async fn wait_scenario(control: &ControlState, run_id: u64) -> crate::scenario::
     .await
     .unwrap()
 }
+
+// --- M050 mixed-family lifecycle regression suite ----------------------------
+//
+// These tests pin the unified scenario lifecycle registry: a single
+// monotonic `next_run_id` allocator across both families, per-family
+// `MAX_SCENARIO_RUNS = 32` capacity, family-local oldest-finished
+// pruning, get/cancel behavior for known/finished/active/unknown IDs,
+// token removal after completion, and shutdown cascading to both
+// families. The V1 and V2 semantic authorities stay separate (V1
+// continues to record `trail`, V2 records `events`); the registry only
+// owns the lifecycle bookkeeping.
+
+fn v1_scenario(proxy: &str, fault_id: &str) -> Scenario {
+    Scenario {
+        version: 1,
+        seed: 1,
+        events: vec![ScenarioEvent {
+            at_ms: 0,
+            action: ScenarioAction::SetDatagramPlan {
+                proxy: proxy.into(),
+                direction: Direction::Downstream,
+                faults: vec![DatagramFaultSpec {
+                    id: FaultId::new(fault_id).unwrap(),
+                    probability: Probability::new(1.0).unwrap(),
+                    kind: DatagramFaultKind::Loss,
+                }],
+            },
+        }],
+    }
+}
+
+async fn udp_target() -> SocketAddr {
+    let socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    socket.local_addr().unwrap()
+}
+
+async fn fresh_control_with_udp_proxy(name: &str, target: SocketAddr) -> ControlState {
+    let control = test_control();
+    let spec = crate::runtime::DatagramProxySpec::new(
+        name,
+        "127.0.0.1:0".parse().unwrap(),
+        target,
+        DatagramQueueLimits {
+            max_queued_datagrams: NonZeroU64::new(8).unwrap(),
+            max_queued_bytes: NonZeroU64::new(4096).unwrap(),
+            max_datagram_bytes: NonZeroU64::new(2048).unwrap(),
+        },
+    )
+    .unwrap();
+    control.create_datagram_proxy(spec).await.unwrap();
+    control
+}
+
+fn v2_remove_source(proxy: &str, fault_id: &str) -> ScenarioScheduleV2 {
+    ScenarioScheduleV2 {
+        version: 2,
+        seed: 0,
+        execution_key: 0,
+        isolation: IsolationPolicyV2::Strict,
+        cleanup: CleanupPolicyV2::RestoreInitial,
+        phases: vec![SchedulePhaseV2 {
+            name: None,
+            duration_ns: 0,
+            actions: vec![ScenarioAction::RemoveDatagramFault {
+                proxy: proxy.into(),
+                direction: Direction::Downstream,
+                id: fault_id.into(),
+            }],
+        }],
+        repeat: None,
+    }
+}
+
+#[tokio::test]
+async fn m050_run_ids_are_globally_monotonic_across_families() {
+    let target = udp_target().await;
+    let control = fresh_control_with_udp_proxy("udp", target).await;
+    let v1_first = control
+        .start_scenario(v1_scenario("udp", "a"))
+        .await
+        .unwrap();
+    let v1_second = control
+        .start_scenario(v1_scenario("udp", "b"))
+        .await
+        .unwrap();
+    assert!(v1_first.run_id < v1_second.run_id);
+    let v2_source = v2_remove_source("udp", "a");
+    let v2_first = control.start_schedule_v2(v2_source.clone()).await.unwrap();
+    assert!(
+        v2_first.run_id > v1_second.run_id,
+        "v1={} v2={}",
+        v1_second.run_id,
+        v2_first.run_id
+    );
+    let v2_second = control.start_schedule_v2(v2_source).await.unwrap();
+    assert!(v2_first.run_id < v2_second.run_id);
+    control.shutdown_and_join().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn m050_mixed_family_full_capacity_is_supported() {
+    let target = udp_target().await;
+    let control = fresh_control_with_udp_proxy("udp", target).await;
+    // Run the V1 scenario to completion before admitting the next.
+    let v1_first = control
+        .start_scenario(v1_scenario("udp", "v1"))
+        .await
+        .unwrap();
+    wait_scenario(&control, v1_first.run_id).await;
+    // 32 V1 runs admitted serially with different fault IDs.
+    for i in 0..ControlState::MAX_SCENARIO_RUNS {
+        let record = control
+            .start_scenario(v1_scenario("udp", &format!("v1-{i}")))
+            .await
+            .unwrap_or_else(|e| panic!("admit V1 #{i}: {e}"));
+        wait_scenario(&control, record.run_id).await;
+    }
+    // Once V1 is at retention capacity, a fresh V1 admission evicts
+    // the oldest finished V1 entry (per-family pruning).
+    let v1_over = control
+        .start_scenario(v1_scenario("udp", "v1-over"))
+        .await;
+    assert!(
+        v1_over.is_ok(),
+        "v1 retention allows replacement: {:?}",
+        v1_over.err()
+    );
+
+    // V2 schedule runs are independent of the V1 retention.
+    let v2_record = control
+        .start_schedule_v2(v2_remove_source("udp", "v1"))
+        .await
+        .unwrap();
+    wait_schedule(&control, v2_record.run_id).await;
+    control.shutdown_and_join().await;
+}
+
+async fn wait_schedule(control: &ControlState, run_id: u64) -> ScenarioScheduleRunRecord {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if let Some(record) = control.get_schedule_v2(run_id).await {
+                if matches!(
+                    record.status,
+                    ScheduleRunStatus::Completed
+                        | ScheduleRunStatus::Failed
+                        | ScheduleRunStatus::Cancelled
+                ) {
+                    break record;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap()
+}
+
+#[tokio::test(start_paused = true)]
+async fn m050_active_capacity_admission_is_per_family() {
+    let target = udp_target().await;
+    let control = fresh_control_with_udp_proxy("udp", target).await;
+    let mut v1_ids = Vec::new();
+    for i in 0..ControlState::MAX_SCENARIO_RUNS {
+        let mut s = v1_scenario("udp", &format!("a-{i}"));
+        s.events[0].at_ms = 60_000;
+        let r = control
+            .start_scenario(s)
+            .await
+            .unwrap_or_else(|e| panic!("admit V1 #{i}: {e}"));
+        v1_ids.push(r.run_id);
+    }
+    let overflow = control
+        .start_scenario(v1_scenario("udp", "overflow"))
+        .await;
+    assert!(overflow.is_err(), "33rd V1 active should be rejected");
+
+    // V2 admission is unaffected by the V1 active cap.
+    let v2 = control
+        .start_schedule_v2(v2_remove_source("udp", "a-0"))
+        .await
+        .unwrap();
+    assert!(v2.run_id > *v1_ids.last().unwrap());
+
+    // Once we cancel the V1 runs, V1 admission is available again.
+    for id in &v1_ids {
+        control.cancel_scenario(*id).await;
+    }
+    let replacement = control
+        .start_scenario(v1_scenario("udp", "replacement"))
+        .await;
+    assert!(replacement.is_ok(), "V1 admission reopens after cancel");
+
+    control.shutdown_and_join().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn m050_unknown_get_and_cancel_are_no_ops() {
+    let target = udp_target().await;
+    let control = fresh_control_with_udp_proxy("udp", target).await;
+    assert!(control.get_scenario(404).await.is_none());
+    assert!(control.get_schedule_v2(404).await.is_none());
+    assert!(control.cancel_scenario(404).await.is_none());
+    assert!(control.cancel_schedule_v2(404).await.is_none());
+    control
+        .update_scenario_run(404, |record| {
+            record.applied = 99;
+        })
+        .await;
+    control
+        .update_schedule_v2_run(404, |record| {
+            record.applied = 99;
+        })
+        .await;
+    control.shutdown_and_join().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn m050_shutdown_cancels_both_families() {
+    let target = udp_target().await;
+    let control = fresh_control_with_udp_proxy("udp", target).await;
+    let mut v1 = v1_scenario("udp", "shut-v1");
+    v1.events[0].at_ms = 60_000;
+    let v1_record = control.start_scenario(v1).await.unwrap();
+    let v2_source = ScenarioScheduleV2 {
+        version: 2,
+        seed: 0,
+        execution_key: 0,
+        isolation: IsolationPolicyV2::Strict,
+        cleanup: CleanupPolicyV2::RestoreInitial,
+        phases: vec![SchedulePhaseV2 {
+            name: None,
+            duration_ns: 1_000_000_000,
+            actions: vec![ScenarioAction::RemoveDatagramFault {
+                proxy: "udp".into(),
+                direction: Direction::Downstream,
+                id: "shut-v1".into(),
+            }],
+        }],
+        repeat: None,
+    };
+    let v2_record = control.start_schedule_v2(v2_source).await.unwrap();
+    control.shutdown_and_join().await;
+    let v1_final = control.get_scenario(v1_record.run_id).await;
+    let v2_final = control.get_schedule_v2(v2_record.run_id).await;
+    assert!(matches!(
+        v1_final.map(|r| r.status),
+        Some(ScenarioRunStatus::Cancelled)
+    ));
+    assert!(matches!(
+        v2_final.map(|r| r.status),
+        Some(ScheduleRunStatus::Cancelled)
+    ));
+}
+
