@@ -27,6 +27,7 @@ use tokio_util::sync::CancellationToken;
 
 mod connection;
 mod control;
+mod control_datagram;
 mod datagram;
 mod metrics;
 mod model;
