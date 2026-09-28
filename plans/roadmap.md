@@ -1,6 +1,6 @@
 # Eggchaos Long-Term Roadmap
 
-Status: M000-M052 are historical closed work. M049-M054 are the registered post-M048 correctness/maintenance corrective tranche: M049-M052 closed; M053 is ready; M054 is blocked behind M053 closure. M019 remains the final pre-tag authority at ca527db. M041 remains the ADR 007 corrective authority; M046/M047/M048 remain the historical-provenance, new-artifact provenance, and hosted provenance-qualification authorities respectively.
+Status: M000-M053 are historical closed work. M049-M054 are the registered post-M048 correctness/maintenance corrective tranche: M049-M053 closed; M054 is ready. M019 remains the final pre-tag authority at ca527db. M041 remains the ADR 007 corrective authority; M046/M047/M048 remain the historical-provenance, new-artifact provenance, and hosted provenance-qualification authorities respectively.
 
 ## 1. Mission
 
@@ -693,7 +693,7 @@ The registered chain is:
       -> M053 planning status authority / drift guard
       -> M054 exact-head qualification
 
-M049-M052 are closed. M053 is ready. M054 is blocked until M053 closure.
+M049-M053 are closed. M054 is ready.
 
 This chain is corrective, not feature expansion. It may not remove or rename existing public Rust items, native routes, CLI commands, Toxiproxy compatibility behavior, SDK/native-binding operations, deterministic identities, or fault capabilities. M050 must preserve the current effective 32-run/record capacity independently for Scenario V1 and Scenario V2 rather than collapsing it into a new 32-total limit. M051 may add only the narrow support seam required to share operation logic across crates; existing public helpers remain compatible wrappers. M052 defaults to non-hot-path control/translation decomposition and does not authorize opportunistic eggchaos-core stream/engine rewrites. M053 keeps plans/registry.md as the sole hand-maintained status authority rather than creating another manifest.
 
@@ -759,13 +759,10 @@ None of these may weaken the fixed-target, protocol-neutral core boundary.
 ## Current planning state
 
 **Ready (next milestone):**
-- `M053` (ready; plan `053-planning-status-authority-and-drift-guard-corrective.md`)
+- `M054` (ready; plan `054-post-m048-corrective-tranche-exact-head-qualification.md`)
 
-**Blocked (waiting on a predecessor closure):**
-- M054
+**Highest closed milestone:** `M053` (see registry for closure evidence).
 
-**Highest closed milestone:** `M052` (see registry for closure evidence).
-
-**Execution order:** `M053`
+**Execution order:** `M054`
 
 <!-- END eggchaos:planning-state -->

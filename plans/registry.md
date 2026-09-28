@@ -1,6 +1,6 @@
 # Eggchaos Plan Registry
 
-Last reconciled: 2026-09-28 (M049-M052 closed; M053 ready, M054 blocked by predecessor closure)
+Last reconciled: 2026-09-28 (M049-M053 closed; M054 ready)
 
 This file is the compact source of truth for active milestone state. Detailed scope lives in the numbered plans. Historical closure evidence belongs in `plans/closure/`.
 
@@ -59,14 +59,14 @@ This file is the compact source of truth for active milestone state. Detailed sc
 | M050 | 050-scenario-run-lifecycle-authority-consolidation-corrective.md | **closed** | M049 | Closed on exact candidate `b2891a3`; evidence in `plans/closure/M050-scenario-run-lifecycle-authority-consolidation-corrective-closure.md`. New `runtime::scenario_registry::ScenarioRegistry` consolidates the four pre-M050 per-family run/token maps while keeping `next_run_id` and `scenario_tasks` as the single run-ID allocator and supervisor; per-family `MAX_SCENARIO_RUNS = 32` capacity preserved; V1 and V2 semantic authorities (compilers, fingerprints, namespaces, isolation, cleanup, event accounting) unchanged. |
 | M051 | 051-native-control-operation-authority-consolidation-corrective.md | **closed** | M050 | Closed on exact candidate `68cc957`; evidence in `plans/closure/M051-native-control-operation-authority-consolidation-corrective-closure.md`. New `crate::operations` is the single typed native application operation authority; `admin.rs` and `eggchaos-embed` both delegate to it; all 36 native routes and every `EmbeddedService` signature preserved; `EmbedError` categories preserved; no second mutable state store. |
 | M052 | 052-private-module-boundary-maintainability-corrective.md | **closed** | M051 | Closed on exact candidate `a5cf5a2`; evidence in `plans/closure/M052-private-module-boundary-maintainability-corrective-closure.md`. Datagram `ControlState` methods split into `runtime::control_datagram.rs` (322 lines moved verbatim); toxiproxy / protocol-stream / cli / core-stream / core-engine decomposition recorded as no-op dispositions per plan guard. Public surface, native routes, deterministic behavior, scenario V1/V2 separation unchanged. |
-| M053 | 053-planning-status-authority-and-drift-guard-corrective.md | **ready** | M052 | Keep registry.md as sole status authority and mechanically guard current-state summaries against drift. Activation baseline: `a5cf5a2`. |
-| M054 | 054-post-m048-corrective-tranche-exact-head-qualification.md | **blocked** | M049-M053 | Exact-head API/capability/oracle/cross-language/fuzz/performance/hosted qualification and final reconciliation. |
+| M053 | 053-planning-status-authority-and-drift-guard-corrective.md | **closed** | M052 | Closed on exact candidate `9390008`; evidence in `plans/closure/M053-planning-status-authority-and-drift-guard-corrective-closure.md`. `plans/registry.md` remains the sole hand-maintained status authority; stdlib-only `scripts/check_planning_state.py` parses/validates the registry table and generates/checks deterministic `Current planning state` blocks in AGENTS.md / plans/README.md / plans/roadmap.md / architecture/overview.md; `sh scripts/tests/test_planning_state.sh` (fixture + drift + wiring regression) runs in `scripts/check.sh` and bare `--check` runs independently in the `language-clients` matrix. No production Rust change; no historical plan/archive/closure rewrite. |
+| M054 | 054-post-m048-corrective-tranche-exact-head-qualification.md | **ready** | M049-M053 | Exact-head API/capability/oracle/cross-language/fuzz/performance/hosted qualification and final reconciliation. Activation baseline: `9390008`. |
 
 A post-M048 repository audit registered a bounded correctness/maintenance corrective chain:
 
 M049 core deserialization/invariants -> M050 scenario lifecycle authority -> M051 native operation authority -> M052 private module boundaries -> M053 planning drift guard -> M054 exact-head qualification
 
-M049-M052 are closed. M053 is ready. M054 remains blocked until M053 closes. The chain is explicitly non-regressive: no existing Rust API, native route, CLI command, compatibility profile, deterministic contract, scenario semantic model, SDK/binding operation, or effective per-family scenario capacity may be removed. Scenario enumeration and egress chaining are not part of this corrective tranche.
+M049-M053 are closed. M054 is ready. The chain is explicitly non-regressive: no existing Rust API, native route, CLI command, compatibility profile, deterministic contract, scenario semantic model, SDK/binding operation, or effective per-family scenario capacity may be removed. Scenario enumeration and egress chaining are not part of this corrective tranche.
 
 ## Execution state
 
@@ -163,13 +163,13 @@ The completed UDP/datagram tranche is listed below; the remaining items are post
 
 ## Dependency-ready view
 
-Completed work: M000–M052 are closed (M008 closed as historical work alongside the main chain).
+Completed work: M000–M053 are closed (M008 closed as historical work alongside the main chain).
 
 Active: none.
 
-Ready: M053.
+Ready: M054.
 
-Blocked: M054 (blocked by M053 closure).
+Blocked: none.
 
 Current performance execution order: `M042 (closed) -> M043 (closed) -> M044 (closed) -> M045 (closed) -> M046 (closed historical provenance) -> M047 (closed artifact-provenance hardening) -> M048 (closed hosted qualification/CI integration)`. M048 adds hosted enforcement for M047 without reopening optimization conclusions.
 
