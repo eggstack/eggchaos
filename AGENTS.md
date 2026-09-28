@@ -65,7 +65,7 @@ Qualification (release workflow): `release-smoke.sh` (fmt/clippy/test/doc/audit/
 
 ## Planning state
 
-M000–M056 are closed. No active, ready, or blocked milestones remain. The published v0.1.0 lineage remains immutable history. M019 (`ca527db`) remains the final v0.1.0 pre-tag qualification authority; M041 (`724b967`, hosted run `36219464594` 13/13) is the latest ADR 007 corrective authority. Performance implementation tranche M042–M045 is closed; M046 owns historical performance-evidence reconstruction; M047 (`493fb03`) owns provenance schema/tooling for newly generated artifacts; M048 (`ab61ac7`, hosted run `36331806587` 14/14) owns the hosted qualification/CI-ownership authority for that provenance tooling. The completed corrective execution order was M049 -> M050 -> M051 -> M052 -> M053 -> M054 -> M055 -> M056. Provenance failures, planning-state drift failures, version-coherence failures, and release-workflow structural-guard failures are blocking, not advisory. Do not rewrite `plans/archive/` or historical closure evidence. Do not start a generic C ABI, Node native addon, JNI, P/Invoke, cgo, UniFFI, or WASM without a separate ADR after demonstrated multi-consumer demand; do not add `eggreplay-*`/`eggprobe-*` production dependencies (downstream adoption only).
+M000–M056 are closed. M057 is ready as a qualification-only successor for M056's exact-candidate hosted-CI evidence gap. M056 remains the implementation authority for the shared `release-contract` DAG; M057 must preserve that implementation and historical closure record, obtain hosted CI on an exact M057 candidate, and become the final hosted qualification authority. The unreleased 0.2.0 baseline remains unchanged; no tag/publication action is authorized.
 
 If the owner asks for new work: `plans/roadmap.md` is the architecture authority, `plans/reference/` holds parity/verification contracts (not status), ADRs live in `plans/adrs/`. Any new numbered plan needs objective, baseline/deps, scope + non-goals, affected crates, ordered work packages, invariants/failure semantics, test commands, acceptance criteria, stop conditions, closure evidence, and follow-on rules — and must update `plans/registry.md` in the same change. `plans/registry.md` is the sole hand-maintained milestone-status authority (vocabulary: `active`, `blocked`, `closed`, `ready`); the `Current planning state` blocks in AGENTS.md / `plans/README.md` / `plans/roadmap.md` / `architecture/overview.md` are generated projections, never independent authorities. After any registry edit: 1. add/update the numbered plan; 2. update `registry.md`; 3. run `python3 scripts/check_planning_state.py --write`; 4. run `sh scripts/tests/test_planning_state.sh`. Never mark `closed` from source inspection; closure requires running the plan's tests on the exact candidate plus external/differential evidence where declared.
 
@@ -83,8 +83,11 @@ Prefer deterministic Tokio-time tests; wall-clock assertions need justified tole
 
 ## Current planning state
 
+**Ready (next milestone):**
+- `M057` (ready; plan `057-m056-closure-evidence-reconciliation-and-exact-head-requalification.md`)
+
 **Highest closed milestone:** `M056` (see registry for closure evidence).
 
-**Execution order:** no active or ready milestones.
+**Execution order:** `M057`
 
 <!-- END eggchaos:planning-state -->

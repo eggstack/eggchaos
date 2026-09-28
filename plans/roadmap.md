@@ -1,6 +1,6 @@
 # Eggchaos Long-Term Roadmap
 
-Status: M000-M056 are closed. No active, ready, or blocked milestones remain. The published v0.1.0 release remains historical and immutable; M019 is its final pre-tag qualification authority. M041 remains the ADR 007 corrective authority; M046/M047/M048 retain the historical-provenance, new-artifact provenance, and hosted provenance-qualification authority roles.
+Status: M000-M056 are closed. M057 is ready as the exact-head evidence-reconciliation/qualification successor for M056. The unreleased 0.2.0 baseline and M056 release-contract implementation are unchanged.
 
 ## 1. Mission
 
@@ -742,6 +742,21 @@ unreleased 0.2.0 package metadata, release targets, artifact naming, native
 `/v1`, runtime semantics, or owner-controlled publication policy, and it
 does not rewrite M055 closure evidence.
 
+## 11Q. M056 closure-evidence reconciliation and exact-head requalification
+
+M056 correctly implemented the shared `release-contract` prerequisite, but
+its closure record explicitly lacked hosted CI on the exact implementation
+candidate `b6f0095`. The later documentation/closure commit `c2a721c`
+is production-equivalent and has green hosted CI run `36487117317`, but that
+cannot retroactively satisfy an exact-candidate requirement.
+
+M057 is therefore registered as a qualification-only successor. It preserves
+M056 implementation ownership and historical closure evidence, requires all
+release structural/version guards plus normal hosted CI on one exact M057
+candidate, and becomes the final hosted qualification authority for the M056
+release DAG when closed. No workflow/package/runtime/publication change is
+authorized.
+
 ## 12. Performance targets
 
 No-fault overhead is a first-class regression metric.
@@ -799,8 +814,11 @@ None of these may weaken the fixed-target, protocol-neutral core boundary.
 
 ## Current planning state
 
+**Ready (next milestone):**
+- `M057` (ready; plan `057-m056-closure-evidence-reconciliation-and-exact-head-requalification.md`)
+
 **Highest closed milestone:** `M056` (see registry for closure evidence).
 
-**Execution order:** no active or ready milestones.
+**Execution order:** `M057`
 
 <!-- END eggchaos:planning-state -->

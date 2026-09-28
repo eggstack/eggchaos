@@ -1,6 +1,6 @@
 # Eggchaos Plan Registry
 
-Last reconciled: 2026-09-28 (M000–M056 closed)
+Last reconciled: 2026-09-28 (M000–M056 closed; M057 exact-head evidence reconciliation ready)
 
 This file is the compact source of truth for active milestone state. Detailed scope lives in the numbered plans. Historical closure evidence belongs in `plans/closure/`.
 
@@ -62,7 +62,8 @@ This file is the compact source of truth for active milestone state. Detailed sc
 | M053 | 053-planning-status-authority-and-drift-guard-corrective.md | **closed** | M052 | Closed on exact candidate `9390008`; evidence in `plans/closure/M053-planning-status-authority-and-drift-guard-corrective-closure.md`. `plans/registry.md` remains the sole hand-maintained status authority; stdlib-only `scripts/check_planning_state.py` parses/validates the registry table and generates/checks deterministic `Current planning state` blocks in AGENTS.md / plans/README.md / plans/roadmap.md / architecture/overview.md; `sh scripts/tests/test_planning_state.sh` (fixture + drift + wiring regression) runs in `scripts/check.sh` and bare `--check` runs independently in the `language-clients` matrix. No production Rust change; no historical plan/archive/closure rewrite. |
 | M054 | 054-post-m048-corrective-tranche-exact-head-qualification.md | **closed** | M049-M053 | Closed on exact candidate `3b4fd9f`; evidence in `plans/closure/M054-post-m048-corrective-tranche-exact-head-qualification-closure.md`. Qualification-only gate: Tier 1 local gate + OpenAPI/SDK drift green; mandatory pinned Toxiproxy v2.12 differential 50/50 and post-v2.12 snapshot differential 12/12 green; Eggfetch/language-client/Python-native green; bounded fuzz 9x10k + release/package smoke green; hosted run `36461914295` success 14/14 on `3b4fd9f`; datagram budgets pass and stream no-fault path tracks bare relay within run-to-run noise; public/capability census shows no regression vs M048 baseline. M054 activates no successor. |
 | M055 | `055-post-v0-1-0-release-state-and-v0-2-0-development-baseline.md` | **closed** | M054 | Closed on exact candidate `b0ecbf1`; evidence in `plans/closure/M055-post-v0-1-0-release-state-and-v0-2-0-development-baseline-closure.md`. Unreleased 0.2.0 baseline coherent across workspace and first-party language packages; tag/version guards green; no tag or publication action. |
-| M056 | `056-release-workflow-contract-gate-corrective.md` | **closed** | M055 | Closed on exact candidate `b6f00950b94057934773385f679d8f576e8abd40`; evidence in `plans/closure/M056-release-workflow-contract-gate-corrective-closure.md`. One cheap `release-contract` prerequisite job owns `scripts/check_release_tag_version.sh`; both `qualify` and the five-target `artifacts` matrix declare `needs: [release-contract]` so neither can start on an invalid tag. `scripts/tests/test_release_tag_version.sh` strengthened with structural assertions (one `release-contract:` job, root-of-DAG, both downstream `needs:` declared, exactly one guard invocation) plus five deliberate negative tests. The in-qualify guard invocation was removed. Valid-input parallelism preserved. No production/package/API/release-target change; M055 closure evidence untouched. M056 activates no successor. |
+| M056 | `056-release-workflow-contract-gate-corrective.md` | **closed** | M055 | Closed on exact candidate `b6f00950b94057934773385f679d8f576e8abd40`; evidence in `plans/closure/M056-release-workflow-contract-gate-corrective-closure.md`. One cheap `release-contract` prerequisite job owns `scripts/check_release_tag_version.sh`; both `qualify` and the five-target `artifacts` matrix declare `needs: [release-contract]` so neither can start on an invalid tag. `scripts/tests/test_release_tag_version.sh` strengthened with structural assertions (one `release-contract:` job, root-of-DAG, both downstream `needs:` declared, exactly one guard invocation) plus five deliberate negative tests. The in-qualify guard invocation was removed. Valid-input parallelism preserved. No production/package/API/release-target change; M055 closure evidence untouched. M056 implementation is complete; exact-candidate hosted-CI evidence was absent at closure, so M057 is the additive qualification successor. |
+| M057 | `057-m056-closure-evidence-reconciliation-and-exact-head-requalification.md` | **ready** | M056 | Qualification-only successor: preserve M056 implementation/history, obtain hosted CI on an exact M057 candidate, and make M057 the final hosted qualification authority for the shared release-contract DAG. |
 
 A post-M048 repository audit registered a bounded correctness/maintenance corrective chain:
 
@@ -173,7 +174,7 @@ Completed work: M000–M056 are closed (M008 closed as historical work alongside
 
 Active: none.
 
-Ready: none.
+Ready: M057.
 
 Blocked: none.
 
