@@ -157,6 +157,8 @@ M049 core deserialization/invariant hardening -> M050 scenario lifecycle authori
 
 M049-M054 are closed. M054 qualified the combined tranche on exact head `3b4fd9f` (hosted run `36461914295`, 14/14) and activates no successor. The tranche preserves all existing APIs/capabilities; in particular it preserves Scenario V1/V2 semantic separation and the current effective 32-record/active-run allowance per family. Scenario enumeration, egress chaining, additional bindings, and other additive feature work remain outside this chain.
 
+M055 is now ready as a separate release-state reconciliation milestone. It preserves the published v0.1.0 lineage, establishes 0.2.0 as the unreleased development package baseline for current `main`, aligns first-party manifest versions, and adds release tag/package-version coherence guards. M055 performs no tag, registry publication, or GitHub release action.
+
 ## Status rules
 
 The registry uses the following states: `active`, `blocked`, `closed`, and `ready`. `plans/registry.md` is the sole hand-maintained status authority; the `Current planning state` blocks in AGENTS.md, `plans/README.md`, `plans/roadmap.md`, and `architecture/overview.md` are generated projections rewritten by `python3 scripts/check_planning_state.py --write` and checked by `sh scripts/tests/test_planning_state.sh`.
@@ -231,8 +233,11 @@ pinned snapshot oracle rather than moving `main`.
 
 ## Current planning state
 
+**Ready (next milestone):**
+- `M055` (ready; plan `055-post-v0-1-0-release-state-and-v0-2-0-development-baseline.md`)
+
 **Highest closed milestone:** `M054` (see registry for closure evidence).
 
-**Execution order:** no active or ready milestones.
+**Execution order:** `M055`
 
 <!-- END eggchaos:planning-state -->

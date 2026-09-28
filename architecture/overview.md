@@ -6,12 +6,7 @@ This document summarizes each discrete module/component in one place and is
 the index for systematic review — each section links to its deep dive in
 this directory. Read this file first, then go component by component.
 
-Pre-release `0.1.0`. Milestones M000–M054 are closed. A post-M048
-corrective tranche is registered as M049–M054; M049–M054 are closed
-and the tranche is complete with no successor. M019 (`ca527db`)
-remains the final pre-tag authority; M041 remains the ADR 007
-corrective authority and M046/M047/M048 retain their
-performance-provenance authority roles.
+Published `v0.1.0` is the historical first release (tag target `81994dbc`). Current `main` contains post-v0.1.0 development through M054 while package metadata is still 0.1.0; M055 is ready to reconcile that state and establish an unreleased 0.2.0 development baseline. M019 (`ca527db`) remains the final v0.1.0 pre-tag qualification authority; M041 remains the ADR 007 corrective authority and M046/M047/M048 retain their performance-provenance authority roles.
 Canonical planning surface is `plans/` (see `AGENTS.md`); user-facing
 implementation boundaries live in `docs/architecture.md`,
 `docs/configuration.md`, `docs/control-plane.md`, `docs/toxiproxy.md`, and
@@ -199,8 +194,8 @@ overview first, then go component by component.
 - `docs/configuration.md`, `docs/control-plane.md`, `docs/eggfetch.md`,
   `docs/toxiproxy.md` — per-surface contracts.
 - `plans/roadmap.md`, `plans/registry.md` — sequencing, invariants, milestone
-  closure (M000–M054 closed; M049–M054 registered post-M048 corrective
-  tranche, complete with no successor; M019 final pre-tag authority).
+  closure (M000–M054 closed; M055 ready for release-state/version
+  reconciliation; M019 final v0.1.0 pre-tag qualification authority).
 - `plans/adrs/` — durable boundaries (001 stream engine, 002 determinism,
   003 datagrams, 004 schedules, 005 integration, 006 cross-language,
   007 stream-loss).
@@ -218,8 +213,11 @@ overview first, then go component by component.
 
 ## Current planning state
 
+**Ready (next milestone):**
+- `M055` (ready; plan `055-post-v0-1-0-release-state-and-v0-2-0-development-baseline.md`)
+
 **Highest closed milestone:** `M054` (see registry for closure evidence).
 
-**Execution order:** no active or ready milestones.
+**Execution order:** `M055`
 
 <!-- END eggchaos:planning-state -->

@@ -1,6 +1,6 @@
 # Eggchaos Long-Term Roadmap
 
-Status: M000-M053 are historical closed work. M049-M054 are the registered post-M048 correctness/maintenance corrective tranche: M049-M054 closed; the tranche is complete and activates no successor. M019 remains the final pre-tag authority at ca527db. M041 remains the ADR 007 corrective authority; M046/M047/M048 remain the historical-provenance, new-artifact provenance, and hosted provenance-qualification authorities respectively.
+Status: M000-M054 are closed. M055 is ready as the post-v0.1.0 release-state/version-coherence corrective and 0.2.0 development-baseline milestone. The published v0.1.0 release remains historical and immutable; M019 is its final pre-tag qualification authority. M041 remains the ADR 007 corrective authority; M046/M047/M048 retain the historical-provenance, new-artifact provenance, and hosted provenance-qualification authority roles.
 
 ## 1. Mission
 
@@ -701,6 +701,26 @@ M054 was the mandatory exact-head closure gate with full local, oracle, cross-la
 
 Scenario enumeration, optional egress chaining, new fault models, generic C ABI/additional native bindings, and downstream EggReplay/EggProbe adapters remain separate feature decisions.
 
+## 11O. Post-v0.1.0 release-state reconciliation and v0.2.0 development baseline
+
+The v0.1.0 release is already published (annotated tag target
+`81994dbc427365f1dfdaabfa39bdf077850e69ec`, published 2026-09-24), while
+current `main` contains the post-release feature/corrective work through M054
+but still carries 0.1.0 package metadata and stale "Pre-release 0.1.0" prose.
+
+M055 is registered as the sole ready release-state/version-coherence
+corrective. It will establish **0.2.0** as the unreleased development package
+baseline across the Rust workspace and first-party language packages, retain
+v0.1.0 as immutable release history, make stable-release versus development
+documentation explicit, and add mechanical manifest/tag coherence checks to
+release qualification.
+
+M055 does not change native `/v1`, config schema version 1, RNG/determinism
+versions, fault semantics, Toxiproxy profiles, or the 36-operation control
+contract. It does not create a tag, publish packages, or create a GitHub
+release. Publication remains a separate owner-controlled action after
+qualification.
+
 ## 12. Performance targets
 
 No-fault overhead is a first-class regression metric.
@@ -758,8 +778,11 @@ None of these may weaken the fixed-target, protocol-neutral core boundary.
 
 ## Current planning state
 
+**Ready (next milestone):**
+- `M055` (ready; plan `055-post-v0-1-0-release-state-and-v0-2-0-development-baseline.md`)
+
 **Highest closed milestone:** `M054` (see registry for closure evidence).
 
-**Execution order:** no active or ready milestones.
+**Execution order:** `M055`
 
 <!-- END eggchaos:planning-state -->
