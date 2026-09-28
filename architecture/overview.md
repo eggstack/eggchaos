@@ -6,7 +6,7 @@ This document summarizes each discrete module/component in one place and is
 the index for systematic review — each section links to its deep dive in
 this directory. Read this file first, then go component by component.
 
-Published `v0.1.0` is the historical first release (tag target `81994dbc427365f1dfdaabfa39bdf077850e69ec`, published 2026-09-24). Current `main` is the unreleased `0.2.0` development baseline (M055 closed): all Rust workspace packages and first-party language packages resolve to `0.2.0`, while native `/v1`, config schema v1, RNG v1, and provenance schema v1 are unchanged. M019 (`ca527db`) remains the final v0.1.0 pre-tag qualification authority; M041 remains the ADR 007 corrective authority and M046/M047/M048 retain their performance-provenance authority roles. M056 is ready as a release-workflow orchestration corrective so both qualification and artifact builds are hard-gated by the same tag/package contract before expensive work starts.
+Published `v0.1.0` is the historical first release (tag target `81994dbc427365f1dfdaabfa39bdf077850e69ec`, published 2026-09-24). Current `main` is the unreleased `0.2.0` development baseline (M055 closed): all Rust workspace packages and first-party language packages resolve to `0.2.0`, while native `/v1`, config schema v1, RNG v1, and provenance schema v1 are unchanged. M019 (`ca527db`) remains the final v0.1.0 pre-tag qualification authority; M041 remains the ADR 007 corrective authority and M046/M047/M048 retain their performance-provenance authority roles. M056 closed the release-workflow orchestration corrective so both qualification and artifact builds are hard-gated by the same tag/package contract before expensive work starts.
 Canonical planning surface is `plans/` (see `AGENTS.md`); user-facing
 implementation boundaries live in `docs/architecture.md`,
 `docs/configuration.md`, `docs/control-plane.md`, `docs/toxiproxy.md`, and
@@ -194,8 +194,8 @@ overview first, then go component by component.
 - `docs/configuration.md`, `docs/control-plane.md`, `docs/eggfetch.md`,
   `docs/toxiproxy.md` — per-surface contracts.
 - `plans/roadmap.md`, `plans/registry.md` — sequencing, invariants, milestone
-   closure (M000–M055 closed; M056 ready for release-workflow contract-gate
-   correction; M055 owns the unreleased 0.2.0 baseline; M019 final v0.1.0 pre-tag qualification authority).
+   closure (M000–M056 closed; M056 closed the release-workflow contract-gate
+   corrective on top of M055; M055 owns the unreleased 0.2.0 baseline; M019 final v0.1.0 pre-tag qualification authority).
 - `plans/adrs/` — durable boundaries (001 stream engine, 002 determinism,
   003 datagrams, 004 schedules, 005 integration, 006 cross-language,
   007 stream-loss).
@@ -213,11 +213,8 @@ overview first, then go component by component.
 
 ## Current planning state
 
-**Ready (next milestone):**
-- `M056` (ready; plan `056-release-workflow-contract-gate-corrective.md`)
+**Highest closed milestone:** `M056` (see registry for closure evidence).
 
-**Highest closed milestone:** `M055` (see registry for closure evidence).
-
-**Execution order:** `M056`
+**Execution order:** no active or ready milestones.
 
 <!-- END eggchaos:planning-state -->

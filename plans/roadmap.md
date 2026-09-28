@@ -1,6 +1,6 @@
 # Eggchaos Long-Term Roadmap
 
-Status: M000-M055 are closed. M056 is ready as the release-workflow contract-gate corrective for the unreleased 0.2.0 baseline. The published v0.1.0 release remains historical and immutable; M019 is its final pre-tag qualification authority. M041 remains the ADR 007 corrective authority; M046/M047/M048 retain the historical-provenance, new-artifact provenance, and hosted provenance-qualification authority roles.
+Status: M000-M056 are closed. No active, ready, or blocked milestones remain. The published v0.1.0 release remains historical and immutable; M019 is its final pre-tag qualification authority. M041 remains the ADR 007 corrective authority; M046/M047/M048 retain the historical-provenance, new-artifact provenance, and hosted provenance-qualification authority roles.
 
 ## 1. Mission
 
@@ -799,11 +799,8 @@ None of these may weaken the fixed-target, protocol-neutral core boundary.
 
 ## Current planning state
 
-**Ready (next milestone):**
-- `M056` (ready; plan `056-release-workflow-contract-gate-corrective.md`)
+**Highest closed milestone:** `M056` (see registry for closure evidence).
 
-**Highest closed milestone:** `M055` (see registry for closure evidence).
-
-**Execution order:** `M056`
+**Execution order:** no active or ready milestones.
 
 <!-- END eggchaos:planning-state -->

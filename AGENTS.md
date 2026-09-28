@@ -65,7 +65,7 @@ Qualification (release workflow): `release-smoke.sh` (fmt/clippy/test/doc/audit/
 
 ## Planning state
 
-M000–M055 are closed. M056 is ready as a narrow release-workflow contract-gate corrective for the unreleased 0.2.0 development baseline. It must make one cheap tag/package validation job a hard prerequisite for both release qualification and the five-target artifact matrix; it may not change package versions or publish anything. The published v0.1.0 lineage remains immutable history. M019 (`ca527db`) remains the final v0.1.0 pre-tag qualification authority; M041 (`724b967`, hosted run `36219464594` 13/13) is the latest ADR 007 corrective authority. Performance implementation tranche M042–M045 is closed; M046 owns historical performance-evidence reconstruction; M047 (`493fb03`) owns provenance schema/tooling for newly generated artifacts; M048 (`ab61ac7`, hosted run `36331806587` 14/14) owns the hosted qualification/CI-ownership authority for that provenance tooling. The completed corrective execution order was M049 -> M050 -> M051 -> M052 -> M053 -> M054; M055 is closed. M056 is the only ready milestone. Provenance failures, planning-state drift failures, version-coherence failures, and release-workflow structural-guard failures are blocking, not advisory. Do not rewrite `plans/archive/` or historical closure evidence. Do not start a generic C ABI, Node native addon, JNI, P/Invoke, cgo, UniFFI, or WASM without a separate ADR after demonstrated multi-consumer demand; do not add `eggreplay-*`/`eggprobe-*` production dependencies (downstream adoption only).
+M000–M056 are closed. No active, ready, or blocked milestones remain. The published v0.1.0 lineage remains immutable history. M019 (`ca527db`) remains the final v0.1.0 pre-tag qualification authority; M041 (`724b967`, hosted run `36219464594` 13/13) is the latest ADR 007 corrective authority. Performance implementation tranche M042–M045 is closed; M046 owns historical performance-evidence reconstruction; M047 (`493fb03`) owns provenance schema/tooling for newly generated artifacts; M048 (`ab61ac7`, hosted run `36331806587` 14/14) owns the hosted qualification/CI-ownership authority for that provenance tooling. The completed corrective execution order was M049 -> M050 -> M051 -> M052 -> M053 -> M054 -> M055 -> M056. Provenance failures, planning-state drift failures, version-coherence failures, and release-workflow structural-guard failures are blocking, not advisory. Do not rewrite `plans/archive/` or historical closure evidence. Do not start a generic C ABI, Node native addon, JNI, P/Invoke, cgo, UniFFI, or WASM without a separate ADR after demonstrated multi-consumer demand; do not add `eggreplay-*`/`eggprobe-*` production dependencies (downstream adoption only).
 
 If the owner asks for new work: `plans/roadmap.md` is the architecture authority, `plans/reference/` holds parity/verification contracts (not status), ADRs live in `plans/adrs/`. Any new numbered plan needs objective, baseline/deps, scope + non-goals, affected crates, ordered work packages, invariants/failure semantics, test commands, acceptance criteria, stop conditions, closure evidence, and follow-on rules — and must update `plans/registry.md` in the same change. `plans/registry.md` is the sole hand-maintained milestone-status authority (vocabulary: `active`, `blocked`, `closed`, `ready`); the `Current planning state` blocks in AGENTS.md / `plans/README.md` / `plans/roadmap.md` / `architecture/overview.md` are generated projections, never independent authorities. After any registry edit: 1. add/update the numbered plan; 2. update `registry.md`; 3. run `python3 scripts/check_planning_state.py --write`; 4. run `sh scripts/tests/test_planning_state.sh`. Never mark `closed` from source inspection; closure requires running the plan's tests on the exact candidate plus external/differential evidence where declared.
 
@@ -83,11 +83,8 @@ Prefer deterministic Tokio-time tests; wall-clock assertions need justified tole
 
 ## Current planning state
 
-**Ready (next milestone):**
-- `M056` (ready; plan `056-release-workflow-contract-gate-corrective.md`)
+**Highest closed milestone:** `M056` (see registry for closure evidence).
 
-**Highest closed milestone:** `M055` (see registry for closure evidence).
-
-**Execution order:** `M056`
+**Execution order:** no active or ready milestones.
 
 <!-- END eggchaos:planning-state -->

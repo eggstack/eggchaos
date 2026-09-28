@@ -159,7 +159,7 @@ M049-M054 are closed. M054 qualified the combined tranche on exact head `3b4fd9f
 
 M055 is closed as the release-state reconciliation milestone. It preserved the published v0.1.0 lineage, established 0.2.0 as the unreleased development package baseline for current `main`, aligned first-party manifest versions, and added release tag/package-version coherence guards. M055 performed no tag, registry publication, or GitHub release action, and activates no successor.
 
-M056 is ready as a narrow release-workflow contract-gate corrective. It makes the M055 tag/package guard a shared prerequisite for both qualification and artifact builds, with no package/version/publication change.
+M056 is closed as the narrow release-workflow contract-gate corrective. It introduced one cheap `release-contract` prerequisite job that owns `scripts/check_release_tag_version.sh` and made both `qualify` and the five-target `artifacts` matrix declare `needs: [release-contract]`; the structural regression in `scripts/tests/test_release_tag_version.sh` was strengthened with negative tests so the M055 bypass cannot silently return. No package/version/publication change.
 
 ## Status rules
 
@@ -235,11 +235,8 @@ pinned snapshot oracle rather than moving `main`.
 
 ## Current planning state
 
-**Ready (next milestone):**
-- `M056` (ready; plan `056-release-workflow-contract-gate-corrective.md`)
+**Highest closed milestone:** `M056` (see registry for closure evidence).
 
-**Highest closed milestone:** `M055` (see registry for closure evidence).
-
-**Execution order:** `M056`
+**Execution order:** no active or ready milestones.
 
 <!-- END eggchaos:planning-state -->
