@@ -6,12 +6,34 @@ on:
     tags: ["v*.*.*"]
 
 jobs:
+  # M056 release-contract gate: one cheap prerequisite job that runs the
+  # M055 tag/package-version guard and no expensive tooling. Both
+  # expensive branches (`qualify` and the five-target `artifacts` matrix)
+  # declare this job as a hard `needs:` dependency, so a mismatched tag
+  # fails here and neither downstream job may start. On `workflow_dispatch`
+  # the guard skips the tag comparison but still runs ordinary manifest
+  # coherence, keeping manual qualification usable without a tag.
+  release-contract:
+    # Guard is stdlib Python + POSIX sh only (manifest parse + tag
+    # string check). The whole job completes in seconds; a 5-minute
+    # bound leaves comfortable slack without absorbing any expensive
+    # step. Do not install cargo / cargo-audit / cargo-deny / cargo-fuzz
+    # / cross linkers here — they belong in the downstream jobs.
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # M055 tag/package version agreement: tag runs require
+      # `tag minus leading v == workspace version`; dispatch runs
+      # require manifest coherence. No tag creation or publication.
+      - run: ./scripts/check_release_tag_version.sh
   qualify:
     # Bounded for the same reason as CI: fuzz/toxiproxy/eggfetch
     # qualification must fail loudly, never park a runner for hours.
     timeout-minutes: 60
     env:
       RUST_TEST_THREADS: 4
+    needs: [release-contract]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,12 +43,10 @@ jobs:
           components: rustfmt, clippy
       - run: cargo install cargo-audit --locked --version 0.22.2
       - run: cargo install cargo-deny --locked --version 0.20.2
-      # M055 tag/version agreement: on tag-triggered runs the tag must
-      # equal the canonical workspace package version; mismatch fails
-      # here, before any expensive qualification or artifact build.
-      # workflow_dispatch runs skip the tag comparison but still run
-      # ordinary manifest coherence. No tag creation or publication.
-      - run: ./scripts/check_release_tag_version.sh
+      # M056: the tag/version contract is owned exclusively by the
+      # `release-contract` prerequisite job above. Re-running the guard
+      # here would create a second scheduling authority that could
+      # silently drift from the shared gate, defeating the corrective.
       # cargo-fuzz 0.13.2's transitive cargo-platform@0.3.3 requires rustc
       # 1.91 to compile, so it cannot be built by the pinned 1.89.0 MSRV
       # toolchain (observed: exit 101 in CI). Build the cargo-fuzz binary
@@ -56,6 +76,10 @@ jobs:
     # handle -arch x86_64 for the --target build.
     env:
       CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+    # M056: the artifact matrix must not start unless the
+    # `release-contract` gate has succeeded, so an invalid tag cannot
+    # spawn cross-build runners and upload binaries named from it.
+    needs: [release-contract]
     strategy:
       fail-fast: false
       matrix:

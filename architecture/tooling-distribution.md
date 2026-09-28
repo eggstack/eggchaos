@@ -52,7 +52,7 @@ than re-implementing their steps.
 | `scripts/qualify_toxiproxy_post_v2_12.sh` | Opt-in post-v2.12 gate: reaps stale snapshot oracles, runs `eggchaos-toxiproxy` unit tests, resolves the oracle via explicit `fetch_toxiproxy_post_v2_12.sh --path-only`, then runs `--test post_v212_differential` with `TOXIPROXY_POST_V2_12_SERVER`, `TOXIPROXY_POST_V2_12_COMMIT=40f7fd31…`, and `EGGCHAOS_REQUIRE_POST_V2_12_ORACLE=1`. Mandatory mode (`EGGCHAOS_REQUIRE_POST_V2_12_ORACLE=1`) fails closed on missing oracle; developer mode reports `differential:incomplete` (exit 0). | Post-v2.12 `packet_loss` profile work. Strict v2.12 stays on its own pinned oracle. |
 | `scripts/check_openapi.sh` | `cargo test -p eggchaos-protocol --all-features` (OpenAPI drift + golden fixtures) + `cargo test -p eggchaos-server --all-features --test native_route_inventory` (live 36-operation inventory proof) + a YAML shape assertion (`openapi == 3.0.3`, 21 paths, 36 operations). | Native contract gate after any protocol/server/OpenAPI change; part of the release qualify lane via language-clients CI. |
 | `scripts/check_version_coherence.py` | M055 single version-coherence authority (stdlib-only): derives the intended development version from `[workspace.package].version` and verifies all 8 workspace crates, every intra-workspace path requirement, Python/TypeScript client manifests (+ TS lockfile), Python-native Python/Rust manifests, and the internal benchmarks crate. `--check` verifies (no mutation, no network); `--fixture` runs the inline mismatch self-test. Prints `{"version_coherence":"pass",...}`; mismatches print `FAIL:` and exit 1. | Manifest changes; `scripts/tests/test_version_coherence.sh` pins fixture + real-tree + deliberate-mismatch + wiring. Runs in `scripts/check.sh` and bare `--check` runs independently in the `language-clients` CI job (same dual-wiring pattern as the M053 planning guard). |
-| `scripts/check_release_tag_version.sh` | M055 release-only guard: always runs manifest coherence, then on tag-triggered runs (`GITHUB_REF_TYPE=tag`) strips the leading `v` and requires the tag version to equal the workspace version; mismatch fails before expensive qualification/artifact builds. Non-tag (dispatch) runs skip only the tag comparison. No tag creation or publication. | First step of the release `qualify` lane (before `release-smoke.sh`); `scripts/tests/test_release_tag_version.sh` pins match/mismatch/dispatch behavior plus workflow ordering. |
+| `scripts/check_release_tag_version.sh` | M055 release-only guard: always runs manifest coherence, then on tag-triggered runs (`GITHUB_REF_TYPE=tag`) strips the leading `v` and requires the tag version to equal the workspace version; mismatch fails before expensive qualification/artifact builds. Non-tag (dispatch) runs skip only the tag comparison. No tag creation or publication. | Sole authority of the M056 `release-contract` prerequisite job in `release.yml`; `scripts/tests/test_release_tag_version.sh` pins match/mismatch/dispatch behavior plus the workflow gate contract (one `release-contract:` job, root-of-DAG, both downstream `needs:` declared, no second invocation, negative tests for every bypass mode). |
 | `scripts/sync_sdk_contract.py` | Derives SDK artifacts from `api/openapi/eggchaos-v1.yaml`: `bindings/_contract/operations.json` + `bindings/python-client/eggchaos_client/_generated.py` + `bindings/typescript-client/src/generated.ts` (deterministic sorted output; 36 operations + stream/datagram/scenario tag unions). Prints `{"sync":"pass","operations":36,...}`. | Before SDK checks; `check_python_client.sh` / `check_typescript_client.sh` rerun it and assert `git diff --exit-code` on all three generated artifacts. |
 | `scripts/check_python_client.sh` | Regeneration drift (`sync_sdk_contract.py` + `git diff --exit-code` on operations snapshot + both generated tables) + Python unit tests (no server: `test_models.py`, `test_contract.py`, `test_cross_language.py`) + `Client`/`AsyncClient` import proof. | Python SDK changes. |
 | `scripts/check_typescript_client.sh` | Same regeneration drift gate + `npm install` if needed + `tsc --noEmit` + `tsc` build + `node --test` contract/cross-language tests (no server). | TypeScript SDK changes. |
@@ -146,18 +146,34 @@ candidate (see §3).
 ## 3. Release qualification (`.github/workflows/release.yml`)
 
 - Triggers: `workflow_dispatch` (manual) and `push` tags `v*.*.*`.
-- Job `qualify` (`ubuntu-latest`, `timeout-minutes: 60`,
-  `RUST_TEST_THREADS: 4`): same pinned toolchain/scanners as CI, plus a
-  documented workaround — `cargo-fuzz 0.13.2` is built with current
-  `stable` (`rustup toolchain install stable --profile minimal` then
-  `RUSTUP_TOOLCHAIN=stable cargo install cargo-fuzz --locked --version
-  0.13.2`) because its transitive `cargo-platform@0.3.3` needs rustc
-  1.91 while the MSRV toolchain is pinned 1.89.0; the fuzz target
-  itself still builds/runs under 1.89.0 with `--sanitizer none`.
-   Steps: `./scripts/check_release_tag_version.sh` (M055 tag/version
-   agreement: tag runs require tag == workspace version, dispatch runs
-   require manifest coherence; fails before expensive steps);
-   `./scripts/release-smoke.sh`;
+- DAG (M056): one cheap `release-contract` prerequisite job owns
+  `scripts/check_release_tag_version.sh`. Both `qualify` and `artifacts`
+  declare `needs: [release-contract]`, so on a mismatched tag the gate
+  fails first and neither expensive branch may start. After the gate
+  succeeds the two expensive branches fan out in parallel; valid-input
+  parallelism is preserved. The guard script is invoked exactly once
+  (one scheduling authority). Workflow dispatch skips the tag
+  comparison but still requires manifest coherence. No tag creation,
+  no `cargo publish`, no GitHub release action. The structural
+  regression in `scripts/tests/test_release_tag_version.sh` proves the
+  contract (one `release-contract:` job, root-of-DAG, both downstream
+  `needs:` declared, no second guard invocation, negative tests for
+  every bypass mode).
+- Job `release-contract` (`ubuntu-latest`, `timeout-minutes: 5`):
+  checkout + `./scripts/check_release_tag_version.sh` (M055
+  tag/package version agreement). POSIX sh + stdlib Python only; no
+  Rust toolchain, no cargo-audit/cargo-deny/cargo-fuzz install, no
+  cross linker. Bounded at five minutes because the script runs in
+  seconds.
+- Job `qualify` (`ubuntu-latest`, `timeout-minutes: 60`, `RUST_TEST_THREADS: 4`,
+  `needs: [release-contract]`): same pinned toolchain/scanners as CI,
+  plus a documented workaround — `cargo-fuzz 0.13.2` is built with
+  current `stable` (`rustup toolchain install stable --profile minimal`
+  then `RUSTUP_TOOLCHAIN=stable cargo install cargo-fuzz --locked
+  --version 0.13.2`) because its transitive `cargo-platform@0.3.3`
+  needs rustc 1.91 while the MSRV toolchain is pinned 1.89.0; the
+  fuzz target itself still builds/runs under 1.89.0 with
+  `--sanitizer none`. Steps: `./scripts/release-smoke.sh`;
   `./scripts/benchmark_datagram.sh`;
   `EGGCHAOS_FUZZ_RUNS=10000 ./scripts/qualify_fuzz.sh`; acquire the
   checksum-pinned oracle via `echo
@@ -167,8 +183,8 @@ candidate (see §3).
   ./scripts/qualify_toxiproxy_v2_12.sh`;
   `./scripts/qualify_eggfetch.sh`;
   `./scripts/release-artifact-smoke.sh`.
-- Job `artifacts` (`timeout-minutes: 45`, `fail-fast: false`), 5-target
-  matrix:
+- Job `artifacts` (`timeout-minutes: 45`, `fail-fast: false`,
+  `needs: [release-contract]`), 5-target matrix:
   - `ubuntu-22.04 / x86_64-unknown-linux-gnu`;
   - `ubuntu-22.04 / aarch64-unknown-linux-gnu` (installs
     `gcc-aarch64-linux-gnu`; sets
@@ -239,6 +255,20 @@ candidate (see §3).
   → 4m33s (Tier A intentionally gated off; within noise); new
   `performance-provenance` job 2m15s of a 12-minute budget. No
   production/runtime/threshold/schema v1 change.
+- M056 closed the release-workflow contract-gate corrective on exact
+  candidate (see `plans/closure/M056-release-workflow-contract-gate-corrective-closure.md`):
+  one cheap `release-contract` prerequisite job owns
+  `scripts/check_release_tag_version.sh`; both `qualify` and the
+  five-target `artifacts` matrix declare `needs: [release-contract]`;
+  the structural regression
+  (`scripts/tests/test_release_tag_version.sh`) was strengthened to
+  prove the contract (one `release-contract:` job, root-of-DAG,
+  both downstream `needs:` declared, exactly one guard invocation,
+  negative tests for every bypass mode). The in-qualify guard
+  invocation was removed; the guard is now invoked exactly once.
+  Valid-input parallelism between qualification and artifact
+  production is preserved after the gate. No production/package/API/
+  release-target change; M055 closure evidence is preserved.
 - If any fix lands after candidate selection, select a new candidate and
   rerun every affected gate. Planning-only closure-note commits may
   follow only if explicitly distinguished from the qualified code

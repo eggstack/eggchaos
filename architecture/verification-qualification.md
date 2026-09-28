@@ -481,16 +481,28 @@ if a gate was not run, record it as incomplete (see §8).
   per-OS `check` / `language-clients` / `python-native` counts above
   are unchanged at the time of M048's recorded hosted run.
 - Release qualification (`.github/workflows/release.yml`, `workflow_dispatch`
-  + `v*.*.*` tags): `qualify` job on ubuntu (`timeout-minutes: 60`:
+  + `v*.*.*` tags): one cheap `release-contract` prerequisite job
+  (`timeout-minutes: 5`) runs `scripts/check_release_tag_version.sh`
+  (M055 tag/package version agreement; dispatch skips the tag
+  comparison but still requires manifest coherence). Both `qualify`
+  and `artifacts` declare `needs: [release-contract]` (M056), so an
+  invalid tag fails the gate first and neither expensive branch may
+  start. After the gate succeeds the two branches fan out in parallel.
+  `qualify` job on ubuntu (`timeout-minutes: 60`:
   `release-smoke.sh` → `benchmark_datagram.sh` → fuzz 10k → toxiproxy
   qualify → eggfetch qualify → artifact smoke) plus `artifacts` matrix
   (`timeout-minutes: 45`) over 5
   targets: `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`
   (cross-linker `aarch64-linux-gnu-gcc`), `x86_64-apple-darwin` (cross-built
   on `macos-14`; `macos-13` Intel retired), `aarch64-apple-darwin`,
-  `x86_64-pc-windows-msvc`, each with checksummed upload.
-  M015: run `35810310455` on `cd88b22`, qualify + 5/5 artifacts green
-  (see `plans/closure/M015-final-exact-head-release-requalification-closure.md`
+  `x86_64-pc-windows-msvc`, each with checksummed upload. The
+  structural regression
+  (`scripts/tests/test_release_tag_version.sh`) proves the gate
+  contract (one `release-contract:` job, root-of-DAG, both downstream
+  `needs:` declared, exactly one guard invocation, negative tests for
+  every bypass mode). M015: run `35810310455` on `cd88b22`, qualify +
+  5/5 artifacts green (see
+  `plans/closure/M015-final-exact-head-release-requalification-closure.md`
   for run/job IDs, SHAs, sizes).
 - Platform reset semantics: library correctness must not assume Unix-only
   sockets; hard reset gets a capability result + per-platform evidence
