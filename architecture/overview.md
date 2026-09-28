@@ -213,11 +213,8 @@ overview first, then go component by component.
 
 ## Current planning state
 
-**Ready (next milestone):**
-- `M055` (ready; plan `055-post-v0-1-0-release-state-and-v0-2-0-development-baseline.md`)
+**Highest closed milestone:** `M055` (see registry for closure evidence).
 
-**Highest closed milestone:** `M054` (see registry for closure evidence).
-
-**Execution order:** `M055`
+**Execution order:** no active or ready milestones.
 
 <!-- END eggchaos:planning-state -->
