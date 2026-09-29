@@ -65,7 +65,7 @@ Qualification (release workflow): `release-smoke.sh` (fmt/clippy/test/doc/audit/
 
 ## Planning state
 
-M000–M056 are closed. M057 is ready as a qualification-only successor for M056's exact-candidate hosted-CI evidence gap. M056 remains the implementation authority for the shared `release-contract` DAG; M057 must preserve that implementation and historical closure record, obtain hosted CI on an exact M057 candidate, and become the final hosted qualification authority. The unreleased 0.2.0 baseline remains unchanged; no tag/publication action is authorized.
+M000–M057 are closed. M057 closed as the final exact-head qualification authority for the M056 shared `release-contract` DAG (candidate `818e567`, hosted run `36490497114` 14/14, dispatch run `36630812771` green); M056 remains the implementation authority and its closure record (including the original hosted-CI gap) is preserved verbatim. The unreleased 0.2.0 baseline remains unchanged; no tag/publication action is authorized.
 
 If the owner asks for new work: `plans/roadmap.md` is the architecture authority, `plans/reference/` holds parity/verification contracts (not status), ADRs live in `plans/adrs/`. Any new numbered plan needs objective, baseline/deps, scope + non-goals, affected crates, ordered work packages, invariants/failure semantics, test commands, acceptance criteria, stop conditions, closure evidence, and follow-on rules — and must update `plans/registry.md` in the same change. `plans/registry.md` is the sole hand-maintained milestone-status authority (vocabulary: `active`, `blocked`, `closed`, `ready`); the `Current planning state` blocks in AGENTS.md / `plans/README.md` / `plans/roadmap.md` / `architecture/overview.md` are generated projections, never independent authorities. After any registry edit: 1. add/update the numbered plan; 2. update `registry.md`; 3. run `python3 scripts/check_planning_state.py --write`; 4. run `sh scripts/tests/test_planning_state.sh`. Never mark `closed` from source inspection; closure requires running the plan's tests on the exact candidate plus external/differential evidence where declared.
 
@@ -83,11 +83,8 @@ Prefer deterministic Tokio-time tests; wall-clock assertions need justified tole
 
 ## Current planning state
 
-**Ready (next milestone):**
-- `M057` (ready; plan `057-m056-closure-evidence-reconciliation-and-exact-head-requalification.md`)
+**Highest closed milestone:** `M057` (see registry for closure evidence).
 
-**Highest closed milestone:** `M056` (see registry for closure evidence).
-
-**Execution order:** `M057`
+**Execution order:** no active or ready milestones.
 
 <!-- END eggchaos:planning-state -->

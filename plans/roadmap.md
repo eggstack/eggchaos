@@ -1,6 +1,6 @@
 # Eggchaos Long-Term Roadmap
 
-Status: M000-M056 are closed. M057 is ready as the exact-head evidence-reconciliation/qualification successor for M056. The unreleased 0.2.0 baseline and M056 release-contract implementation are unchanged.
+Status: M000-M057 are closed. M057 is the final exact-head qualification authority for the M056 release-contract DAG (candidate `818e567`, hosted run `36490497114` 14/14, dispatch run `36630812771` green). The unreleased 0.2.0 baseline and M056 release-contract implementation are unchanged.
 
 ## 1. Mission
 
@@ -750,12 +750,16 @@ candidate `b6f0095`. The later documentation/closure commit `c2a721c`
 is production-equivalent and has green hosted CI run `36487117317`, but that
 cannot retroactively satisfy an exact-candidate requirement.
 
-M057 is therefore registered as a qualification-only successor. It preserves
-M056 implementation ownership and historical closure evidence, requires all
-release structural/version guards plus normal hosted CI on one exact M057
-candidate, and becomes the final hosted qualification authority for the M056
-release DAG when closed. No workflow/package/runtime/publication change is
-authorized.
+M057 is closed as the qualification-only successor. It preserved
+M056 implementation ownership and historical closure evidence, obtained
+all release structural/version guards plus normal hosted CI on exact
+candidate `818e567` (run `36490497114`, 14/14: 3 `check` + 1
+`performance-provenance` + 8 `language-clients` + 2 `python-native`)
+and a green release `workflow_dispatch` run `36630812771` on the same
+SHA (`release-contract` first, then `qualify` + five-target
+`artifacts` fan-out), and is the final hosted qualification authority
+for the M056 release DAG. No workflow/package/runtime/publication
+change occurred. M057 activates no successor.
 
 ## 12. Performance targets
 
@@ -814,11 +818,8 @@ None of these may weaken the fixed-target, protocol-neutral core boundary.
 
 ## Current planning state
 
-**Ready (next milestone):**
-- `M057` (ready; plan `057-m056-closure-evidence-reconciliation-and-exact-head-requalification.md`)
+**Highest closed milestone:** `M057` (see registry for closure evidence).
 
-**Highest closed milestone:** `M056` (see registry for closure evidence).
-
-**Execution order:** `M057`
+**Execution order:** no active or ready milestones.
 
 <!-- END eggchaos:planning-state -->

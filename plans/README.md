@@ -161,7 +161,7 @@ M055 is closed as the release-state reconciliation milestone. It preserved the p
 
 M056 is closed as the narrow release-workflow contract-gate corrective. It introduced one cheap `release-contract` prerequisite job that owns `scripts/check_release_tag_version.sh` and made both `qualify` and the five-target `artifacts` matrix declare `needs: [release-contract]`; the structural regression in `scripts/tests/test_release_tag_version.sh` was strengthened with negative tests so the M055 bypass cannot silently return. No package/version/publication change.
 
-M057 is ready as a qualification-only successor for the M056 closure-evidence gap. It preserves the M056 workflow implementation and closure record, requires hosted CI on an exact M057 candidate, and becomes the final hosted qualification authority for the shared release-contract DAG after closure.
+M057 is closed as the qualification-only successor for the M056 closure-evidence gap. It preserved the M056 workflow implementation and closure record, obtained hosted CI on exact candidate `818e567` (run `36490497114`, 14/14) plus a green release `workflow_dispatch` run `36630812771` on the same SHA, and is the final hosted qualification authority for the shared release-contract DAG. M057 activates no successor.
 
 ## Status rules
 
@@ -237,11 +237,8 @@ pinned snapshot oracle rather than moving `main`.
 
 ## Current planning state
 
-**Ready (next milestone):**
-- `M057` (ready; plan `057-m056-closure-evidence-reconciliation-and-exact-head-requalification.md`)
+**Highest closed milestone:** `M057` (see registry for closure evidence).
 
-**Highest closed milestone:** `M056` (see registry for closure evidence).
-
-**Execution order:** `M057`
+**Execution order:** no active or ready milestones.
 
 <!-- END eggchaos:planning-state -->

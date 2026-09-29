@@ -6,7 +6,7 @@ This document summarizes each discrete module/component in one place and is
 the index for systematic review — each section links to its deep dive in
 this directory. Read this file first, then go component by component.
 
-Published `v0.1.0` is the historical first release (tag target `81994dbc427365f1dfdaabfa39bdf077850e69ec`, published 2026-09-24). Current `main` is the unreleased `0.2.0` development baseline (M055 closed): all Rust workspace packages and first-party language packages resolve to `0.2.0`, while native `/v1`, config schema v1, RNG v1, and provenance schema v1 are unchanged. M019 (`ca527db`) remains the final v0.1.0 pre-tag qualification authority; M041 remains the ADR 007 corrective authority and M046/M047/M048 retain their performance-provenance authority roles. M056 closed the release-workflow orchestration corrective so both qualification and artifact builds are hard-gated by the same tag/package contract before expensive work starts. M057 is ready as the additive exact-head evidence/qualification successor because M056 closed without hosted CI on its exact implementation SHA; M056 implementation ownership remains unchanged.
+Published `v0.1.0` is the historical first release (tag target `81994dbc427365f1dfdaabfa39bdf077850e69ec`, published 2026-09-24). Current `main` is the unreleased `0.2.0` development baseline (M055 closed): all Rust workspace packages and first-party language packages resolve to `0.2.0`, while native `/v1`, config schema v1, RNG v1, and provenance schema v1 are unchanged. M019 (`ca527db`) remains the final v0.1.0 pre-tag qualification authority; M041 remains the ADR 007 corrective authority and M046/M047/M048 retain their performance-provenance authority roles. M056 closed the release-workflow orchestration corrective so both qualification and artifact builds are hard-gated by the same tag/package contract before expensive work starts. M057 closed as the additive exact-head qualification authority (candidate `818e567`, hosted run `36490497114` 14/14, dispatch run `36630812771` green) because M056 closed without hosted CI on its exact implementation SHA; M056 implementation ownership remains unchanged.
 Canonical planning surface is `plans/` (see `AGENTS.md`); user-facing
 implementation boundaries live in `docs/architecture.md`,
 `docs/configuration.md`, `docs/control-plane.md`, `docs/toxiproxy.md`, and
@@ -194,7 +194,7 @@ overview first, then go component by component.
 - `docs/configuration.md`, `docs/control-plane.md`, `docs/eggfetch.md`,
   `docs/toxiproxy.md` — per-surface contracts.
 - `plans/roadmap.md`, `plans/registry.md` — sequencing, invariants, milestone
-   closure (M000–M056 closed; M057 ready for M056 exact-head evidence reconciliation; M056 owns the release-contract implementation; M055 owns the unreleased 0.2.0 baseline; M019 final v0.1.0 pre-tag qualification authority).
+   closure (M000–M057 closed; M057 final hosted qualification authority for the M056 release-contract DAG; M056 owns the release-contract implementation; M055 owns the unreleased 0.2.0 baseline; M019 final v0.1.0 pre-tag qualification authority).
 - `plans/adrs/` — durable boundaries (001 stream engine, 002 determinism,
   003 datagrams, 004 schedules, 005 integration, 006 cross-language,
   007 stream-loss).
@@ -212,11 +212,8 @@ overview first, then go component by component.
 
 ## Current planning state
 
-**Ready (next milestone):**
-- `M057` (ready; plan `057-m056-closure-evidence-reconciliation-and-exact-head-requalification.md`)
+**Highest closed milestone:** `M057` (see registry for closure evidence).
 
-**Highest closed milestone:** `M056` (see registry for closure evidence).
-
-**Execution order:** `M057`
+**Execution order:** no active or ready milestones.
 
 <!-- END eggchaos:planning-state -->
