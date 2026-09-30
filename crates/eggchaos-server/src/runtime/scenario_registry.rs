@@ -215,21 +215,33 @@ impl ScenarioRegistry {
         self.v2_runs.get(&run_id).cloned()
     }
 
-    /// Apply a typed mutation to a V1 record, if present.
-    pub(crate) fn update_v1(&mut self, run_id: u64, update: impl FnOnce(&mut ScenarioRunRecord)) {
+    /// Apply a typed mutation to a V1 record. Returns false when the run
+    /// is unknown (pruned or never-existed) instead of a silent no-op.
+    pub(crate) fn update_v1(
+        &mut self,
+        run_id: u64,
+        update: impl FnOnce(&mut ScenarioRunRecord),
+    ) -> bool {
         if let Some(record) = self.v1_runs.get_mut(&run_id) {
             update(record);
+            true
+        } else {
+            false
         }
     }
 
-    /// Apply a typed mutation to a V2 record, if present.
+    /// Apply a typed mutation to a V2 record. Returns false when the run
+    /// is unknown (pruned or never-existed) instead of a silent no-op.
     pub(crate) fn update_v2(
         &mut self,
         run_id: u64,
         update: impl FnOnce(&mut ScenarioScheduleRunRecord),
-    ) {
+    ) -> bool {
         if let Some(record) = self.v2_runs.get_mut(&run_id) {
             update(record);
+            true
+        } else {
+            false
         }
     }
 

@@ -102,6 +102,9 @@ impl LivePolicy {
         let plan = Arc::new(plan);
         loop {
             let current = self.snapshot();
+            if current.generation == u64::MAX {
+                return Err(crate::ValidationError::GenerationOverflow);
+            }
             let next = Arc::new(PublishedPolicy {
                 generation: current.generation.saturating_add(1),
                 plan: plan.clone(),
@@ -132,6 +135,11 @@ impl LivePolicy {
                     expected,
                     found: current.generation,
                 }));
+            }
+            if current.generation == u64::MAX {
+                return Err(PublishError::Invalid(
+                    crate::ValidationError::GenerationOverflow,
+                ));
             }
             let next = Arc::new(PublishedPolicy {
                 generation: current.generation.saturating_add(1),

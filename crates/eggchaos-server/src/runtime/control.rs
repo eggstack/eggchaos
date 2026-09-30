@@ -466,6 +466,11 @@ impl ControlState {
                     proxy.name
                 )));
             }
+            if map.len() >= 1024 {
+                return Err(ControlError::Invalid(
+                    "stream proxy count exceeds the 1024 proxy limit".into(),
+                ));
+            }
         }
         let listener =
             TcpListener::bind(proxy.listen)
@@ -513,6 +518,15 @@ impl ControlState {
                 return Err(ControlError::Conflict(format!(
                     "proxy {name} already exists"
                 )));
+            }
+            if map.len() >= 1024 {
+                drop(map);
+                cancel.cancel();
+                entry.done.join().await;
+                self.untrack(&name).await;
+                return Err(ControlError::Invalid(
+                    "stream proxy count exceeds the 1024 proxy limit".into(),
+                ));
             }
             map.insert(name.clone(), entry);
             let view = RuntimeInner::view_of(map.get(&name).expect("proxy was just inserted"));
@@ -1246,17 +1260,18 @@ impl ControlState {
         self.get_scenario(run_id).await
     }
 
-    /// Apply a record mutation for a scenario run, if still retained.
+    /// Apply a record mutation for a scenario run. Returns false when the
+    /// run is unknown (pruned or never-existed).
     pub async fn update_scenario_run(
         &self,
         run_id: u64,
         update: impl FnOnce(&mut crate::scenario::ScenarioRunRecord),
-    ) {
+    ) -> bool {
         self.runtime
             .scenario_registry
             .lock()
             .await
-            .update_v1(run_id, update);
+            .update_v1(run_id, update)
     }
 
     /// Drop a finished run's cancellation token.
@@ -1283,20 +1298,28 @@ impl ControlState {
             }
             for entry in map.values_mut() {
                 entry.spec.enabled = true;
-                entry.spec.upstream_faults = FaultPlan::empty();
-                entry.spec.downstream_faults = FaultPlan::empty();
                 // Reset clears plans but retains seed namespaces; the next
-                // scenario or manual publication sets its own.
+                // scenario or manual publication sets its own. Publish first
+                // and only update the mirror on success so a failed publish
+                // cannot desync the mirror from the live policy.
                 let upstream_ns = entry.spec.upstream_policy.seed_namespace();
                 let downstream_ns = entry.spec.downstream_policy.seed_namespace();
-                let _ = entry
+                if entry
                     .spec
                     .upstream_policy
-                    .publish(FaultPlan::empty(), upstream_ns);
-                let _ = entry
+                    .publish(FaultPlan::empty(), upstream_ns)
+                    .is_ok()
+                {
+                    entry.spec.upstream_faults = FaultPlan::empty();
+                }
+                if entry
                     .spec
                     .downstream_policy
-                    .publish(FaultPlan::empty(), downstream_ns);
+                    .publish(FaultPlan::empty(), downstream_ns)
+                    .is_ok()
+                {
+                    entry.spec.downstream_faults = FaultPlan::empty();
+                }
             }
             map.iter()
                 .filter(|(_, entry)| !entry.running)
@@ -1368,8 +1391,7 @@ impl ControlState {
                                 .fault_plan(&proxy.name, direction)
                                 .await
                             {
-                                let _ = self
-                                    .runtime
+                                self.runtime
                                     .datagrams
                                     .publish_fault_plan(
                                         &proxy.name,
@@ -1378,7 +1400,8 @@ impl ControlState {
                                         fresh_seed,
                                         Some(fresh),
                                     )
-                                    .await;
+                                    .await
+                                    .map_err(map_datagram_error)?;
                             }
                             continue;
                         }
@@ -1556,30 +1579,32 @@ impl ControlState {
         self.get_schedule_v2(run_id).await
     }
 
-    /// Apply a record mutation for a v2 schedule run, if still retained.
+    /// Apply a record mutation for a v2 schedule run. Returns false when
+    /// the run is unknown (pruned or never-existed).
     pub async fn update_schedule_v2_run(
         &self,
         run_id: u64,
         update: impl FnOnce(&mut crate::scenario_v2::ScenarioScheduleRunRecord),
-    ) {
+    ) -> bool {
         self.runtime
             .scenario_registry
             .lock()
             .await
-            .update_v2(run_id, update);
+            .update_v2(run_id, update)
     }
 
     /// Append one per-event evidence entry to a v2 run record and bump
-    /// the applied count. No-op if the run was already pruned. Coarse
-    /// v2 metrics count applied and late events without run, phase, or
-    /// fingerprint labels.
+    /// the applied count. Returns false when the run was already pruned.
+    /// Coarse v2 metrics count applied and late events without run, phase,
+    /// or fingerprint labels.
     pub async fn append_schedule_v2_event(
         &self,
         run_id: u64,
         event: crate::scenario_v2::ScheduleEventResult,
-    ) {
+    ) -> bool {
         let late = event.late_by_ns > 0;
-        self.runtime
+        let applied = self
+            .runtime
             .scenario_registry
             .lock()
             .await
@@ -1587,6 +1612,9 @@ impl ControlState {
                 record.applied += 1;
                 record.events.push(event);
             });
+        if !applied {
+            return false;
+        }
         self.runtime
             .metrics
             .schedule_v2_events
@@ -1597,6 +1625,7 @@ impl ControlState {
                 .schedule_v2_late_events
                 .fetch_add(1, Ordering::Relaxed);
         }
+        true
     }
 
     /// Drop a finished v2 run's cancellation token.

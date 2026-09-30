@@ -154,6 +154,16 @@ async fn receive_client_datagram(
         }
         Err(mpsc::error::TrySendError::Closed(_)) => {
             association.pending_ingress.fetch_sub(1, Ordering::Relaxed);
+            // Closed-channel loss is administrative loss: count it so it is
+            // never invisible in evidence.
+            state
+                .counters
+                .ingress_overflow
+                .fetch_add(1, Ordering::Relaxed);
+            let mut record = association.record.lock().expect("association record");
+            record.ingress_queue_overflow = record.ingress_queue_overflow.saturating_add(1);
+            record.administrative_discards = record.administrative_discards.saturating_add(1);
+            record.last_activity = Instant::now();
         }
     }
 }

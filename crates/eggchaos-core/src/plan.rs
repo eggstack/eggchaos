@@ -363,6 +363,9 @@ impl FaultPlan {
     }
     /// Return a plan with one fault appended.
     pub fn with_fault(mut self, fault: FaultSpec) -> Result<Self, ValidationError> {
+        if self.faults.len() >= MAX_STREAM_FAULTS {
+            return Err(ValidationError::TooManyFaults);
+        }
         if self.get(fault.id.as_str()).is_some() {
             return Err(ValidationError::DuplicateFaultId(fault.id.to_string()));
         }
@@ -500,6 +503,9 @@ pub enum ValidationError {
     /// Too many faults in one plan (limited to 256 stages).
     #[error("fault plans are limited to 256 stages")]
     TooManyFaults,
+    /// Policy generation overflowed `u64::MAX`; nothing was published.
+    #[error("policy generation overflowed")]
+    GenerationOverflow,
 }
 
 #[cfg(test)]

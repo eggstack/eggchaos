@@ -20,6 +20,14 @@ Deliberate, documented divergences (see
 
 - toxicity outside [0, 1] is clamped to the range;
 - degenerate zero `rate`/`average_size`/`bytes` coalesce to 1;
+- slicer `average_size` omitted/0 maps to 1 on the compat path while the
+  native default is 1024 (`NATIVE_DEFAULT_SLICE_AVERAGE_SIZE`): compat and
+  native defaults do not round-trip by design;
+- native nanosecond-precise durations export through `as_millis()` (latency,
+  jitter, timeout, slow_close, reset_peer) and `as_micros()` (slicer delay),
+  truncating sub-unit precision on the compat view;
+- native bytes/s exports as oracle KiB/s via `(bps + 512) / 1024` (min 1),
+  losing sub-KiB precision on round-trip;
 - stream echo is lowercase; toxic order is upstream faults then downstream;
 - missing `listen` binds an ephemeral loopback port;
 - non-socket `upstream` values and out-of-charset proxy names are rejected

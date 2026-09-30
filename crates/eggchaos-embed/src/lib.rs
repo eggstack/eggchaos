@@ -97,7 +97,16 @@ impl From<eggchaos_server::ControlError> for EmbedError {
 
 impl From<eggchaos_server::DatagramRuntimeError> for EmbedError {
     fn from(error: eggchaos_server::DatagramRuntimeError) -> Self {
-        Self::Validation(error.to_string())
+        match error {
+            eggchaos_server::DatagramRuntimeError::NotFound(detail) => Self::NotFound(detail),
+            eggchaos_server::DatagramRuntimeError::Duplicate(detail) => Self::Conflict(detail),
+            eggchaos_server::DatagramRuntimeError::Conflict(detail) => Self::Conflict(detail),
+            eggchaos_server::DatagramRuntimeError::Bind(error) => Self::Bind(error.to_string()),
+            eggchaos_server::DatagramRuntimeError::Invalid(detail) => Self::Validation(detail),
+            eggchaos_server::DatagramRuntimeError::AssociationLimit => {
+                Self::Validation("datagram runtime has reached its association limit".into())
+            }
+        }
     }
 }
 
@@ -259,6 +268,7 @@ impl EmbeddedService {
         &self,
         request: NativeProxyRequestV1,
     ) -> Result<(NativeProxyViewV1, u64), EmbedError> {
+        request.validate().map_err(EmbedError::Validation)?;
         self.block_on(async {
             let outcome = apply_proxy_request(&self.control, request)
                 .await
@@ -436,9 +446,7 @@ impl EmbeddedService {
         &self,
         schedule: ScenarioScheduleV2Dto,
     ) -> Result<ScheduleValidateV2, EmbedError> {
-        if self.closed.load(Ordering::SeqCst) {
-            return Err(EmbedError::Lifecycle("service is closed".into()));
-        }
+        // Pure validation: observable even after close.
         validate_scenario_v2_dto(schedule).map_err(EmbedError::from)
     }
 
@@ -447,9 +455,7 @@ impl EmbeddedService {
         &self,
         schedule: ScenarioScheduleV2Dto,
     ) -> Result<ScheduleCompileV2, EmbedError> {
-        if self.closed.load(Ordering::SeqCst) {
-            return Err(EmbedError::Lifecycle("service is closed".into()));
-        }
+        // Pure compilation: observable even after close.
         compile_scenario_v2_dto(schedule).map_err(EmbedError::from)
     }
 
@@ -498,6 +504,7 @@ impl EmbeddedService {
         &self,
         request: NativeDatagramProxyRequestV1,
     ) -> Result<(NativeDatagramProxyViewV1, u64), EmbedError> {
+        request.validate().map_err(EmbedError::Validation)?;
         self.block_on(async {
             let outcome = apply_datagram_proxy_request(&self.control, request)
                 .await
@@ -536,6 +543,22 @@ impl EmbeddedService {
         name: &str,
         patch: NativeDatagramProxyPatchV1,
     ) -> Result<(NativeDatagramProxyViewV1, u64), EmbedError> {
+        if patch
+            .max_associations
+            .is_some_and(|limit| limit == 0 || limit > 1_000_000)
+        {
+            return Err(EmbedError::Validation(
+                "max_associations must be in 1..=1000000".into(),
+            ));
+        }
+        if patch
+            .association_idle_timeout_ms
+            .is_some_and(|timeout| timeout == 0 || timeout > 86_400_000)
+        {
+            return Err(EmbedError::Validation(
+                "association_idle_timeout_ms must be in 1..=86400000".into(),
+            ));
+        }
         self.block_on(async {
             let outcome = apply_datagram_proxy_patch(&self.control, name, patch)
                 .await
@@ -664,14 +687,18 @@ impl EmbeddedService {
 
     /// Render the shared native error envelope for an embed error.
     pub fn error_envelope(error: &EmbedError) -> ErrorEnvelopeV1 {
+        // Codes stay within the native wire vocabulary
+        // (`not_found`, `conflict`, `invalid`, `bind_failed`,
+        // `restart_failed`, ...): lifecycle/internal map to the 500-class
+        // `restart_failed`, unsupported maps to `invalid`.
         let (code, message) = match error {
             EmbedError::Validation(detail) => ("invalid", detail.clone()),
             EmbedError::NotFound(detail) => ("not_found", detail.clone()),
             EmbedError::Conflict(detail) => ("conflict", detail.clone()),
-            EmbedError::Unsupported(detail) => ("unsupported", detail.clone()),
-            EmbedError::Lifecycle(detail) => ("lifecycle", detail.clone()),
+            EmbedError::Unsupported(detail) => ("invalid", detail.clone()),
+            EmbedError::Lifecycle(detail) => ("restart_failed", detail.clone()),
             EmbedError::Bind(detail) => ("bind_failed", detail.clone()),
-            EmbedError::Internal(detail) => ("internal", detail.clone()),
+            EmbedError::Internal(detail) => ("restart_failed", detail.clone()),
         };
         ErrorEnvelopeV1::new(code, message)
     }

@@ -208,6 +208,43 @@ impl ControlState {
         let next = self
             .publish_datagram_plan(name, direction, plan, seed, Some(generation))
             .await?;
+        // A concurrent publish to the opposite direction between the
+        // cross-direction check and the guarded publish can still create a
+        // duplicate ID across directions. Re-validate after publication and
+        // compensate with a removal so the path-lookup invariant holds.
+        if self
+            .get_datagram_plan(name, other_direction)
+            .await
+            .is_ok_and(|(other, _, _)| {
+                other
+                    .faults()
+                    .iter()
+                    .any(|existing| existing.id == fault.id)
+            })
+        {
+            let (current, current_generation, current_seed) =
+                self.get_datagram_plan(name, direction).await?;
+            let pruned: Vec<_> = current
+                .faults()
+                .iter()
+                .filter(|existing| existing.id != fault.id)
+                .cloned()
+                .collect();
+            if let Ok(rolled_back) = eggchaos_core::DatagramPlan::new(pruned) {
+                let _ = self
+                    .publish_datagram_plan(
+                        name,
+                        direction,
+                        rolled_back,
+                        current_seed,
+                        Some(current_generation),
+                    )
+                    .await;
+            }
+            return Err(ControlError::Conflict(
+                "datagram fault id must be unique across directions for path lookup".into(),
+            ));
+        }
         Ok((direction, fault, next))
     }
 

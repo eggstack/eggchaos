@@ -39,14 +39,14 @@ struct StreamResource {
 #[derive(Debug, Default)]
 pub struct StreamPolicyTarget {
     resources: RwLock<HashMap<String, StreamResource>>,
-    global: AtomicU64,
+    global: std::sync::Arc<AtomicU64>,
 }
 
 impl Clone for StreamPolicyTarget {
     fn clone(&self) -> Self {
         Self {
             resources: RwLock::new(self.resources.read().expect("stream target lock").clone()),
-            global: AtomicU64::new(self.global.load(Ordering::Acquire)),
+            global: self.global.clone(),
         }
     }
 }

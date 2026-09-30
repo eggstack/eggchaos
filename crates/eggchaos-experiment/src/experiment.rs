@@ -196,7 +196,10 @@ impl<T: PolicyTarget> PreparedExperiment<T> {
         self.run_from_epoch(epoch, token, sink).await
     }
 
-    /// Run from an already-captured epoch (e.g. `EpochGate::started`).
+    /// Run from an already-captured epoch (e.g. `EpochGate::start`).
+    ///
+    /// The epoch must come from its gate (`EpochGate::start`/`started` or a
+    /// waiter): arbitrary instants bypass the single-epoch gate contract.
     pub async fn run_from_epoch<S: EventSink>(
         self,
         epoch: Instant,
@@ -250,11 +253,9 @@ impl<T: PolicyTarget> PreparedExperiment<T> {
         F: std::future::Future<Output = W>,
     {
         let gate = EpochGate::new();
-        let waiter = gate.waiter();
         let epoch = gate.start();
         let (outcome, output) =
             tokio::join!(self.run_from_epoch(epoch, token, sink), workload(epoch),);
-        let _ = waiter;
         (outcome, output)
     }
 }

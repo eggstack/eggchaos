@@ -241,7 +241,7 @@ pub struct RecordingObserver {
 
 impl RecordingObserver {
     /// Create a collector retaining at most `capacity` records.
-    /// A zero capacity retains nothing but still counts dials.
+    /// A zero capacity retains nothing.
     pub fn new(capacity: usize) -> Self {
         Self {
             capacity,
@@ -317,10 +317,10 @@ impl DirectDialer {
     ///
     /// # Errors
     ///
-    /// Returns [`ChaosConfigError`] when the timeout exceeds
+    /// Returns [`ChaosConfigError`] when the timeout is zero or exceeds
     /// [`MAX_CONNECT_TIMEOUT`].
     pub fn with_connect_timeout(mut self, timeout: Duration) -> Result<Self, ChaosConfigError> {
-        if timeout > MAX_CONNECT_TIMEOUT {
+        if timeout.is_zero() || timeout > MAX_CONNECT_TIMEOUT {
             return Err(ChaosConfigError::ConnectTimeoutTooLong);
         }
         self.connect_timeout = timeout;

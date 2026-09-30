@@ -530,7 +530,20 @@ async fn run_cleanup<T: PolicyTarget>(
     for (_, entry) in owned {
         let outcome = match compiled.cleanup {
             CleanupPolicyV2::Leave => CleanupResourceOutcome::NotRequested,
-            CleanupPolicyV2::RestoreInitial => restore_target(target, &entry).await,
+            CleanupPolicyV2::RestoreInitial => {
+                // Derive the restore namespace from the schedule identity
+                // (never fixed 0) so restores don't collide across schedules.
+                // The index is one past the last event: distinct from every
+                // event index yet small enough to avoid seed-mix overflow.
+                let fingerprint = crate::fingerprint::compiled_fingerprint(compiled);
+                let namespace = eggchaos_core::derive_schedule_policy_seed(
+                    compiled.seed,
+                    compiled.execution_key,
+                    fingerprint,
+                    compiled.events.len() as u64,
+                );
+                restore_target(target, &entry, namespace).await
+            }
         };
         resources.push(CleanupResourceRecord {
             resource: entry.resource,
@@ -549,6 +562,7 @@ async fn run_cleanup<T: PolicyTarget>(
 async fn restore_target<T: PolicyTarget>(
     target: &T,
     entry: &OwnedResource,
+    namespace: u64,
 ) -> CleanupResourceOutcome {
     let owned_gen = entry.last_owned_generation;
     let current = match target.current_generation(&entry.resource).await {
@@ -559,7 +573,12 @@ async fn restore_target<T: PolicyTarget>(
         return CleanupResourceOutcome::Conflict;
     }
     match target
-        .publish(&entry.resource, current, entry.initial_plan.clone(), 0)
+        .publish(
+            &entry.resource,
+            current,
+            entry.initial_plan.clone(),
+            namespace,
+        )
         .await
     {
         Ok(_) => CleanupResourceOutcome::Restored,

@@ -186,6 +186,22 @@ impl NativeConfig {
         if config.version != 1 {
             return Err(NativeConfigError::Version(config.version));
         }
+        // Fail fast for insecure admin binds instead of only at serve time:
+        // non-loopback requires explicit opt-in plus a non-empty token.
+        if !config.admin.bind.ip().is_loopback()
+            && (!config.admin.public_admin
+                || config
+                    .admin
+                    .auth_token
+                    .as_ref()
+                    .is_none_or(|t| t.is_empty()))
+        {
+            return Err(NativeConfigError::Field {
+                field: "admin".into(),
+                message: "non-loopback admin requires public_admin=true and a non-empty auth_token"
+                    .into(),
+            });
+        }
         if config.proxies.len() > 1024 {
             return Err(NativeConfigError::Field {
                 field: "proxy".into(),
@@ -274,7 +290,22 @@ impl NativeConfig {
                 message: "config file exceeds the 1 MiB limit".into(),
             });
         }
-        Self::parse(&tokio::fs::read_to_string(path).await?)
+        // Cap the read itself: the file can grow between the metadata check
+        // and the read, so `take` bounds the actual bytes consumed.
+        use tokio::io::AsyncReadExt as _;
+        let file = tokio::fs::File::open(path.as_ref()).await?;
+        let mut limited = file.take(MAX_CONFIG_BYTES + 1);
+        let mut text = String::new();
+        {
+            limited.read_to_string(&mut text).await?;
+        }
+        if text.len() as u64 > MAX_CONFIG_BYTES {
+            return Err(NativeConfigError::Field {
+                field: "config".into(),
+                message: "config file exceeds the 1 MiB limit".into(),
+            });
+        }
+        Self::parse(&text)
     }
     /// Compile service proxy definitions.
     pub fn compile_proxies(&self) -> Result<Vec<ProxySpec>, NativeConfigError> {

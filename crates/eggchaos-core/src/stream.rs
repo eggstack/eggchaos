@@ -274,11 +274,17 @@ impl StreamEvidence {
     }
     fn note_direct(&self, bytes: u64) {
         if bytes > 0 {
-            self.direct_bytes.fetch_add(bytes, Ordering::Relaxed);
-            // The direct path accepts and forwards atomically: mirror
-            // immediately so evidence never lags a completed write.
-            self.bytes_accepted.fetch_add(bytes, Ordering::Relaxed);
-            self.bytes_forwarded.fetch_add(bytes, Ordering::Relaxed);
+            // Saturating counters stay monotonic alongside the engine's
+            // `saturating_add` evidence; wrapping `fetch_add` would diverge.
+            for counter in [
+                &self.direct_bytes,
+                &self.bytes_accepted,
+                &self.bytes_forwarded,
+            ] {
+                let _ = counter.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+                    Some(current.saturating_add(bytes))
+                });
+            }
         }
     }
 }

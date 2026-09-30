@@ -176,7 +176,9 @@ impl DatagramRuntime {
             } else {
                 // Proxy vanished between insert and spawn: stop the orphan.
                 owner.cancel.cancel();
-                let _ = owner.task.await;
+                if let Err(error) = owner.task.await {
+                    tracing::warn!("datagram listener supervisor join failed: {error}");
+                }
                 return Err(DatagramRuntimeError::NotFound(spec.name));
             }
         }
@@ -194,7 +196,9 @@ impl DatagramRuntime {
         };
         if let Some(owner) = owner {
             owner.cancel.cancel();
-            let _ = owner.task.await;
+            if let Err(error) = owner.task.await {
+                tracing::warn!("datagram listener supervisor join failed: {error}");
+            }
         }
         for association in drain_associations(&state, false).await {
             stop_association(&state, association, true).await;
@@ -241,7 +245,9 @@ impl DatagramRuntime {
             .ok_or_else(|| DatagramRuntimeError::NotFound(name.into()))?;
         if managed.listener.is_some() {
             owner.cancel.cancel();
-            let _ = owner.task.await;
+            if let Err(error) = owner.task.await {
+                tracing::warn!("datagram listener supervisor join failed: {error}");
+            }
             return Ok(proxy_view(
                 &managed.state,
                 managed.listener.as_ref().map(|x| x.bound),
@@ -260,7 +266,9 @@ impl DatagramRuntime {
         };
         if let Some(owner) = managed.listener.take() {
             owner.cancel.cancel();
-            let _ = owner.task.await;
+            if let Err(error) = owner.task.await {
+                tracing::warn!("datagram listener supervisor join failed: {error}");
+            }
         }
         for association in drain_associations(&managed.state, false).await {
             stop_association(&managed.state, association, true).await;
@@ -378,7 +386,9 @@ impl DatagramRuntime {
         };
         if let Some(owner) = old_owner {
             owner.cancel.cancel();
-            let _ = owner.task.await;
+            if let Err(error) = owner.task.await {
+                tracing::warn!("datagram listener supervisor join failed: {error}");
+            }
         }
         if !must_stop_old {
             // The `Sync` association registry's read guard is `!Send`, so
@@ -389,6 +399,19 @@ impl DatagramRuntime {
                     .associations
                     .read()
                     .expect("datagram association registry");
+                // Re-check under the write path: reject concurrent updates
+                // that changed the spec since the stale pre-validation clone
+                // instead of last-writer-wins overwriting them.
+                let current = state.spec.read().expect("datagram proxy spec").clone();
+                if current.listen != old.listen
+                    || current.upstream != old.upstream
+                    || current.max_associations != old.max_associations
+                    || current.association_idle_timeout != old.association_idle_timeout
+                {
+                    return Err(DatagramRuntimeError::Conflict(
+                        "datagram proxy changed concurrently".into(),
+                    ));
+                }
                 if state.proxy_active.load(Ordering::Acquire) > next.max_associations {
                     return Err(DatagramRuntimeError::Invalid(
                         "max_associations cannot be lower than the current active count".into(),
@@ -402,6 +425,21 @@ impl DatagramRuntime {
                 }
             }
         } else {
+            let current = state.spec.read().expect("datagram proxy spec").clone();
+            if current.listen != old.listen
+                || current.upstream != old.upstream
+                || current.max_associations != old.max_associations
+                || current.association_idle_timeout != old.association_idle_timeout
+            {
+                return Err(DatagramRuntimeError::Conflict(
+                    "datagram proxy changed concurrently".into(),
+                ));
+            }
+            if state.proxy_active.load(Ordering::Acquire) > next.max_associations {
+                return Err(DatagramRuntimeError::Invalid(
+                    "max_associations cannot be lower than the current active count".into(),
+                ));
+            }
             *state.spec.write().expect("datagram proxy spec") = next;
             for association in drain_associations(&state, false).await {
                 stop_association(&state, association, true).await;

@@ -357,16 +357,42 @@ async fn main() {
     .await;
     if let Err(error) = result {
         if cli.json {
-            print_value(
-                &serde_json::json!({"error": {"code": "request_failed", "message": error.to_string()}}),
-                true,
-            );
+            // Pass through the server's wire code when the failure came
+            // from a parsed server envelope; only transport/local failures
+            // use the non-wire `request_failed`.
+            if let Some(server) = error.downcast_ref::<ServerError>() {
+                print_value(
+                    &serde_json::json!({"error": {"code": server.code, "message": server.message}}),
+                    true,
+                );
+            } else {
+                print_value(
+                    &serde_json::json!({"error": {"code": "request_failed", "message": error.to_string()}}),
+                    true,
+                );
+            }
         } else {
             eprintln!("eggchaos: {error}");
         }
         std::process::exit(1);
     }
 }
+
+/// Server-side failure with its wire code preserved (no `request_failed`
+/// flattening).
+#[derive(Debug)]
+struct ServerError {
+    code: String,
+    message: String,
+}
+
+impl std::fmt::Display for ServerError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "admin returned {}: {}", self.code, self.message)
+    }
+}
+
+impl std::error::Error for ServerError {}
 
 async fn dispatch(
     command: Command,
@@ -948,10 +974,28 @@ async fn request(
     if let Some(token) = admin_token {
         builder = builder.header("authorization", &format!("Bearer {token}"));
     }
-    let mut response = builder.send().await.map_err(|_| "admin request failed")?;
+    let mut response = builder
+        .send()
+        .await
+        .map_err(|error| format!("admin request failed: {error}"))?;
     let status = response.status();
     let data = response.bytes().await?;
     if !status.is_success() {
+        // Pass through the server's wire envelope code when present
+        // instead of nesting it inside a non-wire `request_failed`.
+        if let Ok(envelope) = serde_json::from_slice::<serde_json::Value>(&data) {
+            if let Some(error) = envelope.get("error") {
+                if let (Some(code), Some(message)) = (
+                    error.get("code").and_then(|c| c.as_str()),
+                    error.get("message").and_then(|m| m.as_str()),
+                ) {
+                    return Err(Box::new(ServerError {
+                        code: code.to_owned(),
+                        message: message.to_owned(),
+                    }));
+                }
+            }
+        }
         let body = String::from_utf8_lossy(&data);
         // Surface the server error envelope (code/message) in the error
         // itself; `--json` callers still get exactly one JSON doc via the

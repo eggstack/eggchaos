@@ -98,7 +98,8 @@ impl NativeAdmin {
         config: AdminConfig,
         state: ControlState,
     ) -> Result<AdminHandle, AdminError> {
-        if !config.bind.ip().is_loopback() && (!config.public_admin || config.auth_token.is_none())
+        if !config.bind.ip().is_loopback()
+            && (!config.public_admin || config.auth_token.as_ref().is_none_or(|t| t.is_empty()))
         {
             return Err(AdminError::InsecurePublicBind);
         }
@@ -169,10 +170,14 @@ async fn handle_request(
         let supplied = head
             .headers()
             .get_first("authorization")
-            .and_then(|value| value.to_str().ok())
-            .unwrap_or_default();
-        let token = supplied.strip_prefix("Bearer ").unwrap_or("");
-        if !constant_time_equal(token.as_bytes(), expected.as_bytes()) {
+            .and_then(|value| value.to_str().ok());
+        let Some(token) = supplied.and_then(|value| value.strip_prefix("Bearer ")) else {
+            return Ok(json_response(
+                StatusCode::FORBIDDEN,
+                &envelope("unauthorized", "authorization required"),
+            ));
+        };
+        if expected.is_empty() || !constant_time_equal(token.as_bytes(), expected.as_bytes()) {
             return Ok(json_response(
                 StatusCode::FORBIDDEN,
                 &envelope("unauthorized", "authorization required"),
@@ -182,19 +187,12 @@ async fn handle_request(
     let method = head.method().as_str().to_owned();
     let path = head.target().path().to_owned();
     let body = body.read_all().await.map_err(|error| {
-        let message = error.to_string();
-        let lower = message.to_lowercase();
-        // Only oversize bodies are 413; other I/O/internal errors are 400.
-        if lower.contains("too large")
-            || lower.contains("oversize")
-            || lower.contains("exceed")
-            || lower.contains("limit")
-            || lower.contains("1mib")
-            || lower.contains("1048576")
-        {
-            ServiceError::rejected(413, message)
+        // Typed limit check: only oversize bodies are 413; other
+        // I/O/internal errors are 400. Never match message text.
+        if error.is_limit_exceeded() {
+            ServiceError::rejected(413, error.to_string())
         } else {
-            ServiceError::rejected(400, message)
+            ServiceError::rejected(400, error.to_string())
         }
     })?;
     let segments: Vec<&str> = path.split('/').filter(|part| !part.is_empty()).collect();

@@ -88,6 +88,7 @@ impl CompatError {
 
 /// Toxiproxy-compatible proxy JSON shape (responses).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Proxy {
     /// Name.
     pub name: String,
@@ -107,9 +108,11 @@ fn default_true() -> bool {
     true
 }
 
-/// Compatibility proxy create/populate/update input. Unknown fields (such as
-/// `toxics` on create, which the oracle ignores) are accepted and dropped.
+/// Compatibility proxy create/populate/update input. `toxics` on create
+/// (which the oracle ignores) is accepted and dropped; any other unknown
+/// field is rejected.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProxyInput {
     /// Name; required on create/populate entries.
     #[serde(default)]
@@ -123,10 +126,14 @@ pub struct ProxyInput {
     /// Enabled state; defaults to true.
     #[serde(default)]
     pub enabled: Option<bool>,
+    /// Tolerated oracle-compat field: ignored on create/populate.
+    #[serde(default)]
+    pub toxics: Option<serde_json::Value>,
 }
 
 /// Compatibility proxy update input: every field is optional.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProxyUpdate {
     /// Replacement listener (restart-class).
     #[serde(default)]
@@ -141,6 +148,7 @@ pub struct ProxyUpdate {
 
 /// Toxiproxy v2.12 toxic JSON shape.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Toxic {
     /// Optional stable name; absent defaults to `<type>_<stream>`.
     #[serde(default)]
@@ -169,6 +177,7 @@ fn default_toxicity() -> f64 {
 /// ignored, matching the oracle: updates only change toxicity and the
 /// same-type attributes.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ToxicUpdate {
     /// Ignored; toxic type is immutable.
     #[serde(default)]
@@ -188,6 +197,7 @@ pub struct ToxicUpdate {
 /// Bounded v2.12 toxic attribute superset. All fields are optional on input;
 /// omitted attributes default to zero per the oracle baseline.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ToxicAttributes {
     /// Milliseconds of latency.
     pub latency: Option<u64>,
@@ -550,6 +560,11 @@ impl Toxic {
                 | "packet_loss"
         ) {
             return Err(CompatibilityError::Unsupported(self.r#type.clone()));
+        }
+        // Strict v2.12 rejects `packet_loss` as unsupported before kind
+        // translation (which would otherwise report it as invalid type).
+        if self.r#type == "packet_loss" && !profile.clone().accepts_packet_loss() {
+            return Err(CompatibilityError::Unsupported("packet_loss".into()));
         }
         let kind = kind_from_attrs(&self.r#type, &self.attributes, profile.clone())
             .map_err(|error| CompatibilityError::Invalid(error.message))?;
@@ -931,7 +946,9 @@ impl ToxiproxyAdapter {
     }
 
     /// List toxics from live native snapshots (upstream faults then
-    /// downstream faults; differential comparison sorts by name).
+    /// downstream faults; differential comparison sorts by name). Unmapped
+    /// native faults surface as embedded `{"error":...}` pseudo-toxics,
+    /// identical to [`proxy_json`], so both routes share one mapping.
     pub async fn list_toxics(&self, proxy: &str) -> Result<Vec<Value>, CompatError> {
         let Some((upstream, downstream)) = self.state.list_faults(proxy).await else {
             return Err(CompatError::proxy_not_found());
@@ -939,14 +956,16 @@ impl ToxiproxyAdapter {
         let profile = self.profile.clone();
         let mut toxics = Vec::with_capacity(upstream.len() + downstream.len());
         for fault in &upstream {
-            toxics.push(fault_to_toxic(Direction::Upstream, fault, profile.clone())?);
+            match fault_to_toxic(Direction::Upstream, fault, profile.clone()) {
+                Ok(value) => toxics.push(value),
+                Err(error) => toxics.push(json!({"error": error.message})),
+            }
         }
         for fault in &downstream {
-            toxics.push(fault_to_toxic(
-                Direction::Downstream,
-                fault,
-                profile.clone(),
-            )?);
+            match fault_to_toxic(Direction::Downstream, fault, profile.clone()) {
+                Ok(value) => toxics.push(value),
+                Err(error) => toxics.push(json!({"error": error.message})),
+            }
         }
         Ok(toxics)
     }

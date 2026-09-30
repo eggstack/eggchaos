@@ -98,9 +98,13 @@ impl Drop for ResettableTcpStream {
             Ok(()) => ResetResult::Applied,
             Err(reason) => ResetResult::Failed(reason),
         };
-        if let Ok(mut slot) = self.handle.outcome.lock() {
-            *slot = Some(outcome);
-        }
+        // Record explicitly even under poisoning so `outcome()` never
+        // misreports a poisoned slot as `Unsupported`.
+        *self
+            .handle
+            .outcome
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner()) = Some(outcome);
     }
 }
 

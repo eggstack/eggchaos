@@ -468,7 +468,8 @@ impl DirectionEngine {
             }
             match fault.kind {
                 FaultKind::Latency(c) => {
-                    max_buffer = max_buffer.min(c.max_buffer_bytes.get() as usize);
+                    max_buffer = max_buffer
+                        .min(usize::try_from(c.max_buffer_bytes.get()).unwrap_or(usize::MAX));
                 }
                 FaultKind::LimitData(c) => {
                     if remaining_limit.is_none() {
@@ -697,8 +698,8 @@ impl DirectionEngine {
             .fold(0usize, |acc, len| acc.saturating_add(len));
         if total == 0 {
             // Mirror `accept`'s empty-input contract (always returns 0 on
-            // an empty buffer; termination/queue checks are owned by the
-            // outer ChaosStream paths that query them beforehand).
+            // an empty buffer; due terminations are refreshed first).
+            self.refresh_sync_terminations();
             return 0;
         }
         if !self.is_preserving_only() {
@@ -796,7 +797,9 @@ impl DirectionEngine {
             .evidence
             .stream_loss_bytes_discarded
             .saturating_add(previous.stream_loss_bytes_discarded);
-        self.high_water = self.high_water.max(previous.high_water_bytes as usize);
+        self.high_water = self
+            .high_water
+            .max(usize::try_from(previous.high_water_bytes).unwrap_or(usize::MAX));
     }
 
     /// Return the current termination request.
@@ -1205,6 +1208,7 @@ impl DirectionEngine {
     /// already due.
     pub fn accept(&mut self, input: &[u8]) -> usize {
         if input.is_empty() {
+            self.refresh_sync_terminations();
             return 0;
         }
         self.refresh_sync_terminations();

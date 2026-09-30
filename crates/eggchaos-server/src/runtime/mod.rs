@@ -167,6 +167,31 @@ impl ProxySpec {
                 "connect timeout must be at most 300000 ms".into(),
             ));
         }
+        // Share the datagram address validator semantics for IP scope:
+        // upstream must be unicast (unspecified/multicast/broadcast
+        // rejected); listeners must not be multicast/broadcast. Port 0 is
+        // left to bind/dial failure so ephemeral test doubles keep working.
+        {
+            use std::net::IpAddr as _IpAddr;
+            let forbidden_target = match self.upstream.ip() {
+                _IpAddr::V4(ip) => ip.is_unspecified() || ip.is_multicast() || ip.is_broadcast(),
+                _IpAddr::V6(ip) => ip.is_unspecified() || ip.is_multicast(),
+            };
+            if forbidden_target {
+                return Err(EggchaosError::InvalidProxy(
+                    "upstream must be a unicast socket address".into(),
+                ));
+            }
+            let forbidden_listener = match self.listen.ip() {
+                _IpAddr::V4(ip) => ip.is_multicast() || ip.is_broadcast(),
+                _IpAddr::V6(ip) => ip.is_multicast(),
+            };
+            if forbidden_listener {
+                return Err(EggchaosError::InvalidProxy(
+                    "listen address must be unicast or unspecified".into(),
+                ));
+            }
+        }
         Ok(())
     }
     /// Initialize live policies from the configured plans under the
@@ -488,6 +513,11 @@ impl ServiceBuilder {
     }
     /// Validate and create a startable service.
     pub fn build(self) -> Result<EggchaosService, EggchaosError> {
+        if self.proxies.len() > 1024 {
+            return Err(EggchaosError::InvalidProxy(
+                "stream proxy definitions exceed the 1024 proxy limit".into(),
+            ));
+        }
         let mut names = std::collections::HashSet::new();
         for proxy in &self.proxies {
             proxy.validate()?;

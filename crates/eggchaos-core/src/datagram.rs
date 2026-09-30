@@ -145,11 +145,12 @@ impl DatagramPlan {
                     }
                 }
                 DatagramFaultKind::Delay { delay, jitter }
-                    if delay.as_secs() > 86_400 || jitter.as_secs() > 86_400 =>
+                    if *delay > Duration::from_secs(86_400)
+                        || *jitter > Duration::from_secs(86_400) =>
                 {
                     return Err("delay and jitter must be at most 24 hours")
                 }
-                DatagramFaultKind::Reorder { hold } if hold.as_secs() > 86_400 => {
+                DatagramFaultKind::Reorder { hold } if *hold > Duration::from_secs(86_400) => {
                     return Err("reorder hold must be at most 24 hours")
                 }
                 _ => {}
@@ -202,6 +203,9 @@ impl DatagramLivePolicy {
         let plan = Arc::new(plan);
         loop {
             let current = self.snapshot();
+            if current.generation == u64::MAX {
+                return Err("generation overflow");
+            }
             let next = Arc::new(PublishedDatagramPolicy {
                 generation: current.generation.saturating_add(1),
                 plan: plan.clone(),
@@ -314,6 +318,7 @@ pub struct DatagramDirectionEngine {
     queue: BinaryHeap<Reverse<Candidate>>,
     evidence: DatagramEvidence,
     buckets: HashMap<String, Bucket>,
+    buckets_generation: u64,
 }
 
 impl DatagramDirectionEngine {
@@ -339,6 +344,7 @@ impl DatagramDirectionEngine {
             queue: BinaryHeap::new(),
             evidence,
             buckets: HashMap::new(),
+            buckets_generation: 0,
         })
     }
     pub fn evidence(&self) -> &DatagramEvidence {
@@ -388,6 +394,18 @@ impl DatagramDirectionEngine {
         }
         self.evidence.last_generation = policy.generation;
         self.evidence.last_seed_namespace = policy.seed_namespace;
+        if policy.generation != self.buckets_generation {
+            if !self.buckets.is_empty() {
+                self.buckets.retain(|id, _| {
+                    policy
+                        .plan
+                        .faults()
+                        .iter()
+                        .any(|fault| fault.id.as_str() == id)
+                });
+            }
+            self.buckets_generation = policy.generation;
+        }
         if policy.plan.faults().is_empty() {
             if self.queue.is_empty() && self.fits(payload.len() as u64) {
                 let scheduled = self.emit_immediate_single(ordinal, payload, policy.generation);
@@ -635,18 +653,11 @@ impl DatagramDirectionEngine {
         rate: u64,
         burst: u64,
     ) -> Duration {
-        // Avoid cloning the fault id on the steady-state path where the token
-        // bucket already exists; only the first admission per fault allocates.
-        if !self.buckets.contains_key(id) {
-            self.buckets.insert(
-                id.to_owned(),
-                Bucket {
-                    tokens: burst,
-                    updated: now,
-                },
-            );
-        }
-        let bucket = self.buckets.get_mut(id).expect("inserted bucket");
+        // Single-hash entry path; only the first admission per fault allocates.
+        let bucket = self.buckets.entry(id.to_owned()).or_insert(Bucket {
+            tokens: burst,
+            updated: now,
+        });
         let virtual_now = now.max(bucket.updated);
         let elapsed = virtual_now
             .saturating_duration_since(bucket.updated)
@@ -668,7 +679,7 @@ impl DatagramDirectionEngine {
                 .saturating_add(u128::from(rate - 1)))
                 / u128::from(rate);
             let service = Duration::from_nanos(nanos.min(u64::MAX as u128) as u64);
-            bucket.updated = virtual_now + service;
+            bucket.updated = virtual_now.checked_add(service).unwrap_or(virtual_now);
             virtual_now
                 .saturating_duration_since(now)
                 .saturating_add(service)
