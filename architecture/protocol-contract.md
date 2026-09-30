@@ -4,8 +4,9 @@ Back to [architecture overview](overview.md).
 
 Evidence-first deep dive for the native wire contract. Authority is code;
 `docs/control-plane.md` is a summary, not the spec. All paths below are
-relative to the workspace root. HEAD at write time: `e050fa2` (post-M041;
-M032 `ed05f68` origin).
+relative to the workspace root. HEAD at write time: `eb46b5f` (M000–M057
+closed; M057 `818e567` exact-head authority; M032 `ed05f68` origin, plus
+ADR 007 stream-loss propagation and M049 validation delegation).
 
 Sources: `crates/eggchaos-protocol/src/` (`lib.rs`, `common.rs`,
 `stream.rs`, `scenario_v2.rs`, `routes.rs`),
@@ -22,6 +23,15 @@ Sources: `crates/eggchaos-protocol/src/` (`lib.rs`, `common.rs`,
 `crates/eggchaos-server/tests/native_route_inventory.rs`,
 `docs/control-plane.md`,
 `plans/closure/M032-native-protocol-contract-extraction-and-openapi-foundation-closure.md`.
+
+> Review notes at current HEAD: `NATIVE_OPERATIONS` (36) ≡ YAML (21 paths /
+> 36 ops) ≡ `operations.json` (36) ≡ both SDK tables (36) verified;
+> `stream-loss` propagated as the 8th stream tag (ADR 007 chain M036–M041;
+> no `M037` milestone exists — code comments naming it are stale labels for
+> the ADR 007 tranche). Golden fixture `stream_faults.json` still pins 7
+> pre-ADR-007 entries while per-variant cover lives in `stream.rs` tests +
+> drift gate; `/v1/scenarios/{id}` vs `{run_id}` prose differs by doc
+> (behavior identical).
 
 ## 1. Purpose and boundary
 

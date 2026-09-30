@@ -4,9 +4,13 @@ Back to [architecture overview](overview.md) (§8, workspace-map rows
 `eggchaos-embed` and `eggchaos-native`).
 
 Evidence-first deep dive for the in-process embedding surface. Authority is
-code at HEAD (M041; M034/M035 origin); `docs/control-plane.md:210-217` and
-`bindings/python-native/README.md` are summaries, not the spec. All paths
-below are relative to the workspace root.
+code at HEAD `eb46b5f` (M000–M057 closed; M057 `818e567`; M034/M035 origin,
+plus M051 `operations.rs` delegation and M052/M050 path moves);
+`docs/control-plane.md:210-217` and `bindings/python-native/README.md` are
+summaries, not the spec. All paths below are relative to the workspace root.
+Per-`embed lib.rs:line` citations below predate M051 and are approximate:
+every mutating method now delegates to `eggchaos_server::operations`, and
+datagram authority lives in `runtime/control_datagram.rs`.
 
 Sources: `crates/eggchaos-embed/src/lib.rs`,
 `crates/eggchaos-embed/Cargo.toml`,

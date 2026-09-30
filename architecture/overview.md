@@ -27,10 +27,10 @@ eggchaos-native -> embed (PyO3 pilot, standalone maturin crate outside the works
 | Crate / package | Path | Role | Deep dive |
 | --- | --- | --- | --- |
 | `eggchaos-core` | `crates/eggchaos-core/` | Protocol-neutral deterministic fault substrate: typed stream `FaultPlan`, `DirectionEngine` state machines, `ChaosStream<T>` / `BidirectionalChaosStream` write-side adapters, `LivePolicy` publication, SplitMix64-v1 identity-scoped RNG, plus the sibling bounded whole-datagram scheduler. Knows nothing about HTTP, listeners, CLI, Toxiproxy, or Eggfetch. Empty stream plan delegates without allocating queue/timer. | [Core fault engine](core-fault-engine.md) |
-| `eggchaos-experiment` | `crates/eggchaos-experiment/` | Consumer-neutral Scenario V2 authority: schedule source language, deterministic compiler, canonical SHA-256 fingerprint, run_id-independent namespaces, shared expected-generation schedule driver, prepare/arm/start lifecycle with one monotonic epoch gate, in-process `StreamPolicyTarget`. Depends only on core. | [Scenarios and observability](scenario-observability.md) |
+| `eggchaos-experiment` | `crates/eggchaos-experiment/` | Consumer-neutral Scenario V2 authority: schedule source language, deterministic compiler, canonical SHA-256 fingerprint, run_id-independent namespaces, shared expected-generation schedule driver, prepare/arm/start lifecycle with one monotonic epoch gate, in-process `StreamPolicyTarget`. Per-family 32-run admission lives in the server `ScenarioRegistry` (M050). Depends only on core. | [Scenarios and observability](scenario-observability.md) |
 | `eggchaos-protocol` | `crates/eggchaos-protocol/` | Stable native `/v1` wire DTOs + `NATIVE_OPERATIONS` inventory, drift-checked against `api/openapi/eggchaos-v1.yaml`. Kebab-case fault discriminators, integer-nanosecond durations, unknown-field rejection. Depends on core/experiment only. | [Protocol contract](protocol-contract.md) |
-| `eggchaos-server` | `crates/eggchaos-server/` | Fixed-target TCP and UDP runtimes (never a forward proxy), bounded connection/association registries, single `ControlState` / `DatagramRuntime` mutation authorities, native admin HTTP (`admin.rs` on `eggserve-server` + `eggserve-primitives`), schema-v1 TOML config (`config.rs`), deterministic scenario drivers (V1 + V2). `eggress-relay` owns TCP bidirectional copy + half-close. | [Server runtime](server-runtime.md), [Control plane, config, and CLI](control-plane-cli.md) |
-| `eggchaos-cli` | `crates/eggchaos-cli/` | `eggchaos` binary: `serve`, TCP `proxy`/`fault`/`connection`, UDP `datagram proxy`/`fault`/`association`, `scenario` (V1 + V2 incl. validate/compile), `version`, `reset`, `history`, `metrics`. Thin JSON client over native admin via `eggfetch-core`; every command emits one JSON doc with `--json` and exits nonzero on failure. | [Control plane, config, and CLI](control-plane-cli.md) |
+| `eggchaos-server` | `crates/eggchaos-server/` | Fixed-target TCP and UDP runtimes (never a forward proxy), bounded connection/association registries, single `ControlState` / `DatagramRuntime` mutation authorities, typed `operations.rs` op layer (M051, delegates, no second store), V1/V2 `ScenarioRegistry` 32+32 per-family + global run-ID (M050), datagram `ControlState` methods in `runtime/control_datagram.rs` (M052 textual split, authority unchanged), native admin HTTP (`admin.rs` on `eggserve-server` + `eggserve-primitives`), schema-v1 TOML config (`config.rs`), deterministic scenario drivers (V1 + V2). `eggress-relay` owns TCP bidirectional copy + half-close. | [Server runtime](server-runtime.md), [Control plane, config, and CLI](control-plane-cli.md) |
+| `eggchaos-cli` | `crates/eggchaos-cli/` | `eggchaos` binary: `serve`, TCP `proxy`/`fault`/`connection`, UDP `datagram proxy`/`fault`/`association`, `scenario` (V1 + V2 incl. validate/compile), `version`, `reset`, `history`, `metrics`. Thin JSON client over native admin via `eggfetch-core`; every command emits one JSON doc with `--json` and exits nonzero on failure. Mutations dispatch through the shared `operations.rs` authority via HTTP. | [Control plane, config, and CLI](control-plane-cli.md) |
 | `eggchaos-toxiproxy` | `crates/eggchaos-toxiproxy/` | Toxiproxy v2.12 REST adapter over native `ControlState` (strict v2.12 default, frozen) plus the opt-in pinned post-v2.12 `packet_loss` snapshot profile. Holds no state; every view derives from snapshots, every mutation goes through native authority. | [Toxiproxy compatibility](toxiproxy-compat.md) |
 | `eggchaos-eggfetch` | `crates/eggchaos-eggfetch/` | Composable in-process `eggfetch-core::Dialer` adapter (`ChaosDialer<D>` over any caller-selected inner dialer, direct-TCP convenience included): live physical-stream fault policy, caller-controlled deterministic connection identity, bounded out-of-band transport evidence. Eggfetch keeps HTTP/TLS/SNI/pooling. Per-request chaos is out of scope. | [Eggfetch integration](eggfetch-integration.md) |
 | `eggchaos-embed` | `crates/eggchaos-embed/` | Safe coarse embedding facade over server/control/experiment authorities; owns lifecycle on a private Tokio runtime with blocking (never future-exposing) methods. Shared datagram mutation authority with HTTP admin (M035). | [Embedding and native bindings](embedding-native.md) |
@@ -42,10 +42,10 @@ Supporting members and tools:
 | Area | Path | Role | Deep dive |
 | --- | --- | --- | --- |
 | OpenAPI contract | `api/openapi/eggchaos-v1.yaml` | Mechanically drift-checked native contract (36 operations). Authority is the `eggchaos-protocol` crate. | [Protocol contract](protocol-contract.md) |
-| Benchmarks | `benchmarks/` (separate crate) | No-fault throughput/latency vs bare `eggress-relay` (TCP) and topology-matched bare UDP relay (sequential RTT + windowed throughput). | [Verification and qualification](verification-qualification.md) |
-| Fuzz | `fuzz/` (separate workspace) | `plan_json` + datagram/transition/DTO/config targets via `cargo-fuzz` (`--sanitizer none` under pinned 1.89). | [Verification and qualification](verification-qualification.md) |
-| Qualification | `qualification/` | Perf snapshots, release TOML fixture, pinned v2.12 oracle baseline + Go/Python client smokes, post-v2.12 evidence. | [Verification and qualification](verification-qualification.md) |
-| Scripts | `scripts/` | Canonical command surface: `check`, `benchmark(_datagram)`, `qualify_*`, `check_*`, fetcher/qualifier pairs, `release-smoke`, `release-artifact-smoke`. | [Tooling and distribution](tooling-distribution.md) |
+| Benchmarks | `benchmarks/` (separate crate) | No-fault throughput/latency vs bare `eggress-relay` (TCP, 16+1 stream cases + microprobes) and topology-matched bare UDP relay (sequential RTT + windowed throughput + scale cases). Shared provenance schema v1 (M047), hosted Tier B (M048). | [Verification and qualification](verification-qualification.md) |
+| Fuzz | `fuzz/` (separate workspace) | 9 targets (`plan_json` + datagram/transition/DTO/config/scenario_v2) via `cargo-fuzz` (`--sanitizer none` under pinned 1.89). | [Verification and qualification](verification-qualification.md) |
+| Qualification | `qualification/` | Perf snapshots incl. M042–M047 provenance series, release TOML fixture, pinned v2.12 oracle baseline + Go/Python client smokes, post-v2.12 evidence. Exact-head authority M057 (`818e567`, hosted `36490497114` 14/14 + dispatch `36630812771`). | [Verification and qualification](verification-qualification.md) |
+| Scripts | `scripts/` | Canonical command surface: `check` (fmt/clippy/test/doc + M048 Tier A + M053 planning guard + version/release-contract guards), `benchmark(_datagram)`, `qualify_*`, `check_*` (OpenAPI 21/36, SDK drift), fetcher/qualifier pairs, `release-smoke`, `release-artifact-smoke`. | [Tooling and distribution](tooling-distribution.md) |
 | CI / release | `.github/workflows/` (`ci.yml`, `release.yml`) | 3-OS fmt/clippy/test/doc/audit/deny + language-client + python-native jobs; release qualify + 5-target artifact matrix. | [Tooling and distribution](tooling-distribution.md) |
 | Governance | `plans/` + `docs/` | `plans/roadmap.md` (architecture authority), `plans/registry.md` (status), `plans/adrs/`, `plans/reference/` (parity/verification contracts, not status), `plans/closure/` (evidence); `docs/` (user contracts). | [Tooling and distribution](tooling-distribution.md) |
 
@@ -150,13 +150,16 @@ overview first, then go component by component.
    semantics.
 2. [Fixed-target server runtime](server-runtime.md) — `eggchaos-server/runtime/`
    (plus `runtime/datagram/`): TCP listeners and `eggress-relay` embedding,
-   the connection registry and `ControlState`, plus the independent bounded
+   the connection registry and `ControlState`, the typed `operations.rs`
+   delegation layer (M051), the per-family `ScenarioRegistry` (M050), the
+   `control_datagram.rs` split (M052), plus the independent bounded
    UDP `DatagramRuntime` with per-client connected upstream associations
    (M021/M024/M025 lifecycle).
 3. [Control plane, config, and CLI](control-plane-cli.md) — `admin.rs`,
-   `config.rs`, `native.rs` adapters, `eggchaos-cli/src/main.rs`: native
-   `/v1` route inventory, schema-v1 TOML, CLI command matrix, auth/loopback
-   policy, JSON contract, and the remote Python/TypeScript SDKs (M033).
+   `config.rs`, `native.rs` adapters, `operations.rs` authority (M051),
+   `eggchaos-cli/src/main.rs`: native `/v1` route inventory (36 ops / 21
+   paths), schema-v1 TOML, CLI command matrix, auth/loopback policy, JSON
+   contract, and the remote Python/TypeScript SDKs (M033).
 4. [Protocol contract](protocol-contract.md) — `eggchaos-protocol` +
    `api/openapi/eggchaos-v1.yaml`: wire DTO ownership, `NATIVE_OPERATIONS`
    inventory, drift-check discipline, units/discriminators/bounds (M032).
@@ -180,13 +183,16 @@ overview first, then go component by component.
    host-aware qualification (M034/M035).
 9. [Verification and qualification](verification-qualification.md) — unit /
    property / half-close / backpressure / JSON round-trip / differential /
-   cross-language / native-conformance tests, `fuzz/`, `benchmarks/`,
-   `qualification/`, tolerance policy for wall-clock assertions,
-   incomplete-evidence rule.
+   cross-language / native-conformance tests, `fuzz/` (9 targets),
+   `benchmarks/` (16+1 stream cases + probes, scale/datagram budgets),
+   `qualification/` (M042–M047 provenance snapshots), tolerance policy for
+   wall-clock assertions, incomplete-evidence rule, M057 exact-head
+   authority (`818e567`).
 10. [Tooling, release, and repo governance](tooling-distribution.md) —
-    `scripts/`, `.github/workflows/`, `dist/`, `deny.toml`, `plans/` +
-    `docs/` authority, publish order, status vocabulary,
-    closure-evidence discipline.
+     `scripts/`, `.github/workflows/`, `dist/`, `deny.toml`, `plans/` +
+     `docs/` authority, `release-contract` DAG (M056 impl / M057 hosted),
+     publish order, planning dual-wiring guards (M048 Tier A/B, M053),
+     status vocabulary, closure-evidence discipline.
 
 ## Canonical references
 

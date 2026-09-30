@@ -22,7 +22,13 @@ Fetchers: `scripts/fetch_toxiproxy_v2_12.sh` +
 `scripts/fetch_toxiproxy_post_v2_12.sh` (M041 stdout contract).
 Latest corrective authority: M041 (`724b967`, closure
 `plans/closure/M041-stream-loss-metrics-and-closure-hygiene-corrective-closure.md`);
-M040 (`48fe0dd`) is the historical stream-loss requalification.
+M040 (`48fe0dd`) is the historical stream-loss requalification. Repository
+exact-head authority is M057 (`818e567`, hosted `36490497114` 14/14 +
+dispatch `36630812771`); the strict v2.12 corpus (50 runtime-expanded
+comparisons, `DIFFERENTIAL_SUMMARY failed:0`) and the snapshot profile (12
+API + 2 exact edges + 256/512-probe statistics, pinned post-v2.12 commit
+`40f7fd31`, Go toolchain `go1.23.0`) are unchanged by M042–M057.
+Per-`lib.rs:line` citations below are approximate at current HEAD.
 
 ## 1. Adapter stance: no state, native authority only
 

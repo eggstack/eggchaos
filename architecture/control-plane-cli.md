@@ -9,7 +9,9 @@ spec. All paths below are relative to the workspace root.
 Sources: `crates/eggchaos-protocol/src/` (wire DTO + operation-inventory
 authority: `lib.rs`, `routes.rs`, `stream.rs`, `scenario_v2.rs`,
 `common.rs`), `api/openapi/eggchaos-v1.yaml` (mechanically drift-checked
-contract, 36 operations), `crates/eggchaos-server/src/admin.rs`,
+contract, 36 operations / 21 paths), `crates/eggchaos-server/src/admin.rs`,
+`crates/eggchaos-server/src/operations.rs` (M051 typed operation authority;
+`admin.rs` and `eggchaos-embed` delegate here),
 `crates/eggchaos-server/src/native.rs` (server adapters + compatibility
 re-exports), `crates/eggchaos-server/src/native_v2.rs` (V2 re-exports only),
 `crates/eggchaos-server/src/runtime/` (`mod.rs` composition/re-exports,
@@ -20,7 +22,18 @@ types, `datagram/` UDP authority), `crates/eggchaos-server/src/config.rs`,
 `crates/eggchaos-cli/Cargo.toml`,
 `crates/eggchaos-cli/tests/cli_e2e.rs`,
 `docs/control-plane.md`, `docs/configuration.md`,
-`qualification/release/eggchaos.toml`.
+`qualification/release/eggchaos.toml`,
+`scripts/sync_sdk_contract.py`, `bindings/_contract/operations.json`,
+`bindings/python-client/eggchaos_client/_generated.py`,
+`bindings/typescript-client/src/generated.ts`.
+
+> Review status at HEAD `eb46b5f` (M000–M057 closed; M057 `818e567`):
+> the 36-op / 21-path inventory, schema-v1 TOML behavior, `--json`
+> one-document contract, 1 MiB body cap, loopback+bearer auth, and SDK
+> drift gates verified against code. Per-`admin.rs:line` citations below
+> predate the M051 `operations.rs` extraction and are approximate — the
+> authority for every mutating route is now `operations.rs`, with
+> `admin.rs` owning only listener/auth/bounds/dispatch.
 
 ## 1. Native `/v1` admin API
 

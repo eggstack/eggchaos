@@ -8,6 +8,11 @@ Back to [architecture overview](overview.md) (§ “Eggfetch in-process integrat
 
 Canonical contract: `docs/eggfetch.md`. Implementation: `crates/eggchaos-eggfetch/src/lib.rs` with composition/identity/evidence tests in `crates/eggchaos-eggfetch/src/tests.rs`. Feature gate: `crates/eggchaos-eggfetch/Cargo.toml`. Regression matrix: `crates/eggchaos-eggfetch/tests/regression.rs`. M031 cross-layer correlation: `crates/eggchaos-eggfetch/tests/correlation.rs`. M031 overhead measurements: `crates/eggchaos-eggfetch/tests/adapter_overhead.rs`. Qualification entrypoint: `scripts/qualify_eggfetch.sh`.
 
+> Review status at HEAD `eb46b5f` (M000–M057 closed; M057 `818e567`):
+> re-verified aligned — `ChaosDialer<D>` composition, caller-controlled
+> identity, live-policy publication, bounded evidence, H1/`http2` split,
+> and the 20+10+1+3 regression map match code with no material drift.
+
 Non-goals (explicit in `docs/eggfetch.md` and `crates/eggchaos-eggfetch/src/lib.rs` header):
 
 - No per-request chaos. Policy is physical-connection scoped; one pooled H2 connection exposes one policy to many logical streams.

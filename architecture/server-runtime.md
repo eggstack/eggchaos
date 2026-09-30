@@ -12,8 +12,9 @@ embeds `ChaosStream<T>` (TCP) and `DatagramDirectionEngine` (UDP) at the
 transport edge. User-facing dependency direction and fault-semantics baseline
 live in `docs/architecture.md` and `docs/control-plane.md`.
 
-Verified at HEAD `e050fa2` (M041 close at `724b967`; TCP/UDP split-module
-layout, not a `runtime.rs` monolith).
+Verified at HEAD `eb46b5f` (M000–M057 closed; exact-head qualification
+authority M057 at `818e567`; TCP/UDP split-module layout, not a
+`runtime.rs` monolith).
 
 Sources (evidence-first): `crates/eggchaos-server/src/lib.rs` (60 lines),
 `crates/eggchaos-server/src/runtime/mod.rs` (620 lines: composition +
@@ -29,8 +30,22 @@ tables/counters), `crates/eggchaos-server/src/runtime/tests.rs` (2051 lines:
 TCP/runtime regression suite), `crates/eggchaos-server/src/runtime/datagram/`
 (`mod.rs` 32 lines, `model.rs` 302 lines, `registry.rs` 613 lines,
 `association.rs` 931 lines, `supervisor.rs` 193 lines, `tests.rs` 919 lines),
+`crates/eggchaos-server/src/operations.rs` (M051 typed native operation
+authority — `admin.rs` and `eggchaos-embed` delegate here, no second store),
+`crates/eggchaos-server/src/runtime/scenario_registry.rs` (M050 per-family
+32+32 run registry + global `next_run_id`),
+`crates/eggchaos-server/src/runtime/control_datagram.rs` (M052 textual split
+of datagram `ControlState` methods; authority unchanged),
 `crates/eggchaos-server/Cargo.toml`, `docs/architecture.md`,
 `docs/control-plane.md`.
+
+> Post-M041 addendum (M050–M052): run capacity is per-family
+> (`SCENARIO_FAMILY_CAPACITY = 32` V1 **and** 32 V2 with a single global
+> `next_run_id`, not one shared 32); `operations.rs` is the single typed
+> native application operation authority; `control_datagram.rs` holds the
+> datagram `ControlState` methods moved verbatim from `control.rs`.
+> Per-`file:line` citations below predate those splits and are approximate
+> at current HEAD.
 
 ## Runtime module map (split-module reality)
 

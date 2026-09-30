@@ -4,7 +4,8 @@ Part of [Eggchaos architecture overview](overview.md).
 
 Evidence-first review handoff for the protocol-neutral deterministic
 byte-stream fault substrate. All behavior below is read from the sources
-cited at HEAD (`e050fa2`, M041); no inference about missing code.
+cited at HEAD (`eb46b5f`, M000–M057 closed; exact-head qualification
+authority M057 at `818e567`); no inference about missing code.
 
 Sources:
 
@@ -21,6 +22,20 @@ Sources:
 - `docs/architecture.md`
 - `plans/adrs/001-stream-fault-engine-boundary.md`
 - `plans/adrs/002-determinism-and-live-mutation.md`
+- `plans/adrs/003-*.md` (datagram boundary, sibling engine in `datagram.rs`)
+- `plans/adrs/007-*.md` (stream-loss byte-chunk semantics, M036–M041)
+
+> Post-M041 addendum (M042–M057): `FaultPlan::validate` is the single
+> plan-level invariant authority with `FaultId`/`Probability` deserialization
+> routed through canonical validators (M049); the hot path uses shared
+> `Arc<FaultPlan>` ownership plus a bounded preserving-plan vectored prefix
+> copy with full-join fallback for non-preserving plans (`LimitData` falls
+> back; see `engine.rs` `is_preserving_only` / `accept_vectored` and
+> `stream.rs` `poll_write_vectored`), proven equivalent by proptest
+> (M043, recorded no-op vs the M042 ≥10% threshold). Per-`file:line`
+> citations below predate the M049/M043 refactors and are approximate at
+> current HEAD — re-verify against `plan.rs` / `engine.rs` / `stream.rs` /
+> `datagram.rs` before treating a line number as exact.
 
 ## 1. Purpose and boundary
 

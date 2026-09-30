@@ -15,12 +15,16 @@ publish through.
 > Evidence-first: every claim below names the file that owns it. No payload
 > bytes are captured anywhere in this surface.
 >
-> Verified at HEAD against M041 (`724b967`, corrective successor to M040)
-> including the M026–M031 ADR 004/005 tranche and the M041 stream-loss
-> metrics/tooling closure. Stale pre-split `runtime.rs` line refs were
-> re-pointed at `runtime/{mod,control,connection,model,metrics}.rs`;
-> stale `scenario_v2/*.rs` semantic refs were re-pointed at
-> `eggchaos-experiment`.
+> Verified at HEAD against M057 (`818e567`; M050 per-family registry and
+> M051 operations dispatch included) building on the M026–M031 ADR 004/005
+> tranche and the M041 stream-loss metrics/tooling closure. Stale pre-split
+> `runtime.rs` line refs were re-pointed at `runtime/{mod,control,connection,
+> model,metrics}.rs`; stale `scenario_v2/*.rs` semantic refs were re-pointed
+> at `eggchaos-experiment`. Per-`control.rs:line` citations predate the M050
+> `scenario_registry.rs` extraction and the M052 `control_datagram.rs` split
+> and are approximate: run capacity is per-family 32+32 with a single global
+> `next_run_id` (not one shared 32), and datagram `ControlState` methods live
+> in `control_datagram.rs` with authority unchanged.
 
 ## 1. Scenario model
 

@@ -1,14 +1,22 @@
 # Verification and qualification
 
 Part of [Eggchaos architecture overview](overview.md) (item 9). Evidence-first
-review handoff for how eggchaos proves correctness at HEAD (M041 closed;
-exact implementation candidate `724b967`). Canonical contracts live in
+review handoff for how eggchaos proves correctness at HEAD (M000–M057 closed;
+exact implementation candidate `818e567`, hosted run `36490497114` 14/14 +
+dispatch `36630812771`). Canonical contracts live in
 `plans/reference/verification-matrix.md` and
 `qualification/toxiproxy-v2-12/oracle-baseline-v2.12.0.md`; canonical status
 lives in `plans/registry.md` and `plans/closure/` (latest:
-`plans/closure/M041-stream-loss-metrics-and-closure-hygiene-corrective-closure.md`).
+`plans/closure/M057-m056-closure-evidence-reconciliation-and-exact-head-requalification-closure.md`).
 Do not assert by inspection:
 if a gate was not run, record it as incomplete (see §8).
+
+> Count notes at current HEAD: `fuzz/` holds 9 targets; `benchmarks/`
+> stream harness holds 16+1 cases + microprobes; `qualification/performance/`
+> retains the M042–M047 provenance series (schema v1, Tier A cheap /
+> Tier B release-benchmarks); OpenAPI drift gate stays 21 paths / 36 ops.
+> Per-test counts and `file:line` citations below predate the M049–M052
+> refactors and are approximate.
 
 ## 1. Test layers (what runs where)
 

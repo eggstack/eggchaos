@@ -10,16 +10,21 @@ Published `v0.1.0` (tag target `81994dbc427365f1dfdaabfa39bdf077850e69ec`,
 published 2026-09-24) is the historical first release. Current `main` is the
 unreleased `0.2.0` development baseline (M055 closed): workspace and
 first-party language packages resolve to `0.2.0`; native `/v1`, config schema
-v1, RNG v1, and provenance schema v1 are unchanged. Milestones M000–M055 are
-closed (`plans/registry.md` is the status authority). M019
+v1, RNG v1, and provenance schema v1 are unchanged. Milestones M000–M057 are
+closed and M058 is ready as the owner-controlled v0.2.0 publication
+milestone (`plans/registry.md` is the status authority). M019
 closed at `ca527db` and remains the final v0.1.0 pre-tag release-candidate
 authority; later tranches do not rewrite it. M041 closed at
 `724b967da04579282dd8bfc7a81dc4fe55d034a2` (hosted run `36219464594`,
-13/13 jobs) and is the latest ADR 007 repository-level authority for
+13/13 jobs) and remains the ADR 007 repository-level authority for
 the narrow stream-loss metrics/tooling/closure corrective. M048 closed
 at `ab61ac7809b9260e44a827567065e1479445f2f7` (hosted run `36331806587`,
 14/14 jobs) and is the hosted qualification/CI-ownership authority for
-the M047 provenance tooling. Complete: ADR 003 datagram tranche
+the M047 provenance tooling. M055 closed at `b0ecbf1` and owns the
+unreleased 0.2.0 baseline; M056 closed at `b6f0095` and owns the
+`release-contract` DAG implementation; M057 closed at `818e567` (hosted run
+`36490497114` 14/14 + dispatch `36630812771` green) and is the final hosted
+qualification authority for that DAG. Complete: ADR 003 datagram tranche
 (M020–M023 plus M024 performance and M025 setup/closure hygiene), ADR
 004 schedule tranche (M026–M028), ADR 005 integration-boundary tranche
 (M029–M031), ADR 006 cross-language tranche (M032–M034 plus corrective
@@ -39,7 +44,7 @@ than re-implementing their steps.
 
 | Script | What it runs | When to run it |
 | --- | --- | --- |
-| `scripts/check.sh` | `cargo fmt --all -- --check`; `cargo clippy --workspace --all-targets --all-features -- -D warnings`; `cargo test --workspace --all-features`; `cargo doc --workspace --all-features --no-deps`. Note: no `audit`/`deny` here — those live in CI and `release-smoke.sh`. | Every local change before push; fastest full local gate. |
+| `scripts/check.sh` | `test_bench_provenance.sh` (M048 Tier A) + `test_planning_state.sh` (M053) + `test_version_coherence.sh` (M055) + `test_release_tag_version.sh` (M056 structural) + `cargo fmt --all -- --check`; `cargo clippy --workspace --all-targets --all-features -- -D warnings`; `cargo test --workspace --all-features`; `cargo doc --workspace --all-features --no-deps`. Note: `audit`/`deny` live in CI and `release-smoke.sh`; release-benchmark Tier B stays CI-only. | Every local change before push; fastest full local gate. |
 | `scripts/benchmark.sh` | M047 wrapper: collects shared provenance via `scripts/bench_provenance.py` (clean/dirty policy, `--exclude` for artifact outputs), exports `EGGCHAOS_BENCH_PROVENANCE_JSON` for `benchmarks/src/main.rs` (identical object in stdout case JSON and stderr probe JSON), warns on dirty exploratory runs, and refuses dirty trees before execution under `EGGCHAOS_BENCH_REQUIRE_CLEAN=1` / `--require-clean`. Artifact mode via `EGGCHAOS_STREAM_BENCH_OUTPUT` / `EGGCHAOS_STREAM_PROBE_OUTPUT`. | No-fault throughput/latency vs bare `eggress-relay` (see `benchmarks/`, `qualification/performance/`). Do not invent budgets before measurement (`plans/roadmap.md` §12). Canonical retained evidence requires a clean tree. |
 | `scripts/benchmark_datagram.sh` | Runs the direct UDP echo / benchmark-local bare fixed-target relay / fixed-target benchmark in release mode (`--bin datagram`), annotates the JSON report with `cpu_model`/`rustc`/`candidate_sha` (= `provenance.head_sha`, base HEAD) plus the shared `provenance` object from `scripts/bench_provenance.py` (or writes to `${EGGCHAOS_DATAGRAM_BENCH_OUTPUT:-}` temp file), then checks the measured no-fault ratios. Same dirty-warning / `EGGCHAOS_BENCH_REQUIRE_CLEAN=1` guard as the stream wrapper. | Datagram performance qualification; the retained M023 budget is ≥45% of same-session direct datagrams/s and ≤2.5× direct p95 latency, plus the M024 topology-matched budget (empty/bare ≥0.7× sequential throughput, ≤1.6× sequential p95, ≥0.7× windowed throughput). Also runs in the release `qualify` lane. |
 | `scripts/bench_provenance.py` | M047 single Git-state authority (stdlib-only): repo root via `git rev-parse --show-toplevel`, base HEAD, staged/tracked/untracked classification minus generated/output exclusions (`target/`, `__pycache__`/`*.pyc`, `qualification/performance/*.json`, `--exclude` paths), stable SHA-256 dirty-source fingerprint, machine-readable `{"provenance": {...}}` envelope; `--require-clean` exits 2 on dirty trees. Never mutates Git state; emits no absolute paths or secrets. | Consumed by both benchmark wrappers; `scripts/tests/test_bench_provenance.sh` pins the clean/dirty matrix in disposable repos. |
