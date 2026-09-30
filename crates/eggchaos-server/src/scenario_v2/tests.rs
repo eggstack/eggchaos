@@ -780,7 +780,7 @@ fn isolated_fingerprint_variants_pinned_by_golden_corpus() {
     let cases: Vec<(&str, &str)> = vec![
         (
             "minimal_one_phase_stream",
-            "cba7c6ae8ca198a4e1708d999f44e0b09c880cc880bb3660e04bf05c5e79cda8",
+            "2d97f48febf9340b14c3ebdebeae2150820feb130dceda486c33d141cb7959b2",
         ),
         ("minimal_one_phase_datagram", "TBD"),
     ];

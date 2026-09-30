@@ -266,6 +266,14 @@ impl NativeConfig {
     }
     /// Load and parse a TOML file.
     pub async fn load(path: impl AsRef<Path>) -> Result<Self, NativeConfigError> {
+        const MAX_CONFIG_BYTES: u64 = 1_048_576;
+        let metadata = tokio::fs::metadata(path.as_ref()).await?;
+        if metadata.len() > MAX_CONFIG_BYTES {
+            return Err(NativeConfigError::Field {
+                field: "config".into(),
+                message: "config file exceeds the 1 MiB limit".into(),
+            });
+        }
         Self::parse(&tokio::fs::read_to_string(path).await?)
     }
     /// Compile service proxy definitions.

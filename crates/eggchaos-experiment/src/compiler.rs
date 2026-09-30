@@ -70,6 +70,9 @@ pub struct CompiledScenarioV2 {
     pub cleanup: CleanupPolicyV2,
     /// Ordered, immutable event tape.
     pub events: Vec<CompiledEventV2>,
+    /// Total schedule duration in nanoseconds (sum of all phase durations,
+    /// including the trailing phase which otherwise leaves no offset trace).
+    pub total_duration_ns: u64,
 }
 
 /// Validate that `count` fits the structural ceiling before iterating.
@@ -173,6 +176,7 @@ pub fn compile_schedule(source: &ScenarioScheduleV2) -> Result<CompiledScenarioV
         isolation: source.isolation,
         cleanup: source.cleanup,
         events,
+        total_duration_ns: cursor_ns,
     })
 }
 

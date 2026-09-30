@@ -226,6 +226,10 @@ pub(crate) async fn drive_schedule_v2_run(
     let target = ControlStateTarget {
         state: state.clone(),
     };
+    // Capture the epoch before preparation so prepare latency never shifts
+    // absolute deadlines into spurious `late_by_ns`.
+    let gate = EpochGate::started();
+    let epoch = gate.epoch().expect("started gate holds an epoch");
     // Preparation publishes nothing; on failure the run ends Failed
     // with an empty cleanup over the schedule's own cleanup policy,
     // mirroring the previous driver exactly.
@@ -253,8 +257,6 @@ pub(crate) async fn drive_schedule_v2_run(
         }
     };
 
-    let gate = EpochGate::started();
-    let epoch = gate.epoch().expect("started gate holds an epoch");
     let mut sink = RunRecordSink {
         state: state.clone(),
         run_id,

@@ -219,11 +219,9 @@ async fn wait_for_deadline(
     offset_ns: u64,
 ) -> Result<(), ()> {
     let Some(deadline) = epoch.checked_add(Duration::from_nanos(offset_ns)) else {
-        tokio::select! {
-            biased;
-            () = token.cancelled() => return Err(()),
-            () = std::future::pending::<()>() => return Ok(()),
-        }
+        // Unrepresentable deadline: pend until cancellation wins.
+        token.cancelled().await;
+        return Err(());
     };
     if Instant::now() >= deadline {
         return Ok(());
@@ -245,7 +243,10 @@ async fn apply_event<T: PolicyTarget, S: EventSink>(
     schedule_fingerprint: [u8; 32],
     sink: &mut S,
 ) -> Result<(), String> {
-    let applied_elapsed_ns = Instant::now().duration_since(epoch).as_nanos() as u64;
+    let applied_elapsed_ns = Instant::now()
+        .duration_since(epoch)
+        .as_nanos()
+        .min(u64::MAX as u128) as u64;
     let late_by_ns = applied_elapsed_ns.saturating_sub(event.offset_ns);
     let namespace = derive_schedule_policy_seed(
         compiled.seed,
@@ -306,6 +307,7 @@ async fn apply_event<T: PolicyTarget, S: EventSink>(
                 .snapshot(&resource)
                 .await
                 .map_err(|_| format!("stream proxy {proxy} not found"))?;
+            let snapshot_generation = snapshot.generation;
             let TargetPlan::Stream(base) = snapshot.plan else {
                 return Err(format!("stream proxy {proxy} not found"));
             };
@@ -314,9 +316,17 @@ async fn apply_event<T: PolicyTarget, S: EventSink>(
             }
             let plan = base.without_fault(id);
             let key = resource_key(proxy, *direction, ScheduleTransport::Stream);
-            let expected = expected_generation(target, &resource, strict, &key, owned)
-                .await
-                .ok_or_else(|| format!("stream proxy {proxy} not found"))?;
+            // CAS on the snapshotted generation so a concurrent manual move
+            // between snapshot and publish conflicts instead of being
+            // overwritten by a stale plan. Strict mode still owns via the
+            // run's last generation.
+            let expected = if strict {
+                expected_generation(target, &resource, strict, &key, owned)
+                    .await
+                    .ok_or_else(|| format!("stream proxy {proxy} not found"))?
+            } else {
+                snapshot_generation
+            };
             let receipt = target
                 .publish(&resource, expected, TargetPlan::Stream(plan), namespace)
                 .await
@@ -392,6 +402,7 @@ async fn apply_event<T: PolicyTarget, S: EventSink>(
                 .snapshot(&resource)
                 .await
                 .map_err(|_| format!("datagram proxy {proxy} not found"))?;
+            let snapshot_generation = snapshot.generation;
             let TargetPlan::Datagram(current) = snapshot.plan else {
                 return Err(format!("datagram proxy {proxy} not found"));
             };
@@ -403,15 +414,22 @@ async fn apply_event<T: PolicyTarget, S: EventSink>(
             let plan = DatagramPlan::new(faults)
                 .map_err(|error| format!("datagram plan invalid: {error}"))?;
             let key = resource_key(proxy, *direction, ScheduleTransport::Datagram);
-            let expected = expected_generation(target, &resource, strict, &key, owned)
-                .await
-                .ok_or_else(|| format!("datagram proxy {proxy} not found"))?;
+            let expected = if strict {
+                expected_generation(target, &resource, strict, &key, owned)
+                    .await
+                    .ok_or_else(|| format!("datagram proxy {proxy} not found"))?
+            } else {
+                snapshot_generation
+            };
             let receipt = target
                 .publish(&resource, expected, TargetPlan::Datagram(plan), namespace)
                 .await
                 .map_err(|error| format!("remove-datagram-fault publish failed: {error}"))?;
             update_owned(owned, &key, resource.clone(), receipt);
-            let _ = receipt;
+            let (upstream, downstream) = match direction {
+                Direction::Upstream => (receipt.generation, 0),
+                Direction::Downstream => (0, receipt.generation),
+            };
             sink.record(ScheduleEventResult {
                 compiled_index: event.compiled_index,
                 phase: event.phase,
@@ -420,8 +438,8 @@ async fn apply_event<T: PolicyTarget, S: EventSink>(
                 late_by_ns,
                 action: "remove-datagram-fault".to_owned(),
                 resource,
-                upstream_generation: 0,
-                downstream_generation: 0,
+                upstream_generation: upstream,
+                downstream_generation: downstream,
                 global_generation: target.global_generation(),
             })
             .await;

@@ -181,10 +181,22 @@ async fn handle_request(
     }
     let method = head.method().as_str().to_owned();
     let path = head.target().path().to_owned();
-    let body = body
-        .read_all()
-        .await
-        .map_err(|error| ServiceError::rejected(413, error.to_string()))?;
+    let body = body.read_all().await.map_err(|error| {
+        let message = error.to_string();
+        let lower = message.to_lowercase();
+        // Only oversize bodies are 413; other I/O/internal errors are 400.
+        if lower.contains("too large")
+            || lower.contains("oversize")
+            || lower.contains("exceed")
+            || lower.contains("limit")
+            || lower.contains("1mib")
+            || lower.contains("1048576")
+        {
+            ServiceError::rejected(413, message)
+        } else {
+            ServiceError::rejected(400, message)
+        }
+    })?;
     let segments: Vec<&str> = path.split('/').filter(|part| !part.is_empty()).collect();
     let decoded_id = if segments.len() == 5
         && segments[0] == "v1"

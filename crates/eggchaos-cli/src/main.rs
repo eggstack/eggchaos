@@ -274,7 +274,7 @@ enum DatagramFaultCommand {
     Add {
         proxy: String,
         id: String,
-        #[arg(long, default_value = "upstream")]
+        #[arg(long, default_value = "downstream")]
         direction: String,
         #[arg(long, default_value_t = 1.0)]
         probability: f64,
@@ -299,7 +299,23 @@ enum DatagramFaultCommand {
         proxy: String,
         id: String,
         #[arg(long)]
-        probability: f64,
+        probability: Option<f64>,
+        #[arg(long)]
+        kind: Option<String>,
+        #[arg(long)]
+        delay_ns: Option<u64>,
+        #[arg(long)]
+        jitter_ns: Option<u64>,
+        #[arg(long)]
+        additional_copies: Option<u8>,
+        #[arg(long)]
+        hold_ns: Option<u64>,
+        #[arg(long)]
+        bytes: Option<u64>,
+        #[arg(long)]
+        bytes_per_second: Option<u64>,
+        #[arg(long)]
+        burst_bytes: Option<u64>,
     },
     Remove {
         proxy: String,
@@ -696,7 +712,40 @@ async fn dispatch(
             DatagramCommand::Fault { command } => match command {
                 DatagramFaultCommand::List { proxy } => request(admin, admin_token, "GET", &format!("/v1/datagram-proxies/{proxy}/faults"), None, json).await,
                 DatagramFaultCommand::Get { proxy, id } => request(admin, admin_token, "GET", &format!("/v1/datagram-proxies/{proxy}/faults/{}", encode_path_component(&id)), None, json).await,
-                DatagramFaultCommand::Set { proxy, id, probability } => request(admin, admin_token, "PATCH", &format!("/v1/datagram-proxies/{proxy}/faults/{}", encode_path_component(&id)), Some(serde_json::json!({"probability":probability})), json).await,
+                DatagramFaultCommand::Set {
+                    proxy,
+                    id,
+                    probability,
+                    kind,
+                    delay_ns,
+                    jitter_ns,
+                    additional_copies,
+                    hold_ns,
+                    bytes,
+                    bytes_per_second,
+                    burst_bytes,
+                } => {
+                    if probability.is_none() && kind.is_none() {
+                        return Err("datagram fault set requires --probability and/or --kind".into());
+                    }
+                    let mut patch = serde_json::Map::new();
+                    if let Some(probability) = probability {
+                        patch.insert("probability".into(), probability.into());
+                    }
+                    if let Some(kind) = kind {
+                        let behavior = match kind.as_str() {
+                            "delay" => serde_json::json!({"type":"delay","delay_ns":required("delay-ns",delay_ns)?,"jitter_ns":jitter_ns.unwrap_or(0)}),
+                            "loss" => serde_json::json!({"type":"loss"}),
+                            "duplicate" => serde_json::json!({"type":"duplicate","additional_copies":required("additional-copies",additional_copies)?}),
+                            "reorder" => serde_json::json!({"type":"reorder","hold_ns":required("hold-ns",hold_ns)?}),
+                            "payload-corrupt" => serde_json::json!({"type":"payload-corrupt","bytes":required("bytes",bytes)?}),
+                            "bandwidth" => serde_json::json!({"type":"bandwidth","bytes_per_second":required("bytes-per-second",bytes_per_second)?,"burst_bytes":required("burst-bytes",burst_bytes)?}),
+                            _ => return Err("kind must be delay, loss, duplicate, reorder, payload-corrupt, or bandwidth".into()),
+                        };
+                        patch.insert("kind".into(), behavior);
+                    }
+                    request(admin, admin_token, "PATCH", &format!("/v1/datagram-proxies/{proxy}/faults/{}", encode_path_component(&id)), Some(patch.into()), json).await
+                }
                 DatagramFaultCommand::Remove { proxy, id } => request(admin, admin_token, "DELETE", &format!("/v1/datagram-proxies/{proxy}/faults/{}", encode_path_component(&id)), None, json).await,
                 DatagramFaultCommand::Add { proxy, id, direction, probability, kind, delay_ns, jitter_ns, additional_copies, hold_ns, bytes, bytes_per_second, burst_bytes } => {
                     check_direction(&direction)?;
@@ -903,7 +952,11 @@ async fn request(
     let status = response.status();
     let data = response.bytes().await?;
     if !status.is_success() {
-        return Err(format!("admin returned {status}").into());
+        let body = String::from_utf8_lossy(&data);
+        // Surface the server error envelope (code/message) in the error
+        // itself; `--json` callers still get exactly one JSON doc via the
+        // top-level error renderer.
+        return Err(format!("admin returned {status}: {body}").into());
     }
     if json {
         let value: serde_json::Value = serde_json::from_slice(&data)

@@ -23,6 +23,7 @@ use eggchaos_protocol::{
 use serde::Serialize;
 
 use crate::runtime::{ConnectionSnapshot, ControlError, ControlState, ResetReport};
+use crate::EggchaosError;
 use crate::{
     compile_schedule, datagram_fault_patch_into_runtime, datagram_fault_upsert_into_runtime,
     datagram_proxy_request_into_spec, fault_patch_into_runtime, fault_upsert_into_runtime,
@@ -240,7 +241,10 @@ pub async fn apply_scenario_v1(
     let record = state
         .start_scenario(scenario)
         .await
-        .map_err(|error| ControlError::Invalid(error.to_string()))?;
+        .map_err(|error| match error {
+            EggchaosError::Control(inner) => inner,
+            other => ControlError::Invalid(other.to_string()),
+        })?;
     Ok(ScenarioRunV1::from(record))
 }
 
@@ -253,7 +257,10 @@ pub async fn apply_scenario_v2_dto(
     let record = state
         .start_schedule_v2(source)
         .await
-        .map_err(|error| ControlError::Invalid(error.to_string()))?;
+        .map_err(|error| match error {
+            EggchaosError::Control(inner) => inner,
+            other => ControlError::Invalid(other.to_string()),
+        })?;
     Ok(ScheduleRunV2::from(record))
 }
 

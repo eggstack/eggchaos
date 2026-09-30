@@ -150,6 +150,13 @@ impl ProxySpec {
         self.downstream_faults
             .validate()
             .map_err(EggchaosError::InvalidPlan)?;
+        if let Some(limit) = self.max_connections {
+            if limit == 0 || limit > 1_000_000 {
+                return Err(EggchaosError::InvalidProxy(
+                    "max_connections must be in 1..=1000000".into(),
+                ));
+            }
+        }
         if self.connect_timeout.is_zero() {
             return Err(EggchaosError::InvalidProxy(
                 "connect timeout must be non-zero".into(),

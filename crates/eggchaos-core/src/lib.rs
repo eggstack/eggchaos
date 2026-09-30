@@ -19,8 +19,8 @@ pub use engine::{
 pub use plan::{
     BandwidthConfig, BlackholeConfig, DisconnectConfig, FaultId, FaultKind, FaultPlan, FaultSpec,
     LatencyConfig, LimitDataConfig, Probability, RngVersion, SliceConfig, SlowCloseConfig,
-    StreamLossConfig, ValidationError, FAULT_TYPE_NAMES, STREAM_LOSS_GRAIN_BYTES,
-    STREAM_LOSS_TYPE_NAME,
+    StreamLossConfig, ValidationError, FAULT_TYPE_NAMES, MAX_STREAM_FAULTS,
+    MAX_STREAM_FAULT_DURATION, STREAM_LOSS_GRAIN_BYTES, STREAM_LOSS_TYPE_NAME,
 };
 pub use policy::{LivePolicy, PolicyConflict, PublishError, PublishedPolicy};
 pub use rng::{

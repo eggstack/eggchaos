@@ -92,9 +92,20 @@ impl DatagramFaultKind {
 }
 
 /// Validated, ordered datagram plan.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct DatagramPlan {
     faults: Vec<DatagramFaultSpec>,
+}
+
+impl<'de> serde::Deserialize<'de> for DatagramPlan {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(serde::Deserialize)]
+        struct Helper {
+            faults: Vec<DatagramFaultSpec>,
+        }
+        let helper = Helper::deserialize(deserializer)?;
+        DatagramPlan::new(helper.faults).map_err(serde::de::Error::custom)
+    }
 }
 
 impl DatagramPlan {
@@ -188,13 +199,19 @@ impl DatagramLivePolicy {
         seed_namespace: u64,
     ) -> Result<Arc<PublishedDatagramPolicy>, &'static str> {
         plan.validate()?;
-        let next = Arc::new(PublishedDatagramPolicy {
-            generation: self.snapshot().generation.saturating_add(1),
-            plan: Arc::new(plan),
-            seed_namespace,
-        });
-        self.current.store(next.clone());
-        Ok(next)
+        let plan = Arc::new(plan);
+        loop {
+            let current = self.snapshot();
+            let next = Arc::new(PublishedDatagramPolicy {
+                generation: current.generation.saturating_add(1),
+                plan: plan.clone(),
+                seed_namespace,
+            });
+            let previous = self.current.compare_and_swap(&current, next.clone());
+            if Arc::ptr_eq(&previous, &current) {
+                return Ok(next);
+            }
+        }
     }
 }
 
@@ -543,8 +560,11 @@ impl DatagramDirectionEngine {
     }
 
     fn enqueue(&mut self, at: Instant, ordinal: u64, copy: u16, payload: Bytes, generation: u64) {
-        self.evidence.queued_datagrams += 1;
-        self.evidence.queued_bytes += payload.len() as u64;
+        self.evidence.queued_datagrams = self.evidence.queued_datagrams.saturating_add(1);
+        self.evidence.queued_bytes = self
+            .evidence
+            .queued_bytes
+            .saturating_add(payload.len() as u64);
         self.evidence.high_water_datagrams = self
             .evidence
             .high_water_datagrams
@@ -571,8 +591,11 @@ impl DatagramDirectionEngine {
         generation: u64,
         copy: u16,
     ) -> DatagramScheduled {
-        self.evidence.queued_datagrams += 1;
-        self.evidence.queued_bytes += payload.len() as u64;
+        self.evidence.queued_datagrams = self.evidence.queued_datagrams.saturating_add(1);
+        self.evidence.queued_bytes = self
+            .evidence
+            .queued_bytes
+            .saturating_add(payload.len() as u64);
         self.evidence.high_water_datagrams = self
             .evidence
             .high_water_datagrams
@@ -582,10 +605,10 @@ impl DatagramDirectionEngine {
             .high_water_bytes
             .max(self.evidence.queued_bytes);
         let size = payload.len() as u64;
-        self.evidence.queued_datagrams -= 1;
-        self.evidence.queued_bytes -= size;
-        self.evidence.emitted_datagrams += 1;
-        self.evidence.emitted_bytes += size;
+        self.evidence.queued_datagrams = self.evidence.queued_datagrams.saturating_sub(1);
+        self.evidence.queued_bytes = self.evidence.queued_bytes.saturating_sub(size);
+        self.evidence.emitted_datagrams = self.evidence.emitted_datagrams.saturating_add(1);
+        self.evidence.emitted_bytes = self.evidence.emitted_bytes.saturating_add(size);
         DatagramScheduled {
             payload,
             ingress_ordinal: ordinal,
@@ -658,10 +681,16 @@ impl DatagramDirectionEngine {
         let mut out = Vec::new();
         while self.queue.peek().is_some_and(|head| head.0.at <= now) {
             let candidate = self.queue.pop().expect("peeked candidate").0;
-            self.evidence.queued_datagrams -= 1;
-            self.evidence.queued_bytes -= candidate.payload.len() as u64;
-            self.evidence.emitted_datagrams += 1;
-            self.evidence.emitted_bytes += candidate.payload.len() as u64;
+            self.evidence.queued_datagrams = self.evidence.queued_datagrams.saturating_sub(1);
+            self.evidence.queued_bytes = self
+                .evidence
+                .queued_bytes
+                .saturating_sub(candidate.payload.len() as u64);
+            self.evidence.emitted_datagrams = self.evidence.emitted_datagrams.saturating_add(1);
+            self.evidence.emitted_bytes = self
+                .evidence
+                .emitted_bytes
+                .saturating_add(candidate.payload.len() as u64);
             out.push(DatagramScheduled {
                 payload: candidate.payload,
                 ingress_ordinal: candidate.ordinal,
@@ -734,7 +763,7 @@ mod tests {
         let id = FaultId::new("loss").unwrap();
         assert_eq!(
             derive_datagram_seed(42, "proxy", 7, Direction::Upstream, &id),
-            5_358_773_348_858_769_006
+            8_567_709_853_283_824_039
         );
     }
 

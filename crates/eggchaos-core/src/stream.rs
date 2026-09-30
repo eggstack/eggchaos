@@ -154,7 +154,10 @@ impl StreamEvidence {
     }
     /// Latest termination evidence, if any.
     pub fn termination_info(&self) -> Option<TerminationInfo> {
-        self.termination.lock().expect("evidence lock").clone()
+        self.termination
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .clone()
     }
     /// Capture the current counters as one bounded snapshot (no payloads).
     pub fn snapshot(&self, rng_version: RngVersion) -> DirectionEvidenceSnapshot {
@@ -194,7 +197,10 @@ impl StreamEvidence {
     }
     /// Connection-active fault identities and whether the list truncated.
     pub fn active_faults(&self) -> (Vec<ActiveFault>, bool) {
-        self.active_faults.lock().expect("evidence lock").clone()
+        self.active_faults
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .clone()
     }
     fn refresh_policy(&self, snapshot: &PublishedPolicy) {
         self.observed_generation
@@ -215,7 +221,10 @@ impl StreamEvidence {
                 fault_type: fault.kind.type_name().to_owned(),
             });
         }
-        *self.active_faults.lock().expect("evidence lock") = (faults, truncated);
+        *self
+            .active_faults
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner()) = (faults, truncated);
     }
     fn mirror_engine(&self, engine: &DirectionEngine) {
         let evidence = engine.evidence();
@@ -250,7 +259,10 @@ impl StreamEvidence {
         self.stream_loss_bytes_discarded
             .store(evidence.stream_loss_bytes_discarded, Ordering::Relaxed);
         if let Some(request) = evidence.termination {
-            let mut slot = self.termination.lock().expect("evidence lock");
+            let mut slot = self
+                .termination
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner());
             if slot.is_none() {
                 *slot = Some(TerminationInfo {
                     request,
@@ -529,6 +541,7 @@ impl<T: AsyncWrite + Unpin> AsyncWrite for ChaosStream<T> {
         // This arms release timers but never blocks acceptance: ownership
         // can complete before physical delivery.
         if let Poll::Ready(Err(error)) = this.engine.poll_flush(cx, &mut this.inner) {
+            this.evidence.mirror_engine(&this.engine);
             return Poll::Ready(Err(error));
         }
         if bytes.is_empty() {
@@ -571,7 +584,9 @@ impl<T: AsyncWrite + Unpin> AsyncWrite for ChaosStream<T> {
         if this.update_live(cx).is_pending() {
             return Poll::Pending;
         }
-        this.engine.poll_shutdown(cx, &mut this.inner)
+        let outcome = this.engine.poll_shutdown(cx, &mut this.inner);
+        this.evidence.mirror_engine(&this.engine);
+        outcome
     }
 
     fn is_write_vectored(&self) -> bool {
@@ -585,9 +600,7 @@ impl<T: AsyncWrite + Unpin> AsyncWrite for ChaosStream<T> {
         // Observe the live generation before the empty-engine fast path,
         // mirroring `poll_write`.
         if self.update_live(cx).is_pending() {
-            return Poll::Ready(Err(io::Error::other(
-                "ChaosStream::poll_write_vectored: live-policy update pending",
-            )));
+            return Poll::Pending;
         }
         if self.engine.is_empty() {
             match Pin::new(&mut self.inner).poll_write_vectored(cx, bufs) {
@@ -614,17 +627,27 @@ impl<T: AsyncWrite + Unpin> AsyncWrite for ChaosStream<T> {
         // Direct prefix copy + accept via the engine's bounded path.
         let bounded = self.engine.bounded_accept_capacity();
         if bounded == 0 {
+            // Drive releasable bytes so the release timer is armed and a
+            // waker is registered before returning Pending, mirroring
+            // `poll_write`.
+            let this = self.as_mut().get_mut();
+            if let Poll::Ready(Err(error)) = this.engine.poll_flush(cx, &mut this.inner) {
+                return Poll::Ready(Err(error));
+            }
             // Honor the empty-bound contract from `accept` without
             // allocating a prefix copy. We still surface a Pending
             // result so the caller retries after the release timer
             // fires, matching `poll_write`'s empty / full branch.
-            return if self.engine.termination_request().is_some() && self.engine.queue_is_empty() {
-                Poll::Ready(Err(terminated_error(self.engine.termination_info())))
+            return if this.engine.termination_request().is_some() && this.engine.queue_is_empty() {
+                Poll::Ready(Err(terminated_error(this.engine.termination_info())))
             } else {
                 Poll::Pending
             };
         }
-        let total: usize = bufs.iter().map(|b| b.len()).sum();
+        let total: usize = bufs
+            .iter()
+            .map(|b| b.len())
+            .fold(0usize, |acc, len| acc.saturating_add(len));
         let take = total.min(bounded);
         let mut joined = Vec::with_capacity(take);
         let mut remaining = take;
@@ -664,7 +687,10 @@ impl<T: AsyncWrite + Unpin> ChaosStream<T> {
         }
         // The termination handle is shared across the swap, so a due
         // termination request survives the transition (first wins).
+        // Evidence stays monotonic: the fresh engine absorbs the drained
+        // generation's cumulative counters before mirroring.
         let handle = self.engine.termination_handle();
+        let previous = self.engine.evidence();
         self.engine = DirectionEngine::new_with_arc_plan(
             snapshot.plan.clone(),
             snapshot.seed_namespace,
@@ -674,6 +700,7 @@ impl<T: AsyncWrite + Unpin> ChaosStream<T> {
             handle,
         )
         .expect("published policies are validated");
+        self.engine.absorb_evidence(&previous);
         self.observed_generation = snapshot.generation;
         self.evidence.refresh_policy(&snapshot);
         self.evidence.pending_generation.store(0, Ordering::Relaxed);
@@ -980,6 +1007,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> BidirectionalChaosStream<T> {
                     return Poll::Pending;
                 }
                 let handle = self.upstream.termination_handle();
+                let previous = self.upstream.evidence();
                 self.upstream = DirectionEngine::new_with_arc_plan(
                     snapshot.plan.clone(),
                     snapshot.seed_namespace,
@@ -989,6 +1017,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> BidirectionalChaosStream<T> {
                     handle,
                 )
                 .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
+                self.upstream.absorb_evidence(&previous);
                 self.observed_upstream = snapshot.generation;
                 self.upstream_evidence.refresh_policy(&snapshot);
                 self.upstream_evidence
@@ -1018,6 +1047,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> BidirectionalChaosStream<T> {
                     return Poll::Pending;
                 }
                 let handle = self.downstream.termination_handle();
+                let previous = self.downstream.evidence();
                 self.downstream = DirectionEngine::new_with_arc_plan(
                     snapshot.plan.clone(),
                     snapshot.seed_namespace,
@@ -1027,6 +1057,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> BidirectionalChaosStream<T> {
                     handle,
                 )
                 .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
+                self.downstream.absorb_evidence(&previous);
                 self.observed_downstream = snapshot.generation;
                 self.downstream_evidence.refresh_policy(&snapshot);
                 self.downstream_evidence
@@ -1110,10 +1141,51 @@ impl<T: AsyncRead + AsyncWrite + Unpin> AsyncRead for BidirectionalChaosStream<T
             // here instead of waiting for inner EOF: unlike the relay
             // embedding, no runtime polls this stream's termination handle,
             // so graceful requests surface as EOF and hard resets as errors.
-            // Live inner bytes were already delivered above; only a
-            // would-be-idle read becomes EOF/error.
+            // Live inner bytes are delivered first and only a would-be-idle
+            // read becomes EOF/error, mirroring `ChaosStream::poll_read`.
             match this.downstream.termination_request() {
-                Some(TerminationRequest::Graceful) => return Poll::Ready(Ok(())),
+                Some(TerminationRequest::Graceful) => {
+                    let mut temp = [0u8; 8192];
+                    let mut read = ReadBuf::new(&mut temp);
+                    match Pin::new(&mut this.inner).poll_read(cx, &mut read) {
+                        Poll::Ready(Ok(())) if read.filled().is_empty() => {
+                            return Poll::Ready(Ok(()));
+                        }
+                        Poll::Ready(Ok(())) => {
+                            let accepted = this.downstream.accept(read.filled());
+                            this.downstream_evidence.mirror_engine(&this.downstream);
+                            if accepted == 0 {
+                                return Poll::Ready(Ok(()));
+                            }
+                            // Drive newly accepted bytes into output then loop.
+                            match this
+                                .downstream
+                                .poll_flush(cx, &mut CaptureWriter(&mut this.output))
+                            {
+                                Poll::Ready(Ok(())) => {
+                                    this.downstream_evidence.mirror_engine(&this.downstream);
+                                }
+                                Poll::Ready(Err(error)) => {
+                                    this.downstream_evidence.mirror_engine(&this.downstream);
+                                    return Poll::Ready(Err(error));
+                                }
+                                Poll::Pending => {
+                                    this.downstream_evidence.mirror_engine(&this.downstream);
+                                    // Queued but not yet releasable: serve if
+                                    // output has bytes, else pend for timer.
+                                    if this.output.is_empty() {
+                                        return Poll::Pending;
+                                    }
+                                }
+                            }
+                            continue;
+                        }
+                        Poll::Ready(Err(error)) => return Poll::Ready(Err(error)),
+                        // Would-be-idle read becomes EOF; live bytes were
+                        // already drained above.
+                        Poll::Pending => return Poll::Ready(Ok(())),
+                    }
+                }
                 Some(TerminationRequest::HardReset) => {
                     let detail = this
                         .downstream

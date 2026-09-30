@@ -22,11 +22,27 @@ pub fn derive_seed(
     fault: &FaultId,
 ) -> u64 {
     let mut h = Wrapping(run_seed) + Wrapping(0x9e37_79b9_7f4a_7c15);
-    for byte in proxy.as_bytes().iter().chain(fault.as_str().as_bytes()) {
+    for byte in proxy.as_bytes() {
         h += Wrapping(u64::from(*byte) + 0x100);
         h ^= h >> 30;
         h *= Wrapping(0xbf58_476d_1ce4_e5b9);
     }
+    // Domain separator + length prefixing so `(proxy, fault)` pairs like
+    // ("ab","c") and ("a","bc") cannot collide.
+    h += Wrapping(0xff);
+    h ^= h >> 29;
+    h *= Wrapping(0xbf58_476d_1ce4_e5b9);
+    h += Wrapping((proxy.len() as u64).rotate_left(19) + 0xa0);
+    h ^= h >> 27;
+    h *= Wrapping(0x94d0_49bb_1331_11eb);
+    for byte in fault.as_str().as_bytes() {
+        h += Wrapping(u64::from(*byte) + 0x100);
+        h ^= h >> 30;
+        h *= Wrapping(0xbf58_476d_1ce4_e5b9);
+    }
+    h += Wrapping((fault.as_str().len() as u64).rotate_left(23) + 0xb0);
+    h ^= h >> 27;
+    h *= Wrapping(0x94d0_49bb_1331_11eb);
     h += Wrapping(connection_key.rotate_left(17));
     h += Wrapping(match direction {
         Direction::Upstream => 0x5550,
@@ -146,8 +162,13 @@ impl DeterministicRng {
         splitmix(self.state)
     }
     /// Return a value in `[0, upper)` (or zero for an empty range).
+    ///
+    /// Uses `% upper` (modulo bias, negligible for power-of-two-adjacent
+    /// ranges and documented as `unbiased-ish`); always advances the RNG
+    /// even for `upper == 0` so call-site RNG consumption stays stable.
     pub fn below(&mut self, upper: u64) -> u64 {
         if upper == 0 {
+            self.next_u64();
             0
         } else {
             self.next_u64() % upper
@@ -155,14 +176,14 @@ impl DeterministicRng {
     }
     /// Return an unbiased-ish deterministic probability decision using integer thresholds.
     pub fn bernoulli(&mut self, probability: f64) -> bool {
-        if probability <= 0.0 {
+        if probability.is_nan() || probability <= 0.0 {
             return false;
         }
         if probability >= 1.0 {
             return true;
         }
         let threshold = (probability * (u64::MAX as f64)) as u64;
-        self.next_u64() <= threshold
+        self.next_u64() < threshold
     }
 }
 
@@ -179,8 +200,27 @@ mod tests {
         let id = FaultId::new("latency").unwrap();
         assert_eq!(
             derive_seed(42, "proxy", 7, Direction::Upstream, &id),
-            11_882_912_530_514_077_282
+            1_461_454_122_856_154_019
         );
+    }
+
+    #[test]
+    fn proxy_fault_domain_separation_has_no_concatenation_collision() {
+        let ab_c = derive_seed(
+            42,
+            "ab",
+            7,
+            Direction::Upstream,
+            &FaultId::new("c").unwrap(),
+        );
+        let a_bc = derive_seed(
+            42,
+            "a",
+            7,
+            Direction::Upstream,
+            &FaultId::new("bc").unwrap(),
+        );
+        assert_ne!(ab_c, a_bc);
     }
 
     #[test]

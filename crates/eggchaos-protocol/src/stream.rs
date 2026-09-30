@@ -101,6 +101,13 @@ impl NativeProxyRequestV1 {
                 "connect_timeout_ms must be in 1..={MAX_TIMEOUT_MS}"
             ));
         }
+        if let Some(limit) = self.max_connections {
+            if limit == 0 || limit > MAX_CONNECTION_LIMIT {
+                return Err(format!(
+                    "max_connections must be in 1..={MAX_CONNECTION_LIMIT}"
+                ));
+            }
+        }
         Ok(())
     }
 }
@@ -149,6 +156,13 @@ impl NativeProxyPatchV1 {
             return Err(format!(
                 "connect_timeout_ms must be in 1..={MAX_TIMEOUT_MS}"
             ));
+        }
+        if let Some(Some(limit)) = self.max_connections {
+            if limit == 0 || limit > MAX_CONNECTION_LIMIT {
+                return Err(format!(
+                    "max_connections must be in 1..={MAX_CONNECTION_LIMIT}"
+                ));
+            }
         }
         Ok(())
     }
@@ -571,6 +585,24 @@ impl RuntimeConfigV1 {
                 "runtime.history must be at most {MAX_HISTORY_LIMIT}"
             ));
         }
+        if self.relay_buffer_bytes == 0 || self.relay_buffer_bytes > MAX_RELAY_BUFFER_BYTES as u64 {
+            return Err(format!(
+                "runtime.relay_buffer_bytes must be in 1..={MAX_RELAY_BUFFER_BYTES}"
+            ));
+        }
+        if self.termination_grace_ms > MAX_TIMEOUT_MS {
+            return Err(format!(
+                "runtime.termination_grace_ms must be at most {MAX_TIMEOUT_MS}"
+            ));
+        }
+        if self.datagram.max_proxies == 0
+            || self.datagram.max_associations == 0
+            || self.datagram.history == 0
+            || self.datagram.ingress_per_association == 0
+            || self.datagram.max_ingress_queue_bytes == 0
+        {
+            return Err("runtime.datagram limits must be non-zero".into());
+        }
         Ok(())
     }
     /// Convert the relay buffer size to the runtime's non-zero byte count.
@@ -971,12 +1003,45 @@ impl DatagramFaultSpecV1 {
 }
 
 /// Add one datagram fault to a proxy direction.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, Clone, Serialize)]
 pub struct DatagramFaultUpsertV1 {
     pub direction: eggchaos_core::Direction,
     #[serde(flatten)]
     pub fault: DatagramFaultSpecV1,
+}
+
+impl<'de> serde::Deserialize<'de> for DatagramFaultUpsertV1 {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // `deny_unknown_fields` does not enforce on `#[serde(flatten)]`
+        // parts, so reject unknown top-level fields explicitly to match
+        // every other wire DTO's unknown-field rejection contract.
+        let value = serde_json::Value::deserialize(deserializer)?;
+        let object = value
+            .as_object()
+            .ok_or_else(|| serde::de::Error::custom("datagram fault upsert must be an object"))?;
+        for key in object.keys() {
+            match key.as_str() {
+                "direction" | "id" | "probability" | "kind" => {}
+                other => {
+                    return Err(serde::de::Error::unknown_field(
+                        other,
+                        &["direction", "id", "probability", "kind"],
+                    ));
+                }
+            }
+        }
+        #[derive(serde::Deserialize)]
+        struct Helper {
+            direction: eggchaos_core::Direction,
+            #[serde(flatten)]
+            fault: DatagramFaultSpecV1,
+        }
+        let helper: Helper = serde_json::from_value(value).map_err(serde::de::Error::custom)?;
+        Ok(Self {
+            direction: helper.direction,
+            fault: helper.fault,
+        })
+    }
 }
 
 impl From<DatagramFaultSpec> for DatagramFaultSpecV1 {
@@ -1061,6 +1126,11 @@ impl NativeDatagramProxyRequestV1 {
     /// Validate wire bounds and convert faults/queue limits to core parts.
     pub fn into_core_parts(self) -> Result<DatagramProxyCoreParts, String> {
         validate_proxy_name(&self.name)?;
+        if self.max_associations == 0 || self.max_associations > MAX_CONNECTION_LIMIT {
+            return Err(format!(
+                "max_associations must be in 1..={MAX_CONNECTION_LIMIT}"
+            ));
+        }
         if self.association_idle_timeout_ms == 0 || self.association_idle_timeout_ms > 86_400_000 {
             return Err("association_idle_timeout_ms must be in 1..=86400000".into());
         }
@@ -1145,7 +1215,7 @@ impl DatagramFaultPatchV1 {
 }
 
 /// Stable v1 representation of per-direction datagram evidence.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct NativeDatagramEvidenceV1 {
     pub admitted_datagrams: u64,
     pub admitted_bytes: u64,
@@ -1197,7 +1267,7 @@ impl From<eggchaos_core::DatagramEvidence> for NativeDatagramEvidenceV1 {
 }
 
 /// Explicit datagram proxy view DTO.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct NativeDatagramProxyViewV1 {
     pub name: String,
     pub listen: SocketAddr,
@@ -1222,7 +1292,7 @@ pub struct NativeDatagramProxyViewV1 {
 // Assembled by `eggchaos-server` from its runtime datagram proxy view.
 
 /// Explicit datagram association evidence DTO. Payloads are never captured.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct NativeDatagramAssociationViewV1 {
     pub id: u64,
     pub proxy: String,

@@ -34,8 +34,8 @@
       "max_queued_datagrams": 8,
       "max_queued_bytes": 64,
       "ready_after_ns": 0,
-      "expected_emissions": [[0, 0, 1, "00"], [1, 0, 1, "01"], [6, 0, 1, "06"], [7, 0, 1, "07"]],
-      "expected_configured_loss": 4,
+      "expected_emissions": [[1, 0, 1, "01"], [5, 0, 1, "05"], [6, 0, 1, "06"]],
+      "expected_configured_loss": 5,
       "expected_queue_overflow": 0
     },
     {
@@ -85,7 +85,7 @@
       "max_queued_datagrams": 8,
       "max_queued_bytes": 64,
       "ready_after_ns": 0,
-      "expected_emissions": [[0, 0, 1, "4472796c6f6161"]],
+      "expected_emissions": [[0, 0, 1, "7c7161706f6164"]],
       "expected_configured_loss": 0,
       "expected_corrupted_candidates": 1,
       "expected_queue_overflow": 0

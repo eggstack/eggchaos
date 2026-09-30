@@ -43,7 +43,10 @@ impl TcpResetHandle {
     }
     /// Return the recorded close outcome, if the socket was released.
     pub fn outcome(&self) -> Option<ResetResult> {
-        self.outcome.lock().ok()?.clone()
+        self.outcome
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .clone()
     }
 }
 

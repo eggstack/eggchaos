@@ -147,27 +147,39 @@ impl DatagramRuntime {
             #[cfg(test)]
             setup_hook: Mutex::new(None),
         });
+        // Insert-then-spawn: the proxy is visible before its listener can
+        // receive, so no datagram arrives while the proxy is invisible and
+        // no duplicate race orphans history.
+        {
+            let mut proxies = self.inner.proxies.lock().await;
+            if proxies.contains_key(&spec.name) {
+                return Err(DatagramRuntimeError::Duplicate(spec.name));
+            }
+            if proxies.len() >= self.inner.limits.max_proxies {
+                return Err(DatagramRuntimeError::Invalid(
+                    "proxy definition limit reached".into(),
+                ));
+            }
+            proxies.insert(
+                spec.name.clone(),
+                ManagedProxy {
+                    state: state.clone(),
+                    listener: None,
+                },
+            );
+        }
         let owner = spawn_listener(socket, state.clone());
-        let mut proxies = self.inner.proxies.lock().await;
-        if proxies.contains_key(&spec.name) {
-            owner.cancel.cancel();
-            let _ = owner.task.await;
-            return Err(DatagramRuntimeError::Duplicate(spec.name));
+        {
+            let mut proxies = self.inner.proxies.lock().await;
+            if let Some(managed) = proxies.get_mut(&spec.name) {
+                managed.listener = Some(owner);
+            } else {
+                // Proxy vanished between insert and spawn: stop the orphan.
+                owner.cancel.cancel();
+                let _ = owner.task.await;
+                return Err(DatagramRuntimeError::NotFound(spec.name));
+            }
         }
-        if proxies.len() >= self.inner.limits.max_proxies {
-            owner.cancel.cancel();
-            let _ = owner.task.await;
-            return Err(DatagramRuntimeError::Invalid(
-                "proxy definition limit reached".into(),
-            ));
-        }
-        proxies.insert(
-            spec.name.clone(),
-            ManagedProxy {
-                state: state.clone(),
-                listener: Some(owner),
-            },
-        );
         Ok(proxy_view(&state, Some(bound), true).await)
     }
 

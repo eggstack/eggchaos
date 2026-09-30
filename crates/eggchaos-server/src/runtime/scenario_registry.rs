@@ -106,6 +106,32 @@ impl ScenarioRegistry {
         Ok(())
     }
 
+    /// Admit a V1 run and install its cancellation token atomically.
+    /// A single `&mut self` call, so callers holding the registry lock
+    /// cannot lose a cancel racing between separate admit/insert locks.
+    pub(crate) fn admit_v1_with_token(
+        &mut self,
+        run_id: u64,
+        record: ScenarioRunRecord,
+        token: CancellationToken,
+    ) -> Result<(), AdmitError> {
+        self.admit_v1(run_id, record)?;
+        self.insert_token_v1(run_id, token);
+        Ok(())
+    }
+
+    /// Admit a V2 run and install its cancellation token atomically.
+    pub(crate) fn admit_v2_with_token(
+        &mut self,
+        run_id: u64,
+        record: ScenarioScheduleRunRecord,
+        token: CancellationToken,
+    ) -> Result<(), AdmitError> {
+        self.admit_v2(run_id, record)?;
+        self.insert_token_v2(run_id, token);
+        Ok(())
+    }
+
     fn first_oldest_finished_v1(&self) -> Option<u64> {
         self.v1_runs
             .iter()

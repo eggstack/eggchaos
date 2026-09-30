@@ -366,14 +366,47 @@ pub async fn drive_scenario_run(
                     return;
                 }
             };
+            // Re-check cross-direction uniqueness after publish: the
+            // pre-publish check raced with concurrent publishes to the
+            // other direction. A duplicate now fails visibly instead of
+            // silently shadowing path lookups.
+            if matches!(&event.action, ScenarioAction::SetDatagramPlan { .. }) {
+                let other_direction = match direction {
+                    Direction::Upstream => Direction::Downstream,
+                    Direction::Downstream => Direction::Upstream,
+                };
+                if let Ok((other_plan, _, _)) =
+                    state.get_datagram_plan(&proxy, other_direction).await
+                {
+                    if let Ok((own_plan, _, _)) = state.get_datagram_plan(&proxy, direction).await {
+                        let duplicate = own_plan.faults().iter().any(|fault| {
+                            other_plan
+                                .faults()
+                                .iter()
+                                .any(|existing| existing.id == fault.id)
+                        });
+                        if duplicate {
+                            fail_run(
+                                &state,
+                                run_id,
+                                "datagram fault IDs must be unique across directions".into(),
+                            )
+                            .await;
+                            return;
+                        }
+                    }
+                }
+            }
             let other_direction = match direction {
                 Direction::Upstream => Direction::Downstream,
                 Direction::Downstream => Direction::Upstream,
             };
-            let (_, other_generation, _) = state
-                .get_datagram_plan(&proxy, other_direction)
-                .await
-                .expect("proxy remains registered");
+            let Ok((_, other_generation, _)) =
+                state.get_datagram_plan(&proxy, other_direction).await
+            else {
+                fail_run(&state, run_id, format!("scenario proxy {proxy} not found")).await;
+                return;
+            };
             let (upstream_generation, downstream_generation) = match direction {
                 Direction::Upstream => (generation, other_generation),
                 Direction::Downstream => (other_generation, generation),

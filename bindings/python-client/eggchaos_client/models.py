@@ -185,9 +185,11 @@ class DatagramLossFault:
 @dataclass
 class DatagramDuplicateFault:
     type: str = "duplicate"
-    additional_copies: int = 0
+    additional_copies: int = 1
 
     def to_dict(self) -> dict[str, Any]:
+        if not 1 <= self.additional_copies <= 16:
+            raise ValueError("additional_copies must be in 1..=16")
         return {"type": self.type, "additional_copies": self.additional_copies}
 
 

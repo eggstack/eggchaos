@@ -11,6 +11,15 @@ pub enum RngVersion {
     V1,
 }
 
+/// Maximum stream fault delay/after/hold duration (mirrors the 24h datagram cap).
+pub const MAX_STREAM_FAULT_DURATION: Duration = Duration::from_secs(86_400);
+/// Maximum number of faults in a stream plan (mirrors the datagram 256 cap).
+pub const MAX_STREAM_FAULTS: usize = 256;
+
+fn duration_exceeds_max(value: Duration) -> bool {
+    value > MAX_STREAM_FAULT_DURATION
+}
+
 /// A validated opaque fault identity.
 ///
 /// `FaultId` invariants are preserved on every safe construction path,
@@ -324,6 +333,9 @@ impl<'de> Deserialize<'de> for FaultPlan {
 impl FaultPlan {
     /// Construct and validate an ordered plan.
     pub fn new(faults: Vec<FaultSpec>) -> Result<Self, ValidationError> {
+        if faults.len() > MAX_STREAM_FAULTS {
+            return Err(ValidationError::TooManyFaults);
+        }
         let mut ids = std::collections::HashSet::new();
         for fault in &faults {
             if !ids.insert(fault.id.clone()) {
@@ -387,6 +399,9 @@ impl FaultPlan {
     /// plans are revalidated identically to plans built through the public
     /// constructors.
     pub fn validate(&self) -> Result<(), ValidationError> {
+        if self.faults.len() > MAX_STREAM_FAULTS {
+            return Err(ValidationError::TooManyFaults);
+        }
         let mut ids = std::collections::HashSet::new();
         for fault in &self.faults {
             if !ids.insert(fault.id.clone()) {
@@ -406,6 +421,29 @@ impl FaultPlan {
 impl FaultSpec {
     /// Validate the fault's internal invariants.
     pub fn validate(&self) -> Result<(), ValidationError> {
+        // All monotonic delay/after/hold durations are capped at 24h so
+        // `Instant + Duration` construction can never overflow.
+        match self.kind {
+            FaultKind::Latency(c) if duration_exceeds_max(c.delay) => {
+                return Err(ValidationError::DurationTooLong);
+            }
+            FaultKind::Latency(c) if duration_exceeds_max(c.jitter) => {
+                return Err(ValidationError::DurationTooLong);
+            }
+            FaultKind::Blackhole(c) if c.close_after.is_some_and(duration_exceeds_max) => {
+                return Err(ValidationError::DurationTooLong);
+            }
+            FaultKind::SlowClose(c) if duration_exceeds_max(c.delay) => {
+                return Err(ValidationError::DurationTooLong);
+            }
+            FaultKind::Slice(c) if duration_exceeds_max(c.delay) => {
+                return Err(ValidationError::DurationTooLong);
+            }
+            FaultKind::Disconnect(c) if duration_exceeds_max(c.after) => {
+                return Err(ValidationError::DurationTooLong);
+            }
+            _ => {}
+        }
         match self.kind {
             FaultKind::Latency(c) if c.max_buffer_bytes.get() == 0 => {
                 Err(ValidationError::ZeroCapacity)
@@ -456,6 +494,12 @@ pub enum ValidationError {
     /// Limit must be non-zero.
     #[error("limit_data bytes must be non-zero")]
     ZeroLimit,
+    /// A delay/after/hold duration exceeds the 24h cap.
+    #[error("fault delay duration must be at most 24 hours")]
+    DurationTooLong,
+    /// Too many faults in one plan (limited to 256 stages).
+    #[error("fault plans are limited to 256 stages")]
+    TooManyFaults,
 }
 
 #[cfg(test)]

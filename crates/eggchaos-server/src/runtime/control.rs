@@ -25,7 +25,8 @@ impl ControlState {
     /// does not exist.
     pub fn new(proxies: impl IntoIterator<Item = ProxySpec>) -> Self {
         let state = Self::default();
-        if let Ok(mut map) = state.runtime.proxies.try_write() {
+        {
+            let mut map = state.runtime.proxies.blocking_write();
             for mut proxy in proxies {
                 if map.contains_key(&proxy.name) {
                     continue;
@@ -405,16 +406,32 @@ impl ControlState {
             .filter(|(_, entry)| entry.spec.enabled && !entry.running)
             .map(|(name, _)| name.clone())
             .collect();
+        let mut first_error: Option<ControlError> = None;
         for name in names {
-            let spec = self
+            let spec = match self
                 .runtime
                 .proxies
                 .read()
                 .await
                 .get(&name)
                 .map(|entry| entry.spec.clone())
-                .ok_or_else(|| ControlError::NotFound(name.clone()))?;
-            self.start_stored(&name, &spec).await?;
+            {
+                Some(spec) => spec,
+                None => {
+                    if first_error.is_none() {
+                        first_error = Some(ControlError::NotFound(name.clone()));
+                    }
+                    continue;
+                }
+            };
+            if let Err(error) = self.start_stored(&name, &spec).await {
+                if first_error.is_none() {
+                    first_error = Some(error);
+                }
+            }
+        }
+        if let Some(error) = first_error {
+            return Err(error);
         }
         Ok(self.generation())
     }
@@ -427,6 +444,13 @@ impl ControlState {
         &self,
         mut proxy: ProxySpec,
     ) -> Result<(ProxyView, u64), ControlError> {
+        if self
+            .runtime
+            .shutdown_initiated
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
+            return Err(ControlError::Invalid("service is shutting down".into()));
+        }
         proxy.validate().map_err(|error| match error {
             EggchaosError::InvalidProxy(message) => ControlError::Invalid(message),
             EggchaosError::InvalidPlan(error) => {
@@ -499,10 +523,14 @@ impl ControlState {
 
     /// Drop the finished tracked supervisor handle for a proxy. Only call
     /// after the supervisor's done-flag confirms completion, so a running
-    /// task is never detached.
+    /// task is never detached. Matches only finished handles so a concurrent
+    /// create with the same name keeps its running winner.
     async fn untrack(&self, name: &str) {
         let mut root = self.runtime.root.lock().await;
-        if let Some(position) = root.iter().position(|(tracked, _)| tracked == name) {
+        if let Some(position) = root
+            .iter()
+            .position(|(tracked, handle)| tracked == name && handle.is_finished())
+        {
             let (_, handle) = root.swap_remove(position);
             drop(handle);
         }
@@ -634,7 +662,24 @@ impl ControlState {
         patch: ProxyPatch,
     ) -> Result<(ProxyView, u64), ControlError> {
         if let Some(enabled) = patch.enabled {
-            self.set_enabled(name, enabled).await?;
+            // `set_enabled` already bumps the generation; when the patch
+            // only flips enabled, return without a second bump.
+            let generation = self.set_enabled(name, enabled).await?;
+            if patch.listen.is_none()
+                && patch.upstream.is_none()
+                && patch.max_connections.is_none()
+                && patch.connect_timeout_ms.is_none()
+            {
+                let view = self
+                    .runtime
+                    .proxies
+                    .read()
+                    .await
+                    .get(name)
+                    .map(RuntimeInner::view_of)
+                    .ok_or_else(|| ControlError::NotFound(name.to_owned()))?;
+                return Ok((view, generation));
+            }
         }
         if let Some(connect_timeout_ms) = patch.connect_timeout_ms {
             if connect_timeout_ms == 0 {
@@ -923,6 +968,12 @@ impl ControlState {
 
     /// Fetch one fault, searching upstream then downstream. Plans come
     /// from live snapshots, so reads agree with what streams compile.
+    ///
+    /// Stream directions intentionally allow the same fault ID in both
+    /// directions (upstream shadows downstream on lookup); use the
+    /// directional list/get routes for unambiguous access. Datagram
+    /// directions forbid cross-direction duplicates for path lookup,
+    /// a deliberate divergence documented here.
     pub async fn get_fault(&self, proxy: &str, id: &str) -> Option<(Direction, FaultSpec)> {
         let map = self.runtime.proxies.read().await;
         let entry = map.get(proxy)?;
@@ -1004,6 +1055,28 @@ impl ControlState {
         let Some(entry) = map.get_mut(name) else {
             return Err(ControlError::NotFound(name.to_owned()));
         };
+        // Pre-check both expected generations before publishing either so a
+        // stale snapshot fails fast without leaving upstream half-applied.
+        let current_upstream = entry.spec.upstream_policy.snapshot().generation;
+        if current_upstream != publish.expected_upstream {
+            return Err(ControlError::Conflict(conflict_message(
+                name,
+                eggchaos_core::PolicyConflict {
+                    expected: publish.expected_upstream,
+                    found: current_upstream,
+                },
+            )));
+        }
+        let current_downstream = entry.spec.downstream_policy.snapshot().generation;
+        if current_downstream != publish.expected_downstream {
+            return Err(ControlError::Conflict(conflict_message(
+                name,
+                eggchaos_core::PolicyConflict {
+                    expected: publish.expected_downstream,
+                    found: current_downstream,
+                },
+            )));
+        }
         let published_upstream = entry
             .spec
             .upstream_policy
@@ -1120,27 +1193,27 @@ impl ControlState {
             failure: None,
             trail: Vec::new(),
         };
-        {
-            let mut registry = self.runtime.scenario_registry.lock().await;
-            registry.admit_v1(run_id, record.clone()).map_err(|_| {
-                EggchaosError::Control(ControlError::Conflict(
-                    "too many active scenario runs".into(),
-                ))
-            })?;
-        }
         let token = self.runtime.shutdown_token.child_token();
         {
             let mut registry = self.runtime.scenario_registry.lock().await;
-            registry.insert_token_v1(run_id, token.clone());
+            registry
+                .admit_v1_with_token(run_id, record.clone(), token.clone())
+                .map_err(|_| {
+                    EggchaosError::Control(ControlError::Conflict(
+                        "too many active scenario runs".into(),
+                    ))
+                })?;
         }
         let state = self.clone();
-        self.runtime
-            .scenario_tasks
-            .lock()
-            .await
-            .spawn(crate::scenario::drive_scenario_run(
+        {
+            let mut tasks = self.runtime.scenario_tasks.lock().await;
+            // Reap completed run tasks so the JoinSet does not grow
+            // unboundedly while records are pruned to 32.
+            while tasks.try_join_next().is_some() {}
+            tasks.spawn(crate::scenario::drive_scenario_run(
                 state, run_id, scenario, token,
             ));
+        }
         Ok(record)
     }
 
@@ -1268,7 +1341,12 @@ impl ControlState {
                     .fault_plan(&proxy.name, direction)
                     .await
                 {
-                    self.runtime
+                    // A concurrent manual publish may move the generation
+                    // between the read and the reset publish; retry once
+                    // with the fresh generation instead of aborting the
+                    // whole reset with a partial stream+datagram state.
+                    let result = self
+                        .runtime
                         .datagrams
                         .publish_fault_plan(
                             &proxy.name,
@@ -1277,8 +1355,35 @@ impl ControlState {
                             seed,
                             Some(generation),
                         )
-                        .await
-                        .map_err(map_datagram_error)?;
+                        .await;
+                    if let Err(error) = result {
+                        let message = error.to_string().to_lowercase();
+                        if message.contains("conflict")
+                            || message.contains("generation")
+                            || message.contains("expected")
+                        {
+                            if let Some((_, fresh, fresh_seed)) = self
+                                .runtime
+                                .datagrams
+                                .fault_plan(&proxy.name, direction)
+                                .await
+                            {
+                                let _ = self
+                                    .runtime
+                                    .datagrams
+                                    .publish_fault_plan(
+                                        &proxy.name,
+                                        direction,
+                                        eggchaos_core::DatagramPlan::empty(),
+                                        fresh_seed,
+                                        Some(fresh),
+                                    )
+                                    .await;
+                            }
+                            continue;
+                        }
+                        return Err(map_datagram_error(error));
+                    }
                 }
             }
             if !proxy.running
@@ -1321,12 +1426,20 @@ impl ControlState {
         // for the parent token alone. Records stay in the registry so a
         // post-shutdown observer can still inspect final statuses.
         self.runtime.scenario_registry.lock().await.cancel_all();
-        let tracked: Vec<(String, JoinHandle<()>)> = {
-            let mut root = self.runtime.root.lock().await;
-            std::mem::take(&mut *root)
-        };
-        for (_, handle) in tracked {
-            let _ = handle.await;
+        // Drain supervisors, then re-check for any supervisor that raced
+        // in after `initiate_shutdown` (rejected by the create gate, but
+        // reaped here defensively so no task outlives the service).
+        loop {
+            let tracked: Vec<(String, JoinHandle<()>)> = {
+                let mut root = self.runtime.root.lock().await;
+                std::mem::take(&mut *root)
+            };
+            if tracked.is_empty() {
+                break;
+            }
+            for (_, handle) in tracked {
+                let _ = handle.await;
+            }
         }
         let mut scenarios = self.runtime.scenario_tasks.lock().await;
         while scenarios.join_next().await.is_some() {}
@@ -1382,27 +1495,29 @@ impl ControlState {
             events: Vec::new(),
             cleanup: None,
         };
-        {
-            let mut registry = self.runtime.scenario_registry.lock().await;
-            registry.admit_v2(run_id, record.clone()).map_err(|_| {
-                EggchaosError::Control(ControlError::Conflict(
-                    "too many active scenario runs".into(),
-                ))
-            })?;
-        }
         let token = self.runtime.shutdown_token.child_token();
         {
             let mut registry = self.runtime.scenario_registry.lock().await;
-            registry.insert_token_v2(run_id, token.clone());
+            registry
+                .admit_v2_with_token(run_id, record.clone(), token.clone())
+                .map_err(|_| {
+                    EggchaosError::Control(ControlError::Conflict(
+                        "too many active scenario runs".into(),
+                    ))
+                })?;
         }
         self.runtime
             .metrics
             .schedule_v2_runs
             .fetch_add(1, Ordering::Relaxed);
         let state = self.clone();
-        self.runtime.scenario_tasks.lock().await.spawn(
-            crate::scenario_v2::runtime::drive_schedule_v2_run(state, run_id, compiled, token),
-        );
+        {
+            let mut tasks = self.runtime.scenario_tasks.lock().await;
+            while tasks.try_join_next().is_some() {}
+            tasks.spawn(crate::scenario_v2::runtime::drive_schedule_v2_run(
+                state, run_id, compiled, token,
+            ));
+        }
         Ok(record)
     }
 

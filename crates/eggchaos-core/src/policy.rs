@@ -61,7 +61,12 @@ pub enum PublishError {
 
 impl LivePolicy {
     /// Create a policy at generation one.
+    ///
+    /// Panics when `plan` violates validation so misuse surfaces at
+    /// construction, matching `DatagramLivePolicy::new` which validates.
     pub fn new(plan: FaultPlan, seed_namespace: u64) -> Self {
+        plan.validate()
+            .expect("LivePolicy::new requires a validated plan");
         Self {
             current: Arc::new(ArcSwap::new(Arc::new(PublishedPolicy {
                 generation: 1,
@@ -94,13 +99,19 @@ impl LivePolicy {
         seed_namespace: u64,
     ) -> Result<Arc<PublishedPolicy>, crate::ValidationError> {
         plan.validate()?;
-        let next = Arc::new(PublishedPolicy {
-            generation: self.generation() + 1,
-            plan: Arc::new(plan),
-            seed_namespace,
-        });
-        self.current.store(next.clone());
-        Ok(next)
+        let plan = Arc::new(plan);
+        loop {
+            let current = self.snapshot();
+            let next = Arc::new(PublishedPolicy {
+                generation: current.generation.saturating_add(1),
+                plan: plan.clone(),
+                seed_namespace,
+            });
+            let previous = self.current.compare_and_swap(&current, next.clone());
+            if Arc::ptr_eq(&previous, &current) {
+                return Ok(next);
+            }
+        }
     }
     /// Publish only when the current generation still equals `expected`;
     /// otherwise report the conflict without changing state. Scenario
@@ -113,6 +124,7 @@ impl LivePolicy {
         expected: u64,
     ) -> Result<Arc<PublishedPolicy>, PublishError> {
         plan.validate().map_err(PublishError::Invalid)?;
+        let plan = Arc::new(plan);
         loop {
             let current = self.snapshot();
             if current.generation != expected {
@@ -122,8 +134,8 @@ impl LivePolicy {
                 }));
             }
             let next = Arc::new(PublishedPolicy {
-                generation: current.generation + 1,
-                plan: Arc::new(plan.clone()),
+                generation: current.generation.saturating_add(1),
+                plan: plan.clone(),
                 seed_namespace,
             });
             // The returned guard holds the previous value; pointer

@@ -468,10 +468,10 @@ pub(super) async fn run_connection(
             }
         }
         info = term_upstream.terminated() => {
-            handle_termination(&runtime, id, &proxy_active, info, &client_reset, &upstream_reset, relay_box, term_grace, terms()).await;
+            handle_termination(&runtime, id, &proxy_active, info, &client_reset, &upstream_reset, relay_box, term_grace, terms(), conn_token.clone()).await;
         }
         info = term_downstream.terminated() => {
-            handle_termination(&runtime, id, &proxy_active, info, &client_reset, &upstream_reset, relay_box, term_grace, terms()).await;
+            handle_termination(&runtime, id, &proxy_active, info, &client_reset, &upstream_reset, relay_box, term_grace, terms(), conn_token.clone()).await;
         }
     }
 }
@@ -487,14 +487,31 @@ pub(super) async fn handle_termination<F>(
     relay_box: std::pin::Pin<Box<F>>,
     term_grace: Duration,
     terms: (Option<TerminationInfo>, Option<TerminationInfo>),
+    conn_token: tokio_util::sync::CancellationToken,
 ) where
     F: std::future::Future<Output = Result<egress_relay::RelayReport, egress_relay::RelayFailure>>,
 {
     match info.request {
         TerminationRequest::Graceful => {
             // Let an active relay drain its accepted prefix; reap an idle
-            // relay when the bounded grace expires.
-            match timeout(term_grace, relay_box).await {
+            // relay when the bounded grace expires. An operator kill
+            // during the drain cancels the wait instead of holding the
+            // full grace.
+            tokio::select! {
+                biased;
+                () = conn_token.cancelled() => {
+                    record_close(
+                        runtime,
+                        id,
+                        proxy_active,
+                        ConnectionOutcome::KilledByOperator,
+                        terms.0,
+                        terms.1,
+                        Some("cancelled during graceful drain".into()),
+                    )
+                    .await;
+                }
+                outcome = timeout(term_grace, relay_box) => match outcome {
                 Ok(Ok(report)) => {
                     record_close(
                         runtime,
@@ -547,6 +564,7 @@ pub(super) async fn handle_termination<F>(
                         )),
                     )
                     .await;
+                }
                 }
             }
         }

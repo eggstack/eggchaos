@@ -77,18 +77,25 @@ impl TerminationHandle {
 
     /// Return the published request, if any.
     pub fn get(&self) -> Option<TerminationInfo> {
-        self.slot.inner.lock().ok()?.clone()
+        self.slot
+            .inner
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .clone()
     }
 
     /// Publish a request. Returns true when this call set the stored value;
     /// a previously stored request is preserved (first wins).
     pub fn publish(&self, info: TerminationInfo) -> bool {
-        if let Ok(mut guard) = self.slot.inner.lock() {
-            if guard.is_none() {
-                *guard = Some(info);
-                self.slot.notify.notify_waiters();
-                return true;
-            }
+        let mut guard = self
+            .slot
+            .inner
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        if guard.is_none() {
+            *guard = Some(info);
+            self.slot.notify.notify_waiters();
+            return true;
         }
         false
     }
@@ -113,11 +120,7 @@ impl TerminationHandle {
             return Poll::Ready(info);
         }
         match notified.poll(cx) {
-            Poll::Ready(()) => Poll::Ready(self.get().unwrap_or(TerminationInfo {
-                request: TerminationRequest::Graceful,
-                direction: Direction::Upstream,
-                fault_id: None,
-            })),
+            Poll::Ready(()) => self.get().map(Poll::Ready).unwrap_or(Poll::Pending),
             Poll::Pending => Poll::Pending,
         }
     }
@@ -444,6 +447,7 @@ impl DirectionEngine {
         direction: Direction,
         term_handle: TerminationHandle,
     ) -> Result<Self, ValidationError> {
+        plan.validate()?;
         let now = Instant::now();
         let mut max_buffer = 64 * 1024usize;
         let mut remaining_limit = None;
@@ -472,7 +476,10 @@ impl DirectionEngine {
                     }
                 }
                 FaultKind::Blackhole(c) => {
-                    let deadline = c.close_after.map(|d| now + d);
+                    let deadline = c.close_after.map(|d| {
+                        now.checked_add(d)
+                            .unwrap_or(now + crate::MAX_STREAM_FAULT_DURATION)
+                    });
                     match &blackhole {
                         // An indefinite blackhole dominates finite ones.
                         Some(existing) if existing.deadline.is_none() => {}
@@ -504,7 +511,9 @@ impl DirectionEngine {
                     slicer_active = true;
                 }
                 FaultKind::Disconnect(c) => {
-                    let deadline = now + c.after;
+                    let deadline = now
+                        .checked_add(c.after)
+                        .unwrap_or(now + crate::MAX_STREAM_FAULT_DURATION);
                     let replace = match &disconnect {
                         None => true,
                         Some(existing) => {
@@ -664,7 +673,8 @@ impl DirectionEngine {
             .map(|(remaining, _)| *remaining)
             .unwrap_or(u64::MAX);
         let capacity = self.max_buffer.saturating_sub(self.buffered);
-        (limit_available as usize).min(capacity)
+        let limit = usize::try_from(limit_available).unwrap_or(usize::MAX);
+        limit.min(capacity)
     }
 
     /// Accept a slice of `IoSlice` byte ranges, copying only the prefix
@@ -681,7 +691,10 @@ impl DirectionEngine {
     /// `accept(joined)` over all `bufs` would return; the prefix-only
     /// copy is observationally transparent for preserving plans.
     pub fn accept_vectored(&mut self, bufs: &[std::io::IoSlice<'_>]) -> usize {
-        let total: usize = bufs.iter().map(|b| b.len()).sum();
+        let total: usize = bufs
+            .iter()
+            .map(|b| b.len())
+            .fold(0usize, |acc, len| acc.saturating_add(len));
         if total == 0 {
             // Mirror `accept`'s empty-input contract (always returns 0 on
             // an empty buffer; termination/queue checks are owned by the
@@ -734,6 +747,56 @@ impl DirectionEngine {
         evidence.buffered_bytes = self.buffered as u64;
         evidence.high_water_bytes = self.high_water as u64;
         evidence
+    }
+
+    /// Accumulate prior-generation evidence so counters stay monotonic
+    /// across live-policy transitions. Cumulative counters saturate;
+    /// high-water takes the max; buffered state stays owned by the new
+    /// (drained) engine.
+    pub fn absorb_evidence(&mut self, previous: &EngineEvidence) {
+        self.evidence.bytes_accepted = self
+            .evidence
+            .bytes_accepted
+            .saturating_add(previous.bytes_accepted);
+        self.evidence.bytes_forwarded = self
+            .evidence
+            .bytes_forwarded
+            .saturating_add(previous.bytes_forwarded);
+        self.evidence.bytes_discarded = self
+            .evidence
+            .bytes_discarded
+            .saturating_add(previous.bytes_discarded);
+        self.evidence.segments = self.evidence.segments.saturating_add(previous.segments);
+        self.evidence.slices = self.evidence.slices.saturating_add(previous.slices);
+        self.evidence.injected_delay_ms = self
+            .evidence
+            .injected_delay_ms
+            .saturating_add(previous.injected_delay_ms);
+        self.evidence.throttled_delay_ms = self
+            .evidence
+            .throttled_delay_ms
+            .saturating_add(previous.throttled_delay_ms);
+        for (slot, prev) in self
+            .evidence
+            .activations
+            .iter_mut()
+            .zip(previous.activations)
+        {
+            *slot = slot.saturating_add(prev);
+        }
+        self.evidence.stream_loss_chunks_evaluated = self
+            .evidence
+            .stream_loss_chunks_evaluated
+            .saturating_add(previous.stream_loss_chunks_evaluated);
+        self.evidence.stream_loss_chunks_dropped = self
+            .evidence
+            .stream_loss_chunks_dropped
+            .saturating_add(previous.stream_loss_chunks_dropped);
+        self.evidence.stream_loss_bytes_discarded = self
+            .evidence
+            .stream_loss_bytes_discarded
+            .saturating_add(previous.stream_loss_bytes_discarded);
+        self.high_water = self.high_water.max(previous.high_water_bytes as usize);
     }
 
     /// Return the current termination request.
@@ -798,7 +861,7 @@ impl DirectionEngine {
                 };
                 if self.publish_termination(info) {
                     // disconnect activation, indexed by FaultKind::type_index.
-                    self.evidence.activations[6] += 1;
+                    self.evidence.activations[6] = self.evidence.activations[6].saturating_add(1);
                 }
                 return;
             }
@@ -816,7 +879,8 @@ impl DirectionEngine {
                     };
                     if self.publish_termination(info) {
                         // blackhole close_after activation.
-                        self.evidence.activations[2] += 1;
+                        self.evidence.activations[2] =
+                            self.evidence.activations[2].saturating_add(1);
                     }
                 }
             }
@@ -904,9 +968,11 @@ impl DirectionEngine {
         }
         if chunk == self.stream_loss_evaluated {
             self.stream_loss_evaluated += 1;
-            self.evidence.stream_loss_chunks_evaluated += 1;
+            self.evidence.stream_loss_chunks_evaluated =
+                self.evidence.stream_loss_chunks_evaluated.saturating_add(1);
             if drop_any {
-                self.evidence.stream_loss_chunks_dropped += 1;
+                self.evidence.stream_loss_chunks_dropped =
+                    self.evidence.stream_loss_chunks_dropped.saturating_add(1);
             }
         }
         drop_any
@@ -942,20 +1008,29 @@ impl DirectionEngine {
                 }
                 match fault.kind {
                     FaultKind::Latency(c) => {
-                        let jitter_range = c.jitter.as_millis().min(u64::MAX as u128) as u64;
+                        let jitter_range = c.jitter.as_nanos().min(u64::MAX as u128) as u64;
                         let jitter = if jitter_range == 0 {
                             0
                         } else {
                             rng.below(jitter_range.saturating_mul(2).saturating_add(1)) as i128
                                 - jitter_range as i128
                         };
-                        let millis = (c.delay.as_millis() as i128 + jitter).max(0) as u64;
+                        let nanos = (c.delay.as_nanos() as i128 + jitter)
+                            .max(0)
+                            .min(u64::MAX as i128) as u64;
                         // Independent per-segment deadline: segments accepted
                         // together share similar deadlines and drain as a
                         // burst instead of serializing one delay per write.
-                        release = release.max(now + Duration::from_millis(millis));
-                        self.evidence.injected_delay_ms =
-                            self.evidence.injected_delay_ms.saturating_add(millis);
+                        // Nanos precision preserves sub-ms delays; evidence
+                        // stays in whole milliseconds.
+                        release = release.max(
+                            now.checked_add(Duration::from_nanos(nanos))
+                                .unwrap_or(now + crate::MAX_STREAM_FAULT_DURATION),
+                        );
+                        self.evidence.injected_delay_ms = self
+                            .evidence
+                            .injected_delay_ms
+                            .saturating_add(nanos / 1_000_000);
                         latency_engaged = true;
                     }
                     FaultKind::Slice(c) => {
@@ -977,7 +1052,9 @@ impl DirectionEngine {
                 // Inter-slice delay staggers logical slices rather than
                 // applying once per original caller write.
                 release = release.max(self.slice_cursor);
-                self.slice_cursor = release + slice_delay;
+                self.slice_cursor = release
+                    .checked_add(slice_delay)
+                    .unwrap_or(release + crate::MAX_STREAM_FAULT_DURATION.min(slice_delay));
             }
             self.queue.push_back(Queued {
                 bytes: Bytes::copy_from_slice(&data[offset..offset + chunk]),
@@ -985,9 +1062,9 @@ impl DirectionEngine {
             });
             self.buffered += chunk;
             self.high_water = self.high_water.max(self.buffered);
-            self.evidence.segments += 1;
+            self.evidence.segments = self.evidence.segments.saturating_add(1);
             if self.slicer_active {
-                self.evidence.slices += 1;
+                self.evidence.slices = self.evidence.slices.saturating_add(1);
             }
             offset += chunk;
         }
@@ -1032,7 +1109,7 @@ impl DirectionEngine {
                 offset += run;
                 self.stream_loss_offset = self.stream_loss_offset.saturating_add(run as u64);
                 discarded = discarded.saturating_add(run as u64);
-                self.evidence.segments += 1;
+                self.evidence.segments = self.evidence.segments.saturating_add(1);
             } else {
                 // Bound the preserve run by the remaining queue capacity.
                 // Without this cap a run longer than the free bound would
@@ -1060,9 +1137,12 @@ impl DirectionEngine {
         if offset == 0 {
             return 0;
         }
-        self.evidence.bytes_accepted += offset as u64;
-        self.evidence.bytes_discarded += discarded;
-        self.evidence.stream_loss_bytes_discarded += discarded;
+        self.evidence.bytes_accepted = self.evidence.bytes_accepted.saturating_add(offset as u64);
+        self.evidence.bytes_discarded = self.evidence.bytes_discarded.saturating_add(discarded);
+        self.evidence.stream_loss_bytes_discarded = self
+            .evidence
+            .stream_loss_bytes_discarded
+            .saturating_add(discarded);
         // Per-call stage engagement: preserving stages count once per
         // accept call in which they queued at least one byte; the limit
         // stage engaged whenever it bounded this call, including
@@ -1083,7 +1163,8 @@ impl DirectionEngine {
             }
             for (index, engaged) in engaged.iter().enumerate() {
                 if *engaged {
-                    self.evidence.activations[index] += 1;
+                    self.evidence.activations[index] =
+                        self.evidence.activations[index].saturating_add(1);
                 }
             }
         }
@@ -1102,7 +1183,8 @@ impl DirectionEngine {
                         fault_id: Some(id.to_string()),
                     }) {
                         // limit-data exhaustion activation.
-                        self.evidence.activations[3] += 1;
+                        self.evidence.activations[3] =
+                            self.evidence.activations[3].saturating_add(1);
                     }
                 }
             }
@@ -1141,7 +1223,8 @@ impl DirectionEngine {
                         fault_id: Some(id.to_string()),
                     }) {
                         // limit-data exhaustion activation.
-                        self.evidence.activations[3] += 1;
+                        self.evidence.activations[3] =
+                            self.evidence.activations[3].saturating_add(1);
                     }
                 }
             }
@@ -1159,11 +1242,17 @@ impl DirectionEngine {
             if accepted_cap == 0 {
                 return 0;
             }
-            self.evidence.bytes_accepted += accepted_cap as u64;
-            self.evidence.bytes_discarded += accepted_cap as u64;
-            self.evidence.segments += 1;
+            self.evidence.bytes_accepted = self
+                .evidence
+                .bytes_accepted
+                .saturating_add(accepted_cap as u64);
+            self.evidence.bytes_discarded = self
+                .evidence
+                .bytes_discarded
+                .saturating_add(accepted_cap as u64);
+            self.evidence.segments = self.evidence.segments.saturating_add(1);
             // blackhole discard activation.
-            self.evidence.activations[2] += 1;
+            self.evidence.activations[2] = self.evidence.activations[2].saturating_add(1);
             if self.remaining_limit.is_some() {
                 limit_available -= accepted_cap as u64;
                 if let Some((remaining, _)) = &mut self.remaining_limit {
@@ -1178,7 +1267,8 @@ impl DirectionEngine {
                             fault_id: Some(id.to_string()),
                         }) {
                             // limit-data exhaustion activation.
-                            self.evidence.activations[3] += 1;
+                            self.evidence.activations[3] =
+                                self.evidence.activations[3].saturating_add(1);
                         }
                     }
                 }
@@ -1216,20 +1306,29 @@ impl DirectionEngine {
                 }
                 match fault.kind {
                     FaultKind::Latency(c) => {
-                        let jitter_range = c.jitter.as_millis().min(u64::MAX as u128) as u64;
+                        let jitter_range = c.jitter.as_nanos().min(u64::MAX as u128) as u64;
                         let jitter = if jitter_range == 0 {
                             0
                         } else {
                             rng.below(jitter_range.saturating_mul(2).saturating_add(1)) as i128
                                 - jitter_range as i128
                         };
-                        let millis = (c.delay.as_millis() as i128 + jitter).max(0) as u64;
+                        let nanos = (c.delay.as_nanos() as i128 + jitter)
+                            .max(0)
+                            .min(u64::MAX as i128) as u64;
                         // Independent per-segment deadline: segments accepted
                         // together share similar deadlines and drain as a
                         // burst instead of serializing one delay per write.
-                        release = release.max(now + Duration::from_millis(millis));
-                        self.evidence.injected_delay_ms =
-                            self.evidence.injected_delay_ms.saturating_add(millis);
+                        // Nanos precision preserves sub-ms delays; evidence
+                        // stays in whole milliseconds.
+                        release = release.max(
+                            now.checked_add(Duration::from_nanos(nanos))
+                                .unwrap_or(now + crate::MAX_STREAM_FAULT_DURATION),
+                        );
+                        self.evidence.injected_delay_ms = self
+                            .evidence
+                            .injected_delay_ms
+                            .saturating_add(nanos / 1_000_000);
                     }
                     FaultKind::Slice(c) => {
                         slice_delay = slice_delay.max(c.delay);
@@ -1249,7 +1348,9 @@ impl DirectionEngine {
                 // Inter-slice delay staggers logical slices rather than
                 // applying once per original caller write.
                 release = release.max(self.slice_cursor);
-                self.slice_cursor = release + slice_delay;
+                self.slice_cursor = release
+                    .checked_add(slice_delay)
+                    .unwrap_or(release + crate::MAX_STREAM_FAULT_DURATION.min(slice_delay));
             }
             self.queue.push_back(Queued {
                 bytes: Bytes::copy_from_slice(&input[offset..offset + chunk]),
@@ -1257,16 +1358,16 @@ impl DirectionEngine {
             });
             self.buffered += chunk;
             self.high_water = self.high_water.max(self.buffered);
-            self.evidence.segments += 1;
+            self.evidence.segments = self.evidence.segments.saturating_add(1);
             if self.slicer_active {
-                self.evidence.slices += 1;
+                self.evidence.slices = self.evidence.slices.saturating_add(1);
             }
             offset += chunk;
         }
         if offset == 0 {
             return 0;
         }
-        self.evidence.bytes_accepted += offset as u64;
+        self.evidence.bytes_accepted = self.evidence.bytes_accepted.saturating_add(offset as u64);
         // Per-call stage engagement: each connection-active preserving or
         // limit stage that processed this chunk counts one activation.
         {
@@ -1289,7 +1390,8 @@ impl DirectionEngine {
             }
             for (index, engaged) in engaged.iter().enumerate() {
                 if *engaged {
-                    self.evidence.activations[index] += 1;
+                    self.evidence.activations[index] =
+                        self.evidence.activations[index].saturating_add(1);
                 }
             }
         }
@@ -1308,7 +1410,8 @@ impl DirectionEngine {
                         fault_id: Some(id.to_string()),
                     }) {
                         // limit-data exhaustion activation.
-                        self.evidence.activations[3] += 1;
+                        self.evidence.activations[3] =
+                            self.evidence.activations[3].saturating_add(1);
                     }
                 }
             }
@@ -1392,8 +1495,15 @@ impl DirectionEngine {
                     )))
                 }
                 Poll::Ready(Ok(n)) => {
-                    self.evidence.bytes_forwarded += n as u64;
-                    self.buffered -= n;
+                    if n > front.bytes.len() {
+                        return Poll::Ready(Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "inner stream wrote more than supplied slice",
+                        )));
+                    }
+                    self.evidence.bytes_forwarded =
+                        self.evidence.bytes_forwarded.saturating_add(n as u64);
+                    self.buffered = self.buffered.saturating_sub(n);
                     if n == front.bytes.len() {
                         self.queue.pop_front();
                     } else {
@@ -1424,16 +1534,22 @@ impl DirectionEngine {
         cx: &mut Context<'_>,
         inner: &mut T,
     ) -> Poll<io::Result<()>> {
-        if self.poll_queue(cx, inner).is_pending() {
-            return Poll::Pending;
+        match self.poll_queue(cx, inner) {
+            Poll::Ready(Ok(())) => {}
+            Poll::Ready(Err(error)) => return Poll::Ready(Err(error)),
+            Poll::Pending => return Poll::Pending,
         }
         if self.shutdown_deadline.is_none() {
             if let Some(delay) = self.slow_close {
-                self.shutdown_deadline = Some(Instant::now() + delay);
+                let now = Instant::now();
+                self.shutdown_deadline = Some(
+                    now.checked_add(delay)
+                        .unwrap_or(now + crate::MAX_STREAM_FAULT_DURATION.min(delay)),
+                );
                 if !delay.is_zero() {
                     // slow-close activation: a positive shutdown delay is
                     // enforced from here on.
-                    self.evidence.activations[4] += 1;
+                    self.evidence.activations[4] = self.evidence.activations[4].saturating_add(1);
                 }
             }
         }

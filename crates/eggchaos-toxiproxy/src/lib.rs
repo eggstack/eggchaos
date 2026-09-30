@@ -339,6 +339,10 @@ fn attrs_from_kind(
     profile: CompatProfile,
 ) -> Result<(&'static str, ToxicAttributes), CompatError> {
     match *kind {
+        // Native durations are nanosecond-precise; the oracle toxics carry
+        // millisecond (latency/jitter/timeout/delay) or microsecond
+        // (slicer delay) units. Sub-unit precision truncates on export: a
+        // documented divergence, not a silent no-op.
         FaultKind::Latency(config) => Ok((
             "latency",
             ToxicAttributes {
@@ -350,7 +354,10 @@ fn attrs_from_kind(
         FaultKind::Bandwidth(config) => Ok((
             "bandwidth",
             ToxicAttributes {
-                rate: Some(config.bytes_per_second.get() / 1024),
+                // Native stores exact bytes/s; the oracle toxic carries
+                // KiB/s. Round to nearest (min 1) and document the
+                // sub-KiB divergence: non-1024 multiples do not round-trip.
+                rate: Some(((config.bytes_per_second.get() + 512) / 1024).max(1)),
                 ..ToxicAttributes::default()
             },
         )),
@@ -716,7 +723,7 @@ impl ToxiproxyAdapter {
         let listen_addr: std::net::SocketAddr = match input.listen.clone().filter(|l| !l.is_empty())
         {
             Some(listen) => listen.parse().map_err(|error: std::net::AddrParseError| {
-                CompatError::new(500, error.to_string())
+                CompatError::new(400, error.to_string())
             })?,
             None => "127.0.0.1:0"
                 .parse()
@@ -852,6 +859,12 @@ impl ToxiproxyAdapter {
         let enabled = input.enabled.unwrap_or(true);
         if let Some(view) = self.state.get(&name).await {
             if view.listen == listen && view.upstream == upstream {
+                // Keep-path preserves toxics; apply an enabled flip in
+                // place so enable/disable via populate is not lost.
+                if view.enabled != enabled {
+                    let _ = self.state.set_enabled(&name, enabled).await;
+                    return self.proxy_json(&name).await;
+                }
                 return Some(proxy_json(&view, self.profile.clone()));
             }
             // Changed addresses: delete and recreate (toxics drop by

@@ -33,9 +33,9 @@ const FINGERPRINT_DOMAIN: &[u8] = b"eggchaos/scenario-v2/fingerprint/v1/compiler
 ///    hashmap, or `Instant` participation.
 ///
 /// The encoded payload includes every field that changes execution:
-/// isolation/cleanup, ordered `(compiled_index, phase, offset_ns, action)`
-/// tuples for every event. Optional phase names are deliberately
-/// excluded because they are presentation-only labels.
+/// isolation/cleanup, total schedule duration, ordered `(compiled_index,
+/// phase, offset_ns, action)` tuples for every event. Optional phase names
+/// are deliberately excluded because they are presentation-only labels.
 pub fn compiled_fingerprint(compiled: &CompiledScenarioV2) -> [u8; 32] {
     let bytes = encode_compiled_for_fingerprint(compiled);
     let mut hasher = Sha256::new();
@@ -73,6 +73,8 @@ pub fn encode_compiled_for_fingerprint(compiled: &CompiledScenarioV2) -> Vec<u8>
     out.extend_from_slice(compiled.seed.to_string().as_bytes());
     out.extend_from_slice(b"\nexecution_key=");
     out.extend_from_slice(compiled.execution_key.to_string().as_bytes());
+    out.extend_from_slice(b"\ntotal_duration_ns=");
+    out.extend_from_slice(compiled.total_duration_ns.to_string().as_bytes());
     out.extend_from_slice(b"\nevent_count=");
     out.extend_from_slice(compiled.events.len().to_string().as_bytes());
     for event in &compiled.events {

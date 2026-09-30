@@ -1011,7 +1011,7 @@ fn stream_loss_chunk_seed_helper_is_stable() {
     );
     println!("M036 chunk-seed golden: {first}");
     // Pinned golden: any change here is a replay break, not a refresh.
-    assert_eq!(first, 196256752510381490);
+    assert_eq!(first, 12272131545510661749);
     assert_eq!(
         first,
         eggchaos_core::derive_stream_loss_seed(
@@ -1092,15 +1092,15 @@ async fn golden_mixed_loss_trace_is_pinned() {
         summary.bytes_accepted,
         summary.bytes_forwarded + summary.bytes_discarded
     );
-    // Frozen exact outcome for this identity/config: chunks 0 and 2
-    // survive, chunk 1 drops (accepted 98304, forwarded 65536, discarded
-    // 32768). Deterministic by construction; any drift is a replay break,
+    // Frozen exact outcome for this identity/config: only chunk 2
+    // survives (accepted 98304, forwarded 32768, discarded 65536).
+    // Deterministic by construction; any drift is a replay break,
     // not a fixture refresh.
-    assert_eq!(survived, vec![0u8, 2u8]);
+    assert_eq!(survived, vec![2u8]);
     assert_eq!(summary.bytes_accepted, 98304);
-    assert_eq!(summary.bytes_forwarded, 65536);
-    assert_eq!(summary.bytes_discarded, 32768);
-    assert_eq!(summary.stream_loss_chunks_dropped, 1);
+    assert_eq!(summary.bytes_forwarded, 32768);
+    assert_eq!(summary.bytes_discarded, 65536);
+    assert_eq!(summary.stream_loss_chunks_dropped, 2);
 }
 
 #[test]

@@ -353,10 +353,12 @@ impl Dialer for DirectDialer {
                     Ok(Ok(stream)) => return Ok(Box::new(stream) as DialStream),
                     Ok(Err(error)) => last_error = Some(error),
                     Err(_) => {
-                        return Err(DialError::new(
-                            DialErrorKind::Timeout,
+                        // Per-address timeout: record and try the next
+                        // resolved address instead of failing fast.
+                        last_error = Some(io::Error::new(
+                            io::ErrorKind::TimedOut,
                             "direct route connect timed out",
-                        ))
+                        ));
                     }
                 }
             }

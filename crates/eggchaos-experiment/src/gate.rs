@@ -84,10 +84,14 @@ impl EpochWaiter {
     /// state if `start` already won.
     pub async fn await_epoch(&self) -> Instant {
         loop {
+            // Create the waiter before checking so a racing `start` between
+            // the check and the wait still wakes us (standard Tokio pattern).
+            let notified = self.inner.notify.notified();
+            tokio::pin!(notified);
             if let Some(epoch) = self.inner.epoch.get() {
                 return *epoch;
             }
-            self.inner.notify.notified().await;
+            notified.await;
         }
     }
 

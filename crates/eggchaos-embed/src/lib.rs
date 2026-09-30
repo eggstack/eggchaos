@@ -197,6 +197,9 @@ impl EmbeddedService {
     }
 
     /// Global configuration generation (synchronous snapshot read).
+    ///
+    /// Reads the live generation even after close (snapshots stay
+    /// observable); use [`Self::is_closed`] to gate lifecycle.
     pub fn generation(&self) -> u64 {
         self.control.generation()
     }
@@ -223,7 +226,7 @@ impl EmbeddedService {
     pub fn health(&self) -> Result<HealthV1, EmbedError> {
         self.block_on(async {
             Ok(HealthV1 {
-                running: true,
+                running: !self.closed.load(Ordering::SeqCst),
                 generation: self.control.generation(),
             })
         })
@@ -433,6 +436,9 @@ impl EmbeddedService {
         &self,
         schedule: ScenarioScheduleV2Dto,
     ) -> Result<ScheduleValidateV2, EmbedError> {
+        if self.closed.load(Ordering::SeqCst) {
+            return Err(EmbedError::Lifecycle("service is closed".into()));
+        }
         validate_scenario_v2_dto(schedule).map_err(EmbedError::from)
     }
 
@@ -441,6 +447,9 @@ impl EmbeddedService {
         &self,
         schedule: ScenarioScheduleV2Dto,
     ) -> Result<ScheduleCompileV2, EmbedError> {
+        if self.closed.load(Ordering::SeqCst) {
+            return Err(EmbedError::Lifecycle("service is closed".into()));
+        }
         compile_scenario_v2_dto(schedule).map_err(EmbedError::from)
     }
 

@@ -2240,6 +2240,19 @@ async fn m050_active_capacity_admission_is_per_family() {
     for id in &v1_ids {
         control.cancel_scenario(*id).await;
     }
+    // Wait for drivers to observe cancel and mark runs terminal so active
+    // capacity frees. Cancel is async: the registry marks Cancelling
+    // immediately, but active count drops only after drivers record
+    // Cancelled.
+    for _ in 0..100 {
+        {
+            let registry = control.runtime.scenario_registry.lock().await;
+            if registry.active_v1_count() < ControlState::MAX_SCENARIO_RUNS {
+                break;
+            }
+        }
+        tokio::task::yield_now().await;
+    }
     let replacement = control
         .start_scenario(v1_scenario("udp", "replacement"))
         .await;
