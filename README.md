@@ -1,38 +1,25 @@
 # eggchaos
 
-Rust-native, fixed-target chaos proxy with embeddable deterministic stream and
-whole-datagram fault engines.
+Fixed-target chaos proxy with deterministic stream and whole-datagram fault
+engines. Put it between your service and a dependency, then inject latency,
+bandwidth limits, blackholes, byte limits, slow closes, slicing, disconnects,
+or stream loss — reproducibly, from versioned seeds. Faults apply per
+direction (`upstream` is client→target, `downstream` is target→client).
 
-Put eggchaos between your service and a dependency, then inject latency,
-bandwidth limits, blackholes, byte limits, slow closes, slicing, or
-disconnects — reproducibly, from versioned seeds. Faults apply per direction
-(`upstream` is client→target, `downstream` is target→client).
-
-Eggchaos is not a forward proxy, TLS intercept, or IP-layer impairment tool.
-Its TCP faults shape user-space byte streams; its fixed-target UDP runtime
-shapes whole application datagrams and does not simulate fragmentation,
-checksums, or lower-layer packet behavior.
+Not a forward proxy, TLS intercept, or IP-layer impairment tool: TCP faults
+shape userspace byte streams, the UDP runtime shapes whole application
+datagrams.
 
 ## Install
 
-Latest published release: `0.1.0` (historical release, tagged 2026-09-24;
-current `main` is the unreleased `0.2.0` development baseline — see below).
+Published release `0.1.0` (requires Rust 1.89+):
 
 ```sh
 cargo install eggchaos-cli --version 0.1.0
 ```
 
-Libraries for embedding:
-
-```sh
-cargo add eggchaos-core --version 0.1.0
-cargo add eggchaos-server --version 0.1.0
-cargo add eggchaos-toxiproxy --version 0.1.0
-cargo add eggchaos-eggfetch --version 0.1.0
-```
-
-Development / `main` (unreleased `0.2.0` tree — build from source, do not
-`cargo install --version 0.2.0` until the owner publishes it):
+From source (unreleased `0.2.0` tree — do not `cargo install --version 0.2.0`
+until the owner publishes it):
 
 ```sh
 git clone https://github.com/eggstack/eggchaos
@@ -40,9 +27,7 @@ cd eggchaos
 cargo run -p eggchaos-cli -- serve --config eggchaos.toml
 ```
 
-Requires Rust 1.89+.
-
-## Quick start
+## Quickstart
 
 Write `eggchaos.toml`:
 
@@ -66,17 +51,25 @@ delay = "200ms"
 jitter = "50ms"
 ```
 
-Start it and point your client at the listen address:
+Start it, check health, and point your client at the listen address:
 
 ```sh
 eggchaos serve --config eggchaos.toml
-# or without installing: cargo run -p eggchaos-cli -- serve --config eggchaos.toml
+curl -s http://127.0.0.1:8475/v1/health
+curl -s http://127.0.0.1:8475/v1/proxies
+curl -s http://127.0.0.1:8475/metrics
 ```
 
-## Inject faults live
+Replies from the upstream now arrive ~200ms later via the `lag` fault.
+The admin API defaults to `http://127.0.0.1:8475` (override with
+`--admin <url>`); add `--json` for one machine-readable JSON document per
+command. Config schema, bounds, and UDP `[[datagram_proxies]]` are covered
+in `docs/configuration.md`.
 
-Proxies and faults can be changed at runtime without restarting; existing
-connections drain already-accepted bytes before the new plan takes effect.
+## Change faults live
+
+No restart needed; existing connections drain already-accepted bytes before
+the new plan takes effect:
 
 ```sh
 eggchaos proxy add redis --listen 127.0.0.1:16379 --upstream 127.0.0.1:6379
@@ -84,79 +77,39 @@ eggchaos fault add redis lag --direction downstream --kind latency --delay-ms 20
 eggchaos fault list redis
 eggchaos fault remove redis lag
 eggchaos connection list
-eggchaos connection kill <id>
 eggchaos reset
 ```
 
-For a fixed-target UDP service, configure a `[[datagram_proxies]]` entry or use
-`eggchaos datagram proxy add dns --listen 127.0.0.1:15353 --upstream 127.0.0.1:5353`.
-Manage whole-datagram faults with `eggchaos datagram fault add dns loss --kind loss
---direction upstream`, and inspect client associations with
-`eggchaos datagram association list`. These native resources do not extend the
-Toxiproxy v2.12 TCP compatibility API.
-
-The admin API defaults to `http://127.0.0.1:8475` (override with
-`--admin <url>`); add `--json` for one machine-readable JSON document per
-command. The same surface is available over HTTP:
-
-```sh
-curl -s http://127.0.0.1:8475/v1/health
-curl -s http://127.0.0.1:8475/v1/proxies
-curl -s http://127.0.0.1:8475/metrics
-```
-
-## Fault catalog
-
-| Fault | What it does |
-| --- | --- |
-| `latency` | Delays segments by `delay` ± `jitter`, preserving order |
-| `bandwidth` | Throttles to `bytes_per_second` with a `burst_bytes` bucket |
-| `blackhole` / `timeout` | Discards bytes, optionally closing after `close_after` |
-| `limit_data` | Forwards at most `bytes`, then terminates gracefully |
-| `slow_close` | Delays shutdown only, never ordinary writes |
-| `slice` | Segments output into `average_size` ± `variation` chunks |
-| `disconnect` | Terminates after `after` (`--hard-reset` for abortive close) |
-| `stream-loss` | Drops 32 KiB logical stream chunks at `loss_rate` with burst `correlation` (userspace byte-stream loss, not IP/TCP packet loss) |
-
 Every fault takes a `probability` (0–1): the deterministic per-connection
 activation chance, decided from the seed — never from global RNG state.
+Full fault semantics live in `docs/architecture.md`; routes, CLI, scenarios,
+and UDP resources in `docs/control-plane.md`.
 
-## Other surfaces
+## More surfaces
 
-- **Toxiproxy v2.12 clients:** run the compat server and point existing
-  tooling at it (loopback by default):
+- **Toxiproxy v2.12 clients:** point existing tooling at the compat server
+  (loopback by default). Details in `docs/toxiproxy.md`:
   ```sh
   cargo run -p eggchaos-toxiproxy --example compat_server -- 127.0.0.1:8474
   ```
-- **In-process HTTP chaos:** `eggchaos-eggfetch::ChaosDialer` decorates
-  any Eggfetch `Dialer` (or the direct convenience path), wrapping
-  physical connections in live fault policy while Eggfetch keeps
-  HTTP/TLS/pooling. Connection keys are caller-controlled and
-  deterministic; bounded transport evidence is observable out of band:
+- **In-process HTTP chaos:** `eggchaos-eggfetch::ChaosDialer` wraps physical
+  connections in live fault policy while Eggfetch keeps HTTP/TLS/pooling.
+  Details in `docs/eggfetch.md`:
   ```rust
   let dialer = ChaosDialer::with_policies(seed, "api", upstream, downstream);
   let client = eggfetch_core::Client::builder().dialer(dialer.clone()).build();
   dialer.publish_downstream(FaultPlan::empty())?; // live update, no reconnect
-  // Or wrap your own route-authoritative dialer:
-  let composed = ChaosDialer::wrap(my_dialer, seed, "api")
-      .with_observer(observer);
   ```
-- **Embedded deterministic experiments:** `eggchaos-experiment` runs
-  Scenario V2 schedules against a consumer-neutral policy target
-  (standalone server or in-process `LivePolicy` pairs) with a shared
-  monotonic start epoch for schedule and caller workload — no server
-  dependency, no product-specific types.
+- **Embedded experiments:** `eggchaos-experiment` runs Scenario V2 schedules
+  against a consumer-neutral policy target with a shared monotonic start
+  epoch — see `docs/control-plane.md`.
 
 ## Docs
 
-- `docs/architecture.md`, `docs/configuration.md`, `docs/control-plane.md` —
-  native boundaries, config model, and admin/CLI contract.
-- `docs/toxiproxy.md`, `docs/eggfetch.md` — integration surfaces.
-- `architecture/overview.md` — crate-by-crate deep dives.
-
-Requires Rust 1.89+. Admin listeners bind loopback by default; non-loopback
-binds need an explicit opt-in plus bearer token. Check behavior with
-`cargo test --workspace --all-features` (see `AGENTS.md` for the full gate).
+`docs/architecture.md`, `docs/configuration.md`, `docs/control-plane.md`,
+`docs/toxiproxy.md`, `docs/eggfetch.md`. Crate-by-crate deep dives in
+`architecture/overview.md`. Admin listeners bind loopback by default;
+non-loopback binds need an explicit opt-in plus bearer token.
 
 ## License
 
