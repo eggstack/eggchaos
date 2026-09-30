@@ -485,9 +485,14 @@ if a gate was not run, record it as incomplete (see §8).
   (3 `check` + 8 `language-clients` + 2 `python-native`; see the M041
   closure § "Exact-head hosted qualification"). The older M015 runs
   (`35810065730`, `35810310455` on `cd88b22`) are historical. M048
-  adds the `performance-provenance` job on top of this matrix; the
-  per-OS `check` / `language-clients` / `python-native` counts above
-  are unchanged at the time of M048's recorded hosted run.
+  adds the `performance-provenance` job on top of this matrix (recorded
+  hosted run `36331806587`, 14/14). Later tranches do not rewrite this
+  evidence: M054 requalified the post-M048 corrective tranche on
+  `3b4fd9f` (hosted run `36461914295` 14/14), and M057 is the final
+  hosted qualification authority for the shared M056
+  release-contract DAG on exact candidate `818e567` (hosted run
+  `36490497114` 14/14 + dispatch `36630812771` green; see
+  `plans/closure/M057-m056-closure-evidence-reconciliation-and-exact-head-requalification-closure.md`).
 - Release qualification (`.github/workflows/release.yml`, `workflow_dispatch`
   + `v*.*.*` tags): one cheap `release-contract` prerequisite job
   (`timeout-minutes: 5`) runs `scripts/check_release_tag_version.sh`

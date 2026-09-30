@@ -274,6 +274,26 @@ candidate (see §3).
   Valid-input parallelism between qualification and artifact
   production is preserved after the gate. No production/package/API/
   release-target change; M055 closure evidence is preserved.
+  M056 closed without hosted CI on its exact implementation SHA
+  `b6f0095` (recorded gap); M057 closed as the additive final hosted
+  qualification authority for the unchanged DAG (see next).
+- M054 closed the post-M048 corrective-tranche exact-head qualification
+  on `3b4fd9f` (hosted run `36461914295` 14/14; see
+  `plans/closure/M054-post-m048-corrective-tranche-exact-head-qualification-closure.md`).
+  M055 closed the unreleased 0.2.0 baseline on `b0ecbf1` (workspace +
+  first-party language packages coherent at `0.2.0`; no tag or
+  publication; see
+  `plans/closure/M055-post-v0-1-0-release-state-and-v0-2-0-development-baseline-closure.md`).
+- M057 is the final hosted qualification authority for the shared
+  M056 release-contract DAG on exact candidate `818e567` (hosted run
+  `36490497114` 14/14: 3 `check` + 1 `performance-provenance` + 8
+  `language-clients` + 2 `python-native`; release `workflow_dispatch`
+  run `36630812771` green with `release-contract` first, then
+  `qualify` + five-target `artifacts` fan-out; see
+  `plans/closure/M057-m056-closure-evidence-reconciliation-and-exact-head-requalification-closure.md`).
+  M056 remains the implementation authority; M058 (ready,
+  owner-controlled v0.2.0 publication) may act only after an exact
+  candidate passes the full pre-tag gates.
 - If any fix lands after candidate selection, select a new candidate and
   rerun every affected gate. Planning-only closure-note commits may
   follow only if explicitly distinguished from the qualified code
@@ -341,8 +361,8 @@ Canonical surface is `plans/` (`AGENTS.md`, `plans/README.md`):
 
 | Path | Authority |
 | --- | --- |
-| `plans/roadmap.md` | Long-term architecture, sequencing, invariants, non-goals, release gates. Status line names M019 final pre-tag authority, M041 latest ADR 007 corrective authority, and M048 hosted qualification/CI-ownership authority. |
-| `plans/registry.md` | Compact source of truth for milestone status, dependencies, activation, closure. Update it in the same change that activates/blocks/closes/supersedes a milestone. M041 row is `closed` at `724b967da04579282dd8bfc7a81dc4fe55d034a2` with hosted run `36219464594` (13/13); M048 row is `closed` at `ab61ac7809b9260e44a827567065e1479445f2f7` with hosted run `36331806587` (14/14). |
+| `plans/roadmap.md` | Long-term architecture, sequencing, invariants, non-goals, release gates. Status line names M019 final v0.1.0 pre-tag authority, M041 latest ADR 007 corrective authority, M048 hosted qualification/CI-ownership authority, M055 unreleased 0.2.0 baseline, M056 release-contract implementation, M057 final hosted qualification authority for that DAG, and M058 ready v0.2.0 publication. |
+| `plans/registry.md` | Compact source of truth for milestone status, dependencies, activation, closure. Update it in the same change that activates/blocks/closes/supersedes a milestone. M041 row is `closed` at `724b967da04579282dd8bfc7a81dc4fe55d034a2` with hosted run `36219464594` (13/13); M048 row is `closed` at `ab61ac7809b9260e44a827567065e1479445f2f7` with hosted run `36331806587` (14/14); M055 row is `closed` at `b0ecbf1` (0.2.0 baseline, no tag/publication); M056 row is `closed` at `b6f0095` (release-contract DAG implementation, hosted-CI gap recorded); M057 row is `closed` at `818e567` (hosted run `36490497114` 14/14 + dispatch `36630812771` green, final hosted authority for that DAG); M058 is `ready`. |
 | `plans/000-architecture-and-scope-baseline.md` | Investigated baseline and boundaries. |
 | `plans/001-*.md` … `plans/048-*.md` | Executable handoffs; filename prefix is the milestone sequence number and must not be reused. |
 | `plans/adrs/` | Durable decisions (`001-stream-fault-engine-boundary.md`, `002-determinism-and-live-mutation.md`, `003-datagram-impairment-boundary-and-semantics.md`, `004-deterministic-scenario-schedules-and-replay-identity.md`, `005-cross-project-integration-boundary-and-experiment-identity.md`, `006-cross-language-control-contracts-and-native-binding-boundary.md`, `007-post-v2-12-toxiproxy-stream-loss-compatibility.md`); implementation must not silently change them. |
@@ -403,12 +423,15 @@ closure; neither may claim unsupported behavior.
    dedicated release workflow green on that exact SHA
    (`.github/workflows/ci.yml`, `.github/workflows/release.yml`,
    `plans/015-final-exact-head-release-requalification.md` WP1–WP3;
-   M019 at `ca527db` is the final pre-tag authority, M041 at `724b967`
+   M019 at `ca527db` is the final v0.1.0 pre-tag authority, M041 at `724b967`
    the latest ADR 007 corrective authority, M048 at `ab61ac7`
-   the latest hosted qualification/CI-ownership authority for the M047
-   provenance contract). The 13/13-equivalent hosted matrix must
-   remain green, plus the M048 `performance-provenance` Linux job
-   (14/14 jobs total in M048's recorded hosted run `36331806587`).
+   the hosted qualification/CI-ownership authority for the M047
+   provenance contract, M055 at `b0ecbf1` the unreleased 0.2.0
+   baseline, M056 the release-contract implementation, and M057 at
+   `818e567` the final hosted qualification authority for that DAG).
+   The 14/14 hosted matrix must remain green (3 `check` + 1
+   `performance-provenance` + 8 `language-clients` + 2
+   `python-native`, per M057's recorded hosted run `36490497114`).
 2. `scripts/check.sh` clean; `scripts/release-smoke.sh` (incl.
    audit/deny/package-list/order-proof/artifact-smoke) clean, with the
    order-proof asserting `core -> experiment/eggfetch -> protocol ->
@@ -447,9 +470,11 @@ closure; neither may claim unsupported behavior.
 9. `plans/registry.md` updated in the same change; closure note under
    `plans/closure/` names candidate, commands, platforms, oracle,
    artifacts, limitations, verdict, and successor; `docs/` and
-   `plans/reference/` match implementation; version `0.2.0` census done.
-   `plans/roadmap.md` status names M019 final and M041 latest; no
-   `closed` from source inspection alone.
+   `plans/reference/` match implementation; version `0.2.0` census done
+   (M055 baseline; tag/version guards green, no tag/publication until
+   M058). `plans/roadmap.md` status names M019 final v0.1.0, M041 latest
+   ADR 007, M055 baseline, M056 implementation, M057 final hosted
+   authority; no `closed` from source inspection alone.
 10. Tag / crates.io publish (order `core -> experiment/eggfetch -> protocol ->
     server/toxiproxy/cli -> embed` per `release-smoke.sh` order-proof) / GitHub
     release treated as separate owner decisions — never implied by a

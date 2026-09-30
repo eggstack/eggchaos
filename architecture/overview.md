@@ -185,14 +185,16 @@ overview first, then go component by component.
    property / half-close / backpressure / JSON round-trip / differential /
    cross-language / native-conformance tests, `fuzz/` (9 targets),
    `benchmarks/` (16+1 stream cases + probes, scale/datagram budgets),
-   `qualification/` (M042–M047 provenance snapshots), tolerance policy for
-   wall-clock assertions, incomplete-evidence rule, M057 exact-head
-   authority (`818e567`).
+   `qualification/` (M042–M047 provenance snapshots + M048 hosted wiring),
+   tolerance policy for wall-clock assertions, incomplete-evidence rule,
+   M057 exact-head authority (`818e567`, hosted `36490497114` 14/14 +
+   dispatch `36630812771`).
 10. [Tooling, release, and repo governance](tooling-distribution.md) —
      `scripts/`, `.github/workflows/`, `dist/`, `deny.toml`, `plans/` +
      `docs/` authority, `release-contract` DAG (M056 impl / M057 hosted),
-     publish order, planning dual-wiring guards (M048 Tier A/B, M053),
-     status vocabulary, closure-evidence discipline.
+     publish order, planning/version dual-wiring guards (M048 Tier A/B,
+     M053 planning-state, M055 version-coherence + tag/version), status
+     vocabulary, closure-evidence discipline.
 
 ## Canonical references
 
