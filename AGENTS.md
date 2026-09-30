@@ -65,7 +65,7 @@ Qualification (release workflow): `release-smoke.sh` (fmt/clippy/test/doc/audit/
 
 ## Planning state
 
-M000–M057 are closed. M057 closed as the final exact-head qualification authority for the M056 shared `release-contract` DAG (candidate `818e567`, hosted run `36490497114` 14/14, dispatch run `36630812771` green); M056 remains the implementation authority and its closure record (including the original hosted-CI gap) is preserved verbatim. The unreleased 0.2.0 baseline remains unchanged; no tag/publication action is authorized.
+M000–M057 are closed. M058 is ready as the owner-controlled `v0.2.0` publication milestone. Required release scope is all eight Rust crates plus annotated `v0.2.0`, the five-target GitHub binary/checksum release, and fresh public-install verification. Language-registry publication is separately gated per package; `eggchaos-native` is deferred by default absent a release-grade wheel matrix. M055 remains the version-baseline authority, M056 the release-contract implementation authority, and M057 the exact-head qualification authority for that DAG. Do not tag or publish until the exact M058 candidate passes the plan gates.
 
 If the owner asks for new work: `plans/roadmap.md` is the architecture authority, `plans/reference/` holds parity/verification contracts (not status), ADRs live in `plans/adrs/`. Any new numbered plan needs objective, baseline/deps, scope + non-goals, affected crates, ordered work packages, invariants/failure semantics, test commands, acceptance criteria, stop conditions, closure evidence, and follow-on rules — and must update `plans/registry.md` in the same change. `plans/registry.md` is the sole hand-maintained milestone-status authority (vocabulary: `active`, `blocked`, `closed`, `ready`); the `Current planning state` blocks in AGENTS.md / `plans/README.md` / `plans/roadmap.md` / `architecture/overview.md` are generated projections, never independent authorities. After any registry edit: 1. add/update the numbered plan; 2. update `registry.md`; 3. run `python3 scripts/check_planning_state.py --write`; 4. run `sh scripts/tests/test_planning_state.sh`. Never mark `closed` from source inspection; closure requires running the plan's tests on the exact candidate plus external/differential evidence where declared.
 
@@ -83,8 +83,11 @@ Prefer deterministic Tokio-time tests; wall-clock assertions need justified tole
 
 ## Current planning state
 
+**Ready (next milestone):**
+- `M058` (ready; plan `058-v0-2-0-release-publication-and-distribution.md`)
+
 **Highest closed milestone:** `M057` (see registry for closure evidence).
 
-**Execution order:** no active or ready milestones.
+**Execution order:** `M058`
 
 <!-- END eggchaos:planning-state -->

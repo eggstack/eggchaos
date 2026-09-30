@@ -1,6 +1,6 @@
 # Eggchaos Long-Term Roadmap
 
-Status: M000-M057 are closed. M057 is the final exact-head qualification authority for the M056 release-contract DAG (candidate `818e567`, hosted run `36490497114` 14/14, dispatch run `36630812771` green). The unreleased 0.2.0 baseline and M056 release-contract implementation are unchanged.
+Status: M000-M057 are closed. M058 is ready for owner-controlled v0.2.0 release publication. M055 owns the 0.2.0 version baseline, M056 the release-contract implementation, and M057 its exact-head qualification authority.
 
 ## 1. Mission
 
@@ -761,6 +761,27 @@ SHA (`release-contract` first, then `qualify` + five-target
 for the M056 release DAG. No workflow/package/runtime/publication
 change occurred. M057 activates no successor.
 
+## 11R. v0.2.0 release publication and distribution
+
+M058 is the first milestone in the M055–M058 release line authorized to perform
+irreversible publication. It freezes one exact `0.2.0` candidate, reruns the
+full local/hosted/oracle/release gates, creates an annotated `v0.2.0` tag,
+verifies the tag-triggered `release-contract -> {qualify, artifacts}` DAG,
+publishes all eight Rust crates in dependency order, attaches the five
+qualified binaries plus checksums to GitHub Release `eggchaos v0.2.0`, and
+verifies fresh public installs.
+
+The required release surface is Rust crates + GitHub binaries. The aligned
+Python and TypeScript packages are separately gated irreversible registry
+surfaces: each needs an explicit ownership/credential/artifact/consumer-smoke
+go decision. The alpha `eggchaos-native` PyO3 pilot is deferred by default
+until a release-grade wheel matrix exists.
+
+M058 does not authorize feature development, schema/API changes, dependency
+upgrades, tag mutation, or rewriting M055–M057 history. A production/workflow
+defect found during qualification stops publication and requires a new
+corrective candidate.
+
 ## 12. Performance targets
 
 No-fault overhead is a first-class regression metric.
@@ -818,8 +839,11 @@ None of these may weaken the fixed-target, protocol-neutral core boundary.
 
 ## Current planning state
 
+**Ready (next milestone):**
+- `M058` (ready; plan `058-v0-2-0-release-publication-and-distribution.md`)
+
 **Highest closed milestone:** `M057` (see registry for closure evidence).
 
-**Execution order:** no active or ready milestones.
+**Execution order:** `M058`
 
 <!-- END eggchaos:planning-state -->

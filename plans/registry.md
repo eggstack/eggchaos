@@ -1,6 +1,6 @@
 # Eggchaos Plan Registry
 
-Last reconciled: 2026-09-29 (M000–M057 closed; no ready milestone)
+Last reconciled: 2026-09-30 (M000–M057 closed; M058 v0.2.0 release publication ready)
 
 This file is the compact source of truth for active milestone state. Detailed scope lives in the numbered plans. Historical closure evidence belongs in `plans/closure/`.
 
@@ -64,6 +64,7 @@ This file is the compact source of truth for active milestone state. Detailed sc
 | M055 | `055-post-v0-1-0-release-state-and-v0-2-0-development-baseline.md` | **closed** | M054 | Closed on exact candidate `b0ecbf1`; evidence in `plans/closure/M055-post-v0-1-0-release-state-and-v0-2-0-development-baseline-closure.md`. Unreleased 0.2.0 baseline coherent across workspace and first-party language packages; tag/version guards green; no tag or publication action. |
 | M056 | `056-release-workflow-contract-gate-corrective.md` | **closed** | M055 | Closed on exact candidate `b6f00950b94057934773385f679d8f576e8abd40`; evidence in `plans/closure/M056-release-workflow-contract-gate-corrective-closure.md`. One cheap `release-contract` prerequisite job owns `scripts/check_release_tag_version.sh`; both `qualify` and the five-target `artifacts` matrix declare `needs: [release-contract]` so neither can start on an invalid tag. `scripts/tests/test_release_tag_version.sh` strengthened with structural assertions (one `release-contract:` job, root-of-DAG, both downstream `needs:` declared, exactly one guard invocation) plus five deliberate negative tests. The in-qualify guard invocation was removed. Valid-input parallelism preserved. No production/package/API/release-target change; M055 closure evidence untouched. M056 implementation is complete; exact-candidate hosted-CI evidence was absent at closure, so M057 closed as the additive final hosted qualification authority for the shared release-contract DAG (see M057 row). |
 | M057 | `057-m056-closure-evidence-reconciliation-and-exact-head-requalification.md` | **closed** | M056 | Closed on exact qualification candidate `818e5674f2efaf96ec8effda81cef1dfa7a48614`; evidence in `plans/closure/M057-m056-closure-evidence-reconciliation-and-exact-head-requalification-closure.md`. Hosted run `36490497114` is green 14/14 on the exact candidate (3 `check` + 1 `performance-provenance` + 8 `language-clients` + 2 `python-native`); release `workflow_dispatch` run `36630812771` is green on the same SHA (`release-contract` first, then `qualify` + five-target `artifacts` fan-out). Release workflow/guards verified M056-equivalent (no workflow/guard/manifest/production change between `b6f0095` and the candidate). M057 is the final hosted qualification authority for the shared release-contract DAG; M056 remains the implementation authority and its closure record (including the original hosted-CI gap) is preserved verbatim. M057 activates no successor. |
+| M058 | `058-v0-2-0-release-publication-and-distribution.md` | **ready** | M057 | Owner-controlled v0.2.0 publication: freeze exact candidate; qualify; annotated tag; tag-triggered five-target artifacts; publish eight Rust crates in dependency order; create GitHub Release; fresh public-install verification; language registries separately gated. |
 
 A post-M048 repository audit registered a bounded correctness/maintenance corrective chain:
 
@@ -74,6 +75,8 @@ M049-M054 are closed. The chain is explicitly non-regressive: no existing Rust A
 M055 is a separate release-state/version-coherence corrective. It is closed on `b0ecbf1` and established the unreleased 0.2.0 development baseline while preserving the published v0.1.0 tag/release as immutable history. M055 did not tag, publish, or create a GitHub release, and activates no successor.
 
 M056 closed the post-M055 release-workflow orchestration gap where `qualify` was guarded but the five-target `artifacts` matrix could still start in parallel on an invalid tag. It introduced one cheap `release-contract` prerequisite job that owns `scripts/check_release_tag_version.sh` and made both `qualify` and `artifacts` declare `needs: [release-contract]`; the structural regression in `scripts/tests/test_release_tag_version.sh` was strengthened with negative tests so the bypass cannot silently return. M056 changes workflow scheduling/tests only and does not reopen M055 release-state/version metadata. M056 closed without hosted CI on its exact implementation SHA `b6f0095` (recorded gap); M057 closed as the additive final hosted qualification authority for the unchanged DAG on exact candidate `818e567` (hosted run `36490497114`, 14/14; dispatch run `36630812771` green) and activates no successor.
+
+M058 is ready as the owner-controlled `v0.2.0` publication milestone. Required scope is the eight-crate Rust graph plus annotated tag and five-target GitHub binary release; Python/npm package publication remains separately gated per package, with the alpha `eggchaos-native` binding deferred by default. M058 may perform irreversible publication only after an exact candidate passes the full pre-tag gates.
 
 ## Execution state
 
@@ -174,7 +177,7 @@ Completed work: M000–M057 are closed (M008 closed as historical work alongside
 
 Active: none.
 
-Ready: none.
+Ready: M058.
 
 Blocked: none.
 

@@ -163,6 +163,8 @@ M056 is closed as the narrow release-workflow contract-gate corrective. It intro
 
 M057 is closed as the qualification-only successor for the M056 closure-evidence gap. It preserved the M056 workflow implementation and closure record, obtained hosted CI on exact candidate `818e567` (run `36490497114`, 14/14) plus a green release `workflow_dispatch` run `36630812771` on the same SHA, and is the final hosted qualification authority for the shared release-contract DAG. M057 activates no successor.
 
+M058 is ready as the owner-controlled `v0.2.0` release-publication milestone. It requires an exact frozen candidate, tag-triggered release qualification, ordered publication of all eight Rust crates, five GitHub binaries plus checksums, fresh public-install verification, and explicit per-registry go/no-go decisions for language packages. `eggchaos-native` remains deferred by default unless a release-grade wheel matrix is proven.
+
 ## Status rules
 
 The registry uses the following states: `active`, `blocked`, `closed`, and `ready`. `plans/registry.md` is the sole hand-maintained status authority; the `Current planning state` blocks in AGENTS.md, `plans/README.md`, `plans/roadmap.md`, and `architecture/overview.md` are generated projections rewritten by `python3 scripts/check_planning_state.py --write` and checked by `sh scripts/tests/test_planning_state.sh`.
@@ -237,8 +239,11 @@ pinned snapshot oracle rather than moving `main`.
 
 ## Current planning state
 
+**Ready (next milestone):**
+- `M058` (ready; plan `058-v0-2-0-release-publication-and-distribution.md`)
+
 **Highest closed milestone:** `M057` (see registry for closure evidence).
 
-**Execution order:** no active or ready milestones.
+**Execution order:** `M058`
 
 <!-- END eggchaos:planning-state -->
