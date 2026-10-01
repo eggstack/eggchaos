@@ -163,7 +163,7 @@ M056 is closed as the narrow release-workflow contract-gate corrective. It intro
 
 M057 is closed as the qualification-only successor for the M056 closure-evidence gap. It preserved the M056 workflow implementation and closure record, obtained hosted CI on exact candidate `818e567` (run `36490497114`, 14/14) plus a green release `workflow_dispatch` run `36630812771` on the same SHA, and is the final hosted qualification authority for the shared release-contract DAG. M057 activates no successor.
 
-M058 is ready as the owner-controlled `v0.2.0` release-publication milestone. It requires an exact frozen candidate, tag-triggered release qualification, ordered publication of all eight Rust crates, five GitHub binaries plus checksums, fresh public-install verification, and explicit per-registry go/no-go decisions for language packages. `eggchaos-native` remains deferred by default unless a release-grade wheel matrix is proven.
+M059 is ready as the release-blocking pre-`v0.2.0` security/dependency/maintenance corrective registered from audit baseline `0f8a8eb`. It activates workspace lint inheritance, reconciles first-party dependency/lock graphs, hardens Actions and dependency monitoring, narrows the PyO3 unsafe boundary, adds Rust public-API regression qualification, and requires a new exact-head hosted/release qualification. M058 remains the owner-controlled `v0.2.0` publication milestone but is blocked until M059 closes; its eight-crate/tag/five-binary/checksum/public-install scope and separately gated language-package decisions are unchanged. `eggchaos-native` remains deferred by default unless a release-grade wheel matrix is proven.
 
 ## Status rules
 
@@ -240,10 +240,13 @@ pinned snapshot oracle rather than moving `main`.
 ## Current planning state
 
 **Ready (next milestone):**
-- `M058` (ready; plan `058-v0-2-0-release-publication-and-distribution.md`)
+- `M059` (ready; plan `059-pre-v0-2-0-security-dependency-and-maintenance-hardening-corrective.md`)
+
+**Blocked (waiting on a predecessor closure):**
+- M058
 
 **Highest closed milestone:** `M057` (see registry for closure evidence).
 
-**Execution order:** `M058`
+**Execution order:** `M059`
 
 <!-- END eggchaos:planning-state -->
