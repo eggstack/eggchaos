@@ -127,6 +127,9 @@ fixes):
   (RST vs FIN not asserted); ordinary `poll_shutdown` is never
   advertised as TCP RST.
 - MSRV: Rust 1.89+.
+- Release-correctness lockfile: transitive `yoke-derive 0.8.3 ->
+  0.8.4` (yanked-version replacement only; no direct dependency
+  change, no API/RNG/fault change from this bump).
 
 ## Language-package decisions (M058 WP1/WP5/WP9)
 
