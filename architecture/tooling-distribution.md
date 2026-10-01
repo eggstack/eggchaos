@@ -44,7 +44,7 @@ than re-implementing their steps.
 
 | Script | What it runs | When to run it |
 | --- | --- | --- |
-| `scripts/check.sh` | `test_bench_provenance.sh` (M048 Tier A) + `test_planning_state.sh` (M053) + `test_version_coherence.sh` (M055) + `test_release_tag_version.sh` (M056 structural) + `cargo fmt --all -- --check`; `cargo clippy --workspace --all-targets --all-features -- -D warnings`; `cargo test --workspace --all-features`; `cargo doc --workspace --all-features --no-deps`. Note: `audit`/`deny` live in CI and `release-smoke.sh`; release-benchmark Tier B stays CI-only. | Every local change before push; fastest full local gate. |
+| `scripts/check.sh` | `test_bench_provenance.sh` (M048 Tier A) + `test_planning_state.sh` (M053) + `test_version_coherence.sh` (M055) + `test_lint_inheritance.sh` (M059) + `test_lock_coherence.sh` (M059) + `test_action_pins.sh` (M059) + `test_release_tag_version.sh` (M056 structural) + `cargo fmt --all -- --check`; `cargo clippy --workspace --all-targets --all-features -- -D warnings`; `cargo test --workspace --all-features`; `cargo doc --workspace --all-features --no-deps`. Note: `audit`/`deny` live in CI and `release-smoke.sh`; release-benchmark Tier B stays CI-only. | Every local change before push; fastest full local gate. |
 | `scripts/benchmark.sh` | M047 wrapper: collects shared provenance via `scripts/bench_provenance.py` (clean/dirty policy, `--exclude` for artifact outputs), exports `EGGCHAOS_BENCH_PROVENANCE_JSON` for `benchmarks/src/main.rs` (identical object in stdout case JSON and stderr probe JSON), warns on dirty exploratory runs, and refuses dirty trees before execution under `EGGCHAOS_BENCH_REQUIRE_CLEAN=1` / `--require-clean`. Artifact mode via `EGGCHAOS_STREAM_BENCH_OUTPUT` / `EGGCHAOS_STREAM_PROBE_OUTPUT`. | No-fault throughput/latency vs bare `eggress-relay` (see `benchmarks/`, `qualification/performance/`). Do not invent budgets before measurement (`plans/roadmap.md` §12). Canonical retained evidence requires a clean tree. |
 | `scripts/benchmark_datagram.sh` | Runs the direct UDP echo / benchmark-local bare fixed-target relay / fixed-target benchmark in release mode (`--bin datagram`), annotates the JSON report with `cpu_model`/`rustc`/`candidate_sha` (= `provenance.head_sha`, base HEAD) plus the shared `provenance` object from `scripts/bench_provenance.py` (or writes to `${EGGCHAOS_DATAGRAM_BENCH_OUTPUT:-}` temp file), then checks the measured no-fault ratios. Same dirty-warning / `EGGCHAOS_BENCH_REQUIRE_CLEAN=1` guard as the stream wrapper. | Datagram performance qualification; the retained M023 budget is ≥45% of same-session direct datagrams/s and ≤2.5× direct p95 latency, plus the M024 topology-matched budget (empty/bare ≥0.7× sequential throughput, ≤1.6× sequential p95, ≥0.7× windowed throughput). Also runs in the release `qualify` lane. |
 | `scripts/bench_provenance.py` | M047 single Git-state authority (stdlib-only): repo root via `git rev-parse --show-toplevel`, base HEAD, staged/tracked/untracked classification minus generated/output exclusions (`target/`, `__pycache__`/`*.pyc`, `qualification/performance/*.json`, `--exclude` paths), stable SHA-256 dirty-source fingerprint, machine-readable `{"provenance": {...}}` envelope; `--require-clean` exits 2 on dirty trees. Never mutates Git state; emits no absolute paths or secrets. | Consumed by both benchmark wrappers; `scripts/tests/test_bench_provenance.sh` pins the clean/dirty matrix in disposable repos. |
@@ -86,8 +86,14 @@ targets), `benchmarks/` (relay comparison harness).
   once burned 4+ hours per platform), `fail-fast: true`,
   `RUST_TEST_THREADS: 4`, matrix
   `[ubuntu-latest, macos-latest, windows-latest]`.
-- Toolchain: `dtolnay/rust-toolchain@stable` pinned to `1.89.0` with
-  `rustfmt, clippy`; `Swatinem/rust-cache@v2`.
+- Toolchain: pinned `dtolnay/rust-toolchain` (project jobs request
+  `1.89.0` with `rustfmt, clippy`; the M059 `api-gate` job requests
+  `stable`); `Swatinem/rust-cache` (pinned v2.9.2). M059 pins every
+  external action to a full 40-character commit SHA with the reviewed
+  release as a trailing comment (see `scripts/check_action_pins.py`
+  for the enforced inventory); workflows default to
+  `permissions: contents: read` with `persist-credentials: false` on
+  every checkout.
 - Pinned scanners: `cargo-audit --locked --version 0.22.2`,
   `cargo-deny --locked --version 0.20.2` (installed from source each run).
 - Steps in order: `cargo install cargo-audit --locked --version 0.22.2`;
@@ -123,8 +129,10 @@ candidate (see §3).
   check bound is not raised.
 - Job `language-clients` (`timeout-minutes: 25`, matrix
   `[ubuntu-latest, macos-latest] × python ["3.11", "3.12"] × node
-  ["20", "22"]`, `actions/setup-python@v5` + `actions/setup-node@v4`,
-  `pip install build pytest pyyaml`): `sh
+  ["20", "22"]`, pinned `actions/setup-python` (v7.0.0) +
+  `actions/setup-node` (v7.0.0),
+  `pip install -r .github/python-ci/requirements.txt` (M059 exact
+  pins)): `sh
   scripts/tests/test_cleanup_traps.sh`, `sh
   scripts/tests/test_fetch_toxiproxy_post_v2_12_contract.sh` (M041
   fetcher-contract regression), `sh
@@ -132,21 +140,46 @@ candidate (see §3).
   guard against accidental provenance CI de-integration; lives here, not
    in the `check`/`performance-provenance` jobs, so removing either of
    those jobs still trips this independent check),
-   `python3 scripts/check_version_coherence.py --check` (M055 manifest
-   coherence; lives here, not in `check` itself, so removing the local
-   check still trips this independent check),
+   `python3 scripts/check_planning_state.py --check` (M053),
+   `python3 scripts/check_version_coherence.py --check` (M055),
+   `python3 scripts/check_lint_inheritance.py --check` (M059),
+   `python3 scripts/check_lock_coherence.py --check` (M059),
+   `python3 scripts/check_action_pins.py --check` (M059; each bare
+   `--check` lives here, not in `check` itself, so removing the local
+   check still trips an independent check),
    `./scripts/check_openapi.sh`,
   `./scripts/check_python_client.sh`,
   `./scripts/check_typescript_client.sh`,
   `./scripts/qualify_language_clients.sh`.
 - Job `python-native` (`timeout-minutes: 25`, matrix
-  `[ubuntu-latest, macos-latest] × python ["3.12"]`, pinned
-  `maturin==1.9.5`, `pip install maturin==1.9.5 pytest build` plus
+  `[ubuntu-latest, macos-latest] × python ["3.12"]`,
+  `pip install -r .github/python-ci/requirements.txt` (M059 exact pins;
+  maturin held at its qualified 1.9.5) plus
   `cargo-audit 0.22.2` for the binding lockfile):
   `./scripts/check_python_native.sh` then
   `./scripts/qualify_python_native.sh` on native-host wheels, kept
   separate so Rust and remote-SDK gates stay independent of Python
   packaging availability.
+- Job `api-gate` (M059; `timeout-minutes: 25`, `ubuntu-latest` only,
+  `RUSTUP_TOOLCHAIN: stable` with the pinned `dtolnay/rust-toolchain`
+  `toolchain: stable`): installs `cargo-semver-checks 0.50.0 --locked`
+  and runs `./scripts/qualify_rust_api.sh` — zero public-API drift vs
+  the M059 activation snapshot for all seven library crates plus the
+  pinned M057 census (six decided pre-release findings, no others).
+  Checkout uses `fetch-depth: 0` because semver baselines are git
+  revisions. Runs on stable, never the 1.89 MSRV compiler.
+- M059 dependency monitoring: workflow `security.yml` (daily
+  `03:17 UTC` cron + `workflow_dispatch`, `ubuntu-latest` only)
+  audits all four committed lockfiles (`cargo audit --deny warnings`
+  per directory), enforces `deny.toml` against the root and all three
+  standalone manifests, and re-runs the lock-coherence guard;
+  workflow `dependency-review.yml` runs
+  `actions/dependency-review-action` (pinned v5.0.0) on pull requests
+  with `fail-on-severity: high` (license authority stays in
+  cargo-deny); `.github/dependabot.yml` covers Cargo (root +
+  python-native + benchmarks + fuzz), GitHub Actions, npm
+  (typescript-client), and pip (`.github/python-ci`) with grouped
+  weekly updates and bounded PR counts.
 
 ## 3. Release qualification (`.github/workflows/release.yml`)
 
@@ -202,8 +235,15 @@ candidate (see §3).
 - Each artifact job: `cargo build --release --locked --package
   eggchaos-cli --target <triple>`; copies the binary to
   `eggchaos-v${GITHUB_REF_NAME#v}-<triple>[.exe]`; writes a `.sha256`
-  sidecar via `sha256sum` (or `shasum -a 256` fallback); uploads via
-  `actions/upload-artifact@v4` as `eggchaos-<triple>`.
+  sidecar via `sha256sum` (or `shasum -a 256` fallback); attests the
+  exact binary with pinned `actions/attest-build-provenance` (v4.2.2;
+  Sigstore provenance is additional evidence, never a substitute for
+  checksum validation); uploads via pinned
+  `actions/upload-artifact` (v7.0.1) as `eggchaos-<triple>`. The job
+  carries its own `permissions:` (`contents: read`, `id-token: write`,
+  `attestations: write`); the workflow default stays `contents: read`.
+  The native-host leg additionally verifies its attestation with
+  `gh attestation verify`.
 - Local `dist/` snapshot at time of writing holds 5 binaries + 5
   `.sha256` files (`aarch64-apple-darwin`, `aarch64-unknown-linux-gnu`,
   `x86_64-apple-darwin`, `x86_64-pc-windows-gnu.exe`,
@@ -432,6 +472,11 @@ closure; neither may claim unsupported behavior.
    The 14/14 hosted matrix must remain green (3 `check` + 1
    `performance-provenance` + 8 `language-clients` + 2
    `python-native`, per M057's recorded hosted run `36490497114`).
+   M059 extends the DAG with the `api-gate` job (stable toolchain),
+   the scheduled `security` workflow, and PR dependency review; the
+   M059 exact candidate must carry the resulting 15-job CI matrix
+   green (3 + 1 + 8 + 2 + 1) plus green release `workflow_dispatch`
+   with attestation generation and verification.
 2. `scripts/check.sh` clean; `scripts/release-smoke.sh` (incl.
    audit/deny/package-list/order-proof/artifact-smoke) clean, with the
    order-proof asserting `core -> experiment/eggfetch -> protocol ->

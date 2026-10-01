@@ -315,16 +315,34 @@ if a gate was not run, record it as incomplete (see §8).
   conformance test.
 - Native binding: `scripts/check_python_native.sh`
   (`eggchaos-embed` tests, binding-crate test/audit, handwritten-
-  `unsafe` audit, abi3 wheel inspection, import/runtime smoke) and
+  `unsafe` audit plus the M059 unsafe-boundary structural audit
+  (no crate-root allowance; macro layer scoped; safe modules deny),
+  abi3 wheel inspection, import/runtime smoke) and
   `scripts/qualify_python_native.sh` (remote/native conformance +
   control-overhead measurements). Target selection is host-aware
   (Apple targets only on Darwin; `EGGCHAOS_NATIVE_TARGET` override for
   intentional cross builds, never runtime-qualified without a matching
   import). Hosted gate: dedicated `python-native` CI job on
-  `[ubuntu-latest, macos-latest] × python 3.12` with pinned
-  `maturin==1.9.5`. Platform support claims live in
-  `bindings/python-native/README.md` (hosted runtime-qualified vs
-  built-only vs unqualified).
+  `[ubuntu-latest, macos-latest] × python 3.12` with exact-version
+  tooling from `.github/python-ci/requirements.txt` (maturin held at
+  its qualified 1.9.5). Maturin builds honor the committed
+  `bindings/python-native/Cargo.lock` via `--locked`. Platform support
+  claims live in `bindings/python-native/README.md` (hosted
+  runtime-qualified vs built-only vs unqualified).
+
+### Rust public-API regression (M059)
+
+- Authority: `scripts/qualify_rust_api.sh` (`cargo-semver-checks`
+  0.50.0, `--all-features`, all seven public library crates).
+  Activation snapshot `0f8a8eb`: zero drift permitted — any failure is
+  an M059 regression. Qualified M057 candidate `818e567`: diagnostic
+  census pinned to exactly six decided pre-release extensions (three
+  `ValidationError` bounded-limit variants, `total_duration_ns`,
+  `ProxyInput.toxics`, `Proxy.logger`); any additional finding fails.
+  The compatibility decision (frozen v0.2.0 surface, unpublished API,
+  baseline advances to the `v0.2.0` tag at publication) is recorded in
+  the M059 closure evidence. Hosted gate: dedicated `api-gate` CI job
+  (`ubuntu-latest`, stable toolchain, `fetch-depth: 0` checkout).
 
 ### No-fault throughput/latency regression vs bare `eggress-relay`
 

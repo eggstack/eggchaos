@@ -221,6 +221,7 @@ sh scripts/tests/test_release_tag_version.sh
 ./scripts/check_python_native.sh
 ./scripts/qualify_python_native.sh
 ./scripts/qualify_eggfetch.sh
+./scripts/qualify_rust_api.sh
 ./scripts/release-smoke.sh
 ./scripts/release-artifact-smoke.sh
 EGGCHAOS_FUZZ_RUNS=10000 ./scripts/qualify_fuzz.sh
@@ -240,9 +241,13 @@ TOXIPROXY_POST_V2_12_SERVER="$(./scripts/fetch_toxiproxy_post_v2_12.sh)" \
 
 Require:
 
-- ordinary hosted CI green on the exact candidate (normal 14-job matrix);
+- ordinary hosted CI green on the exact candidate (M059 15-job matrix:
+  3 `check` + 1 `performance-provenance` + 8 `language-clients` + 2
+  `python-native` + 1 `api-gate`);
 - a pre-tag `workflow_dispatch` of the release workflow green on the same
-  exact SHA/ref;
+  exact SHA/ref, including Sigstore attestation generation and hosted
+  verification of the native-host binary (M059 provenance contract);
+  checksums remain the primary artifact contract;
 - retained performance budgets green where the release workflow enforces them;
 - no dirty-tree authoritative performance evidence.
 
