@@ -12,14 +12,13 @@ datagrams.
 
 ## Install
 
-Published release `0.1.0` (requires Rust 1.89+):
+Latest published release `0.2.0` (requires Rust 1.89+):
 
 ```sh
-cargo install eggchaos-cli --version 0.1.0
+cargo install eggchaos-cli --version 0.2.0 --locked
 ```
 
-From source (unreleased `0.2.0` tree — do not `cargo install --version 0.2.0`
-until the owner publishes it):
+From source (tracks `main` past the `v0.2.0` tag):
 
 ```sh
 git clone https://github.com/eggstack/eggchaos

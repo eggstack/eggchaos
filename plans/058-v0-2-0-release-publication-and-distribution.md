@@ -1,6 +1,6 @@
 # M058 — v0.2.0 Release Publication and Distribution
 
-Status: ready (reactivated by M059 closure at `1409d0f`; M059 closure evidence in `plans/closure/M059-pre-v0-2-0-security-dependency-and-maintenance-hardening-corrective-closure.md`)
+Status: closed (v0.2.0 published 2026-10-01; evidence in `plans/closure/M058-v0-2-0-release-publication-and-distribution-closure.md`)
 Depends on: M057 closed; M059 closed
 Role: owner-controlled release publication / distribution milestone
 Registration baseline: eb46b5fd416d2d76f5732301f739904fc8eb7d5e

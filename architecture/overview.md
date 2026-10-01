@@ -6,7 +6,7 @@ This document summarizes each discrete module/component in one place and is
 the index for systematic review — each section links to its deep dive in
 this directory. Read this file first, then go component by component.
 
-Published `v0.1.0` is the historical first release (tag target `81994dbc427365f1dfdaabfa39bdf077850e69ec`, published 2026-09-24). Current `main` is the unreleased `0.2.0` development baseline (M055 closed): all Rust workspace packages and first-party language packages resolve to `0.2.0`, while native `/v1`, config schema v1, RNG v1, and provenance schema v1 are unchanged. M019 (`ca527db`) remains the final v0.1.0 pre-tag qualification authority; M041 remains the ADR 007 corrective authority and M046/M047/M048 retain their performance-provenance authority roles. M056 closed the release-workflow orchestration corrective so both qualification and artifact builds are hard-gated by the same tag/package contract before expensive work starts. M057 closed as the additive exact-head qualification authority (candidate `818e567`, hosted run `36490497114` 14/14, dispatch run `36630812771` green) because M056 closed without hosted CI on its exact implementation SHA; M056 implementation ownership remains unchanged. The 2026-10-01 audit registered M059 as a release-blocking security/dependency/maintenance corrective on baseline `0f8a8eb`; M058 remains the owner-controlled v0.2.0 publication milestone but is blocked until M059 closes and requalifies the hardened exact head. No v0.2.0 tag/package/GitHub release exists.
+Published `v0.2.0` (annotated tag `15746dc…` peeling to `b6a277d`, GitHub Release `eggchaos v0.2.0`) is the current release; published `v0.1.0` is preserved as immutable history (tag target `81994dbc427365f1dfdaabfa39bdf077850e69ec`, published 2026-09-24). All eight Rust workspace crates are `0.2.0` on crates.io, while native `/v1`, config schema v1, RNG v1, and provenance schema v1 are unchanged. M019 (`ca527db`) remains the final v0.1.0 pre-tag qualification authority; M041 remains the ADR 007 corrective authority and M046/M047/M048 retain their performance-provenance authority roles. M056 closed the release-workflow orchestration corrective so both qualification and artifact builds are hard-gated by the same tag/package contract before expensive work starts. M057 closed as the additive exact-head qualification authority (candidate `818e567`, hosted run `36490497114` 14/14, dispatch run `36630812771` green) because M056 closed without hosted CI on its exact implementation SHA; M056 implementation ownership remains unchanged. M059 closed as the pre-publication security/dependency/maintenance corrective (candidate `1409d0f`, hosted CI `36922662654` 15/15, dispatch `36922672946` 7/7). M058 closed the v0.2.0 publication (candidate `b6a277d`, tag CI `36935298504` 15/15, tag release `36935298484` 7/7).
 Canonical planning surface is `plans/` (see `AGENTS.md`); user-facing
 implementation boundaries live in `docs/architecture.md`,
 `docs/configuration.md`, `docs/control-plane.md`, `docs/toxiproxy.md`, and
@@ -220,11 +220,8 @@ overview first, then go component by component.
 
 ## Current planning state
 
-**Ready (next milestone):**
-- `M058` (ready; plan `058-v0-2-0-release-publication-and-distribution.md`)
-
 **Highest closed milestone:** `M059` (see registry for closure evidence).
 
-**Execution order:** `M058`
+**Execution order:** no active or ready milestones.
 
 <!-- END eggchaos:planning-state -->

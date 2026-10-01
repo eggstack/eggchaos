@@ -1,6 +1,6 @@
 # Eggchaos Plan Registry
 
-Last reconciled: 2026-10-01 (M000–M057 closed; M059 closed at `1409d0f`; M058 ready for owner-controlled v0.2.0 publication)
+Last reconciled: 2026-10-01 (M000–M059 closed; M058 closed — v0.2.0 published)
 
 This file is the compact source of truth for active milestone state. Detailed scope lives in the numbered plans. Historical closure evidence belongs in `plans/closure/`.
 
@@ -64,7 +64,7 @@ This file is the compact source of truth for active milestone state. Detailed sc
 | M055 | `055-post-v0-1-0-release-state-and-v0-2-0-development-baseline.md` | **closed** | M054 | Closed on exact candidate `b0ecbf1`; evidence in `plans/closure/M055-post-v0-1-0-release-state-and-v0-2-0-development-baseline-closure.md`. Unreleased 0.2.0 baseline coherent across workspace and first-party language packages; tag/version guards green; no tag or publication action. |
 | M056 | `056-release-workflow-contract-gate-corrective.md` | **closed** | M055 | Closed on exact candidate `b6f00950b94057934773385f679d8f576e8abd40`; evidence in `plans/closure/M056-release-workflow-contract-gate-corrective-closure.md`. One cheap `release-contract` prerequisite job owns `scripts/check_release_tag_version.sh`; both `qualify` and the five-target `artifacts` matrix declare `needs: [release-contract]` so neither can start on an invalid tag. `scripts/tests/test_release_tag_version.sh` strengthened with structural assertions (one `release-contract:` job, root-of-DAG, both downstream `needs:` declared, exactly one guard invocation) plus five deliberate negative tests. The in-qualify guard invocation was removed. Valid-input parallelism preserved. No production/package/API/release-target change; M055 closure evidence untouched. M056 implementation is complete; exact-candidate hosted-CI evidence was absent at closure, so M057 closed as the additive final hosted qualification authority for the shared release-contract DAG (see M057 row). |
 | M057 | `057-m056-closure-evidence-reconciliation-and-exact-head-requalification.md` | **closed** | M056 | Closed on exact qualification candidate `818e5674f2efaf96ec8effda81cef1dfa7a48614`; evidence in `plans/closure/M057-m056-closure-evidence-reconciliation-and-exact-head-requalification-closure.md`. Hosted run `36490497114` is green 14/14 on the exact candidate (3 `check` + 1 `performance-provenance` + 8 `language-clients` + 2 `python-native`); release `workflow_dispatch` run `36630812771` is green on the same SHA (`release-contract` first, then `qualify` + five-target `artifacts` fan-out). Release workflow/guards verified M056-equivalent (no workflow/guard/manifest/production change between `b6f0095` and the candidate). M057 is the final hosted qualification authority for the shared release-contract DAG; M056 remains the implementation authority and its closure record (including the original hosted-CI gap) is preserved verbatim. M057 activates no successor. |
-| M058 | `058-v0-2-0-release-publication-and-distribution.md` | **ready** | M057, M059 | Owner-controlled v0.2.0 publication reactivated by clean M059 closure at `1409d0f` (hosted CI `36922662654` 15/15 + release dispatch `36922672946` 7/7 on the exact SHA). Release scope remains eight Rust crates + annotated tag + five-target GitHub binaries/checksums + fresh public-install verification; language registries remain separately gated. |
+| M058 | `058-v0-2-0-release-publication-and-distribution.md` | **closed** | M057, M059 | Closed: frozen candidate `b6a277d`, pre-tag CI `36931770121` 15/15 + dispatch `36931798010` 7/7, annotated tag `v0.2.0` (`15746dc…` peeling to `b6a277d`), tag CI `36935298504` 15/15 + tag release `36935298484` 7/7, all eight Rust crates at `0.2.0` on crates.io, GitHub Release with five binaries + SHA-256 sidecars, fresh-install verification green. All language registries deferred by explicit owner decision. Evidence in `plans/closure/M058-v0-2-0-release-publication-and-distribution-closure.md`. |
 | M059 | `059-pre-v0-2-0-security-dependency-and-maintenance-hardening-corrective.md` | **closed** | M057 + pre-publication audit at `0f8a8eb` | Closed on exact candidate `1409d0f`; evidence in `plans/closure/M059-pre-v0-2-0-security-dependency-and-maintenance-hardening-corrective-closure.md`. Workspace lints active, first-party graphs reconciled (relay 1.0.11 / eggfetch-core 0.2.1 / primitives 0.2.2 / server 0.2.1, socket2 0.6), actions SHA-pinned with least-privilege permissions, scheduled/review/Dependabot monitoring live, PyO3 boundary narrowed, Rust API gate green (cargo-semver-checks 0.50.0), Sigstore attestation + hosted verification green, full local + hosted exact-head qualification green. No tag/publication; M055–M057 records untouched. |
 
 A post-M048 repository audit registered a bounded correctness/maintenance corrective chain:
@@ -77,7 +77,7 @@ M055 is a separate release-state/version-coherence corrective. It is closed on `
 
 M056 closed the post-M055 release-workflow orchestration gap where `qualify` was guarded but the five-target `artifacts` matrix could still start in parallel on an invalid tag. It introduced one cheap `release-contract` prerequisite job that owns `scripts/check_release_tag_version.sh` and made both `qualify` and `artifacts` declare `needs: [release-contract]`; the structural regression in `scripts/tests/test_release_tag_version.sh` was strengthened with negative tests so the bypass cannot silently return. M056 changes workflow scheduling/tests only and does not reopen M055 release-state/version metadata. M056 closed without hosted CI on its exact implementation SHA `b6f0095` (recorded gap); M057 closed as the additive final hosted qualification authority for the unchanged DAG on exact candidate `818e567` (hosted run `36490497114`, 14/14; dispatch run `36630812771` green) and activates no successor.
 
-M059 is closed on exact candidate `1409d0f` (full local gate + hosted CI `36922662654` 15/15 + release dispatch `36922672946` 7/7, Sigstore attestation verified hosted). M058 is reactivated to ready as the owner-controlled publication milestone and its release scope is unchanged. Python/npm package publication remains separately gated per package, with the alpha `eggchaos-native` binding deferred by default.
+M059 is closed on exact candidate `1409d0f` (full local gate + hosted CI `36922662654` 15/15 + release dispatch `36922672946` 7/7, Sigstore attestation verified hosted). M058 is closed as the v0.2.0 publication milestone (tag `v0.2.0` on `b6a277d`, eight crates.io publishes, GitHub Release, fresh-install verification). Python/npm package publication was deferred per package by explicit owner decision, with the alpha `eggchaos-native` binding deferred by default.
 
 ## Execution state
 
@@ -174,15 +174,15 @@ The completed UDP/datagram tranche is listed below; the remaining items are post
 
 ## Dependency-ready view
 
-Completed work: M000–M057 are closed (M008 closed as historical work alongside the main chain). M059 is closed as the pre-publication corrective.
+Completed work: M000–M059 are closed (M008 closed as historical work alongside the main chain). M058 is closed as the v0.2.0 publication.
 
-Active: M058 (owner-controlled v0.2.0 publication).
+Active: none.
 
 Ready: none.
 
 Blocked: none.
 
-Release-workflow qualification order: `M055 (closed) -> M056 (closed implementation) -> M057 (closed historical hosted qualification authority for the M056 DAG) -> M059 (closed security/dependency/maintenance corrective, exact candidate 1409d0f) -> M058 (ready publication)`. The repository remains an unreleased 0.2.0 development baseline; no tag/publication action is authorized except through M058 execution.
+Release-workflow qualification order: `M055 (closed) -> M056 (closed implementation) -> M057 (closed historical hosted qualification authority for the M056 DAG) -> M059 (closed security/dependency/maintenance corrective, exact candidate 1409d0f) -> M058 (closed publication, tag v0.2.0 on b6a277d)`. `v0.2.0` is the current published release.
 
 Current performance execution order: `M042 (closed) -> M043 (closed) -> M044 (closed) -> M045 (closed) -> M046 (closed historical provenance) -> M047 (closed artifact-provenance hardening) -> M048 (closed hosted qualification/CI integration)`. M048 adds hosted enforcement for M047 without reopening optimization conclusions.
 

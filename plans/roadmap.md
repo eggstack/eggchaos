@@ -1,6 +1,6 @@
 # Eggchaos Long-Term Roadmap
 
-Status: M000-M057 are closed. M059 is ready as the release-blocking pre-v0.2.0 security/dependency/maintenance corrective; M058 publication is blocked until M059 closes. M055 owns the 0.2.0 version baseline, M056 the release-contract implementation, and M057 the historical exact-head qualification authority for the M056 DAG.
+Status: M000-M059 are closed. M058 closed the v0.2.0 publication (tag `v0.2.0` on `b6a277d`, eight crates.io publishes, GitHub Release with five binaries + checksums, fresh-install verification green). M055 owns the 0.2.0 version baseline, M056 the release-contract implementation, M057 the historical exact-head qualification authority for the M056 DAG, and M059 the pre-publication hardening corrective.
 
 ## 1. Mission
 
@@ -846,11 +846,8 @@ None of these may weaken the fixed-target, protocol-neutral core boundary.
 
 ## Current planning state
 
-**Ready (next milestone):**
-- `M058` (ready; plan `058-v0-2-0-release-publication-and-distribution.md`)
-
 **Highest closed milestone:** `M059` (see registry for closure evidence).
 
-**Execution order:** `M058`
+**Execution order:** no active or ready milestones.
 
 <!-- END eggchaos:planning-state -->

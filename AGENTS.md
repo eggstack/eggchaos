@@ -87,11 +87,8 @@ Prefer deterministic Tokio-time tests; wall-clock assertions need justified tole
 
 ## Current planning state
 
-**Ready (next milestone):**
-- `M058` (ready; plan `058-v0-2-0-release-publication-and-distribution.md`)
-
 **Highest closed milestone:** `M059` (see registry for closure evidence).
 
-**Execution order:** `M058`
+**Execution order:** no active or ready milestones.
 
 <!-- END eggchaos:planning-state -->

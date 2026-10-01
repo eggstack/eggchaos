@@ -6,13 +6,14 @@ workflows (`.github/workflows/`), dependency/supply-chain policy
 (`Cargo.toml`, `deny.toml`, `rust-toolchain.toml`), shipped artifacts
 (`dist/`), and the `plans/` governance authority that gates any release.
 
-Published `v0.1.0` (tag target `81994dbc427365f1dfdaabfa39bdf077850e69ec`,
-published 2026-09-24) is the historical first release. Current `main` is the
-unreleased `0.2.0` development baseline (M055 closed): workspace and
-first-party language packages resolve to `0.2.0`; native `/v1`, config schema
-v1, RNG v1, and provenance schema v1 are unchanged. Milestones M000–M057 are
-closed and M058 is ready as the owner-controlled v0.2.0 publication
-milestone (`plans/registry.md` is the status authority). M019
+Published `v0.2.0` (annotated tag object `15746dc2f12e3ddc5557c7afc43d19289fd32472`,
+peeling to candidate `b6a277d5ad4267bd602bc15a4333b14322057b90`; GitHub
+Release `eggchaos v0.2.0`) is the current release. Published `v0.1.0`
+(tag target `81994dbc427365f1dfdaabfa39bdf077850e69ec`, published
+2026-09-24) is preserved as immutable history. Workspace crates are
+`0.2.0` on crates.io; native `/v1`, config schema
+v1, RNG v1, and provenance schema v1 are unchanged. Milestones M000–M059 are
+closed (`plans/registry.md` is the status authority). M019
 closed at `ca527db` and remains the final v0.1.0 pre-tag release-candidate
 authority; later tranches do not rewrite it. M041 closed at
 `724b967da04579282dd8bfc7a81dc4fe55d034a2` (hosted run `36219464594`,
@@ -24,7 +25,9 @@ the M047 provenance tooling. M055 closed at `b0ecbf1` and owns the
 unreleased 0.2.0 baseline; M056 closed at `b6f0095` and owns the
 `release-contract` DAG implementation; M057 closed at `818e567` (hosted run
 `36490497114` 14/14 + dispatch `36630812771` green) and is the final hosted
-qualification authority for that DAG. Complete: ADR 003 datagram tranche
+qualification authority for that DAG; M059 closed at `1409d0f` as the
+pre-publication hardening corrective and M058 closed the `v0.2.0`
+publication on `b6a277d`. Complete: ADR 003 datagram tranche
 (M020–M023 plus M024 performance and M025 setup/closure hygiene), ADR
 004 schedule tranche (M026–M028), ADR 005 integration-boundary tranche
 (M029–M031), ADR 006 cross-language tranche (M032–M034 plus corrective
@@ -401,7 +404,7 @@ Canonical surface is `plans/` (`AGENTS.md`, `plans/README.md`):
 
 | Path | Authority |
 | --- | --- |
-| `plans/roadmap.md` | Long-term architecture, sequencing, invariants, non-goals, release gates. Status line names M019 final v0.1.0 pre-tag authority, M041 latest ADR 007 corrective authority, M048 hosted qualification/CI-ownership authority, M055 unreleased 0.2.0 baseline, M056 release-contract implementation, M057 final hosted qualification authority for that DAG, and M058 ready v0.2.0 publication. |
+| `plans/roadmap.md` | Long-term architecture, sequencing, invariants, non-goals, release gates. Status line names M019 final v0.1.0 pre-tag authority, M041 latest ADR 007 corrective authority, M048 hosted qualification/CI-ownership authority, M055 0.2.0 baseline, M056 release-contract implementation, M057 final hosted qualification authority for that DAG, M059 pre-publication hardening corrective, and M058 closed v0.2.0 publication. |
 | `plans/registry.md` | Compact source of truth for milestone status, dependencies, activation, closure. Update it in the same change that activates/blocks/closes/supersedes a milestone. M041 row is `closed` at `724b967da04579282dd8bfc7a81dc4fe55d034a2` with hosted run `36219464594` (13/13); M048 row is `closed` at `ab61ac7809b9260e44a827567065e1479445f2f7` with hosted run `36331806587` (14/14); M055 row is `closed` at `b0ecbf1` (0.2.0 baseline, no tag/publication); M056 row is `closed` at `b6f0095` (release-contract DAG implementation, hosted-CI gap recorded); M057 row is `closed` at `818e567` (hosted run `36490497114` 14/14 + dispatch `36630812771` green, final hosted authority for that DAG); M058 is `ready`. |
 | `plans/000-architecture-and-scope-baseline.md` | Investigated baseline and boundaries. |
 | `plans/001-*.md` … `plans/048-*.md` | Executable handoffs; filename prefix is the milestone sequence number and must not be reused. |
