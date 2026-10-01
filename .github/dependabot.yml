@@ -1,0 +1,52 @@
+# M059: grouped weekly dependency coverage for every independent
+# update surface. Bounded open-PR counts avoid one-PR-per-transitive
+# noise. Cargo groups stay minor/patch-scoped per ecosystem; major
+# migrations (notably eggserve-server 0.4.x) remain explicitly planned
+# work, never a Dependabot drive-by.
+version: 2
+updates:
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      eggstack-first-party:
+        patterns:
+          - "eggress-relay"
+          - "eggfetch-core"
+          - "eggserve-*"
+    open-pull-requests-limit: 5
+  - package-ecosystem: "cargo"
+    directory: "/bindings/python-native"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+  - package-ecosystem: "cargo"
+    directory: "/benchmarks"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+  - package-ecosystem: "cargo"
+    directory: "/fuzz"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      actions:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 3
+  - package-ecosystem: "npm"
+    directory: "/bindings/typescript-client"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+  - package-ecosystem: "pip"
+    directory: "/.github/python-ci"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3

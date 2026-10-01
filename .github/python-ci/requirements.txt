@@ -1,0 +1,15 @@
+# M059: exact-version CI tooling for GitHub workflows.
+#
+# Replaces floating `pip install build pytest pyyaml` / `pip install
+# maturin pytest build` steps so the constraint file — not a floating
+# registry query — owns the tested graph. Dependabot (`pip`,
+# directory `.github/python-ci`) proposes updates; CI installs with
+# `pip install -r .github/python-ci/requirements.txt`.
+#
+# maturin stays exact (native-wheel builds must be reproducible); it is
+# intentionally held at the previously qualified 1.9.5, not floated to
+# latest, so the Python-native gate keeps its proven toolchain.
+build==1.6.1
+maturin==1.9.5
+pytest==9.1.1
+pyyaml==6.0.3

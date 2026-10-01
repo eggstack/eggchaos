@@ -20,6 +20,11 @@ allow = [
     "ISC",
     "MIT",
     "MIT-0",
+    # M059: NCSA (University of Illinois/NCSA Open Source License) for
+    # libfuzzer-sys, a fuzz-only build dependency. OSI-approved and
+    # FSF-free permissive license, same class as the MIT/BSD entries
+    # above; no copyleft effect on eggchaos crates (all MIT).
+    "NCSA",
     "Unicode-3.0",
 ]
 

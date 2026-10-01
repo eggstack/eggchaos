@@ -1,0 +1,55 @@
+name: Dependency security
+
+# M059: additional detection path for dependency advisories across all
+# committed Cargo lockfiles. Does not replace the push/PR security
+# gates in CI (`check` job) and release qualification. Fails loudly on
+# any advisory covered by existing policy; a transient external
+# advisory/registry outage must be recorded distinctly from a clean
+# result (re-run via workflow_dispatch) rather than weakening policy.
+permissions:
+  contents: read
+
+on:
+  schedule:
+    # Bounded Linux-only daily run plus manual dispatch.
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  audit:
+    timeout-minutes: 25
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # No authenticated Git operation follows checkout.
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # stable (master 2026-10-01)
+        with:
+          toolchain: 1.89.0
+      - run: cargo install cargo-audit --locked --version 0.22.2
+      - run: cargo install cargo-deny --locked --version 0.20.2
+      # Audit every committed Cargo lockfile. Each directory owns its
+      # lock; cargo-audit reads Cargo.lock from the working directory.
+      - name: Audit all committed lockfiles
+        run: |
+          set -euo pipefail
+          for dir in . bindings/python-native benchmarks fuzz; do
+            echo "--- cargo audit: $dir/Cargo.lock"
+            (cd "$dir" && cargo audit --deny warnings)
+          done
+      # Enforce the repository cargo-deny policy against every
+      # production/release-relevant manifest. Config discovery runs
+      # from the repository root deny.toml; --manifest-path selects
+      # the standalone workspace graphs.
+      - name: cargo-deny policy for all manifests
+        run: |
+          set -euo pipefail
+          cargo deny check advisories licenses bans sources
+          for manifest in bindings/python-native/Cargo.toml benchmarks/Cargo.toml fuzz/Cargo.toml; do
+            echo "--- cargo deny: $manifest"
+            cargo deny --manifest-path "$manifest" check advisories licenses bans sources
+          done
+      # First-party Eggstack runtime versions must stay converged
+      # across all four lockfiles.
+      - run: python3 scripts/check_lock_coherence.py --check

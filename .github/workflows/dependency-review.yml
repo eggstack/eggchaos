@@ -1,0 +1,19 @@
+name: Dependency review
+
+# M059: PR dependency review with an explicit vulnerability failure
+# threshold. License authority stays in cargo-deny (deny.toml); this
+# workflow carries no license allow-list to avoid a second authority.
+permissions:
+  contents: read
+
+on:
+  pull_request:
+
+jobs:
+  review:
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: high
