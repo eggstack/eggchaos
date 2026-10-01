@@ -847,13 +847,10 @@ None of these may weaken the fixed-target, protocol-neutral core boundary.
 ## Current planning state
 
 **Ready (next milestone):**
-- `M059` (ready; plan `059-pre-v0-2-0-security-dependency-and-maintenance-hardening-corrective.md`)
+- `M058` (ready; plan `058-v0-2-0-release-publication-and-distribution.md`)
 
-**Blocked (waiting on a predecessor closure):**
-- M058
+**Highest closed milestone:** `M059` (see registry for closure evidence).
 
-**Highest closed milestone:** `M057` (see registry for closure evidence).
-
-**Execution order:** `M059`
+**Execution order:** `M058`
 
 <!-- END eggchaos:planning-state -->
