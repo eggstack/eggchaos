@@ -259,7 +259,7 @@ fn corpus_bound_and_rejection_cases_hold() {
         r#"{"version":2,"seed":1}"#,
         r#"{"version":1,"seed":1,"execution_key":1,"phases":[]}"#,
         r#"{"version":2,"seed":1,"execution_key":1,"phases":[],"unknown":true}"#,
-        r#"not json"#,
+        r"not json",
         r#"{"version":2,"seed":1,"execution_key":1,"phases":[{"duration_ns":0,"actions":[]}]}"#,
     ] {
         let parsed = ScenarioScheduleV2Dto::from_json_str(bad);

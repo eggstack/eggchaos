@@ -10,7 +10,7 @@
 //!
 //! The authority is not a second mutable state store: every method
 //! delegates to the single [`ControlState`] / [`DatagramRuntime`]
-//! authority. It contains no HTTP types, no PyO3 types, no body or
+//! authority. It contains no HTTP types, no `PyO3` types, no body or
 //! status selection, and no metrics text handling.
 
 use eggchaos_core::{Direction, FaultSpec};

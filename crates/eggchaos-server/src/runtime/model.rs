@@ -1,4 +1,7 @@
-use super::*;
+use super::{
+    io, ActiveFault, Arc, Deserialize, Direction, Error, FaultKind, FaultPlan, ResetResult,
+    RngVersion, Serialize, SocketAddr, StreamEvidence, TerminationInfo,
+};
 
 /// Active connection lifecycle state.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]

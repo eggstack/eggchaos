@@ -33,3 +33,6 @@ tracing.workspace = true
 [dev-dependencies]
 eggfetch-core.workspace = true
 proptest.workspace = true
+
+[lints]
+workspace = true

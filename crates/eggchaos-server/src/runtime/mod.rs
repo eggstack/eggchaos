@@ -34,7 +34,7 @@ mod model;
 mod scenario_registry;
 mod supervisor;
 mod transport;
-use connection::*;
+use connection::{conflict_message, merge_evidence, purge_proxy_connections, run_connection};
 pub use datagram::{
     DatagramAssociationSnapshot, DatagramProxySpec, DatagramProxyView, DatagramRuntime,
     DatagramRuntimeError, DatagramRuntimeLimits,
@@ -45,7 +45,7 @@ pub use metrics::{
 };
 pub use model::*;
 use scenario_registry::ScenarioRegistry;
-use supervisor::*;
+use supervisor::proxy_supervisor;
 pub use transport::{ResetResult, ResettableTcpStream, TcpResetHandle};
 
 /// Server crate version.
@@ -97,8 +97,11 @@ mod duration_millis {
     use serde::{Deserialize, Deserializer, Serializer};
     use std::time::Duration;
 
+    // M059: millisecond rendering saturates at `u64::MAX`; truncation is
+    // the documented saturation bound, not data loss.
+    #[allow(clippy::cast_possible_truncation)]
     pub fn serialize<S: Serializer>(value: &Duration, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_u64(value.as_millis().min(u64::MAX as u128) as u64)
+        serializer.serialize_u64(value.as_millis().min(u128::from(u64::MAX)) as u64)
     }
     pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Duration, D::Error> {
         Ok(Duration::from_millis(u64::deserialize(deserializer)?))
@@ -123,6 +126,7 @@ impl ProxySpec {
         }
     }
     /// Set an optional per-proxy active connection limit.
+    #[must_use]
     pub fn with_max_connections(mut self, limit: usize) -> Self {
         self.max_connections = Some(limit);
         self
@@ -242,6 +246,9 @@ pub struct RuntimeParams {
 }
 
 impl Default for RuntimeParams {
+    // M059: default relay buffer (64 KiB) fits every pointer width; the
+    // `u64 as usize` bound is intentional.
+    #[allow(clippy::cast_possible_truncation)]
     fn default() -> Self {
         Self {
             seed: 0,
@@ -340,7 +347,7 @@ pub struct RuntimeInner {
     /// Owned scenario run tasks. Shutdown cancels their tokens (children
     /// of the service token) and then joins every task, so no scenario
     /// outlives the service untracked. V2 schedule runs share this
-    /// JoinSet so no second supervisor registry exists.
+    /// `JoinSet` so no second supervisor registry exists.
     scenario_tasks: Mutex<JoinSet<()>>,
     /// Unified scenario lifecycle registry (M050): owns V1 and V2 run
     /// records plus their cancellation tokens, with per-family
@@ -380,6 +387,9 @@ impl RuntimeInner {
         }
     }
 
+    // M059: millisecond snapshots saturate at `u64::MAX`; truncation is the
+    // documented saturation bound, not data loss.
+    #[allow(clippy::cast_possible_truncation)]
     fn view_of(entry: &ManagedProxy) -> ProxyView {
         // Both plans come from the same atomic snapshot load as the
         // reported generation, so GET can never pair a plan with an older
@@ -400,7 +410,11 @@ impl RuntimeInner {
             upstream_seed_namespace: upstream.seed_namespace,
             downstream_seed_namespace: downstream.seed_namespace,
             max_connections: entry.spec.max_connections,
-            connect_timeout_ms: entry.spec.connect_timeout.as_millis().min(u64::MAX as u128) as u64,
+            connect_timeout_ms: entry
+                .spec
+                .connect_timeout
+                .as_millis()
+                .min(u128::from(u64::MAX)) as u64,
             seed: entry.spec.seed,
         }
     }
@@ -438,6 +452,7 @@ impl Default for ControlState {
     }
 }
 
+/// Builder for a startable fixed-target service with explicit run seed.
 pub struct ServiceBuilder {
     seed: u64,
     proxies: Vec<ProxySpec>,
@@ -450,6 +465,9 @@ pub struct ServiceBuilder {
 }
 impl ServiceBuilder {
     /// Create a builder with an explicit run seed.
+    // M059: default relay buffer (64 KiB) fits every pointer width; the
+    // `u64 as usize` bound is intentional.
+    #[allow(clippy::cast_possible_truncation)]
     pub fn new(seed: u64) -> Self {
         Self {
             seed,
@@ -464,21 +482,25 @@ impl ServiceBuilder {
         }
     }
     /// Add a fixed-target proxy.
+    #[must_use]
     pub fn proxy(mut self, proxy: ProxySpec) -> Self {
         self.proxies.push(proxy);
         self
     }
     /// Add several fixed-target proxies.
+    #[must_use]
     pub fn proxy_all(mut self, proxies: impl IntoIterator<Item = ProxySpec>) -> Self {
         self.proxies.extend(proxies);
         self
     }
     /// Add a fixed-target UDP proxy definition.
+    #[must_use]
     pub fn datagram_proxy(mut self, proxy: DatagramProxySpec) -> Self {
         self.datagram_proxies.push(proxy);
         self
     }
     /// Add several fixed-target UDP proxy definitions.
+    #[must_use]
     pub fn datagram_proxy_all(
         mut self,
         proxies: impl IntoIterator<Item = DatagramProxySpec>,
@@ -487,26 +509,31 @@ impl ServiceBuilder {
         self
     }
     /// Set admission limits.
+    #[must_use]
     pub fn limits(mut self, limits: AdmissionLimits) -> Self {
         self.limits = limits;
         self
     }
     /// Set relay half-close behavior.
+    #[must_use]
     pub fn half_close(mut self, policy: HalfClosePolicy) -> Self {
         self.half_close = policy;
         self
     }
     /// Set the bounded relay copy buffer.
+    #[must_use]
     pub fn relay_buffer(mut self, bytes: NonZeroUsize) -> Self {
         self.relay_buffer = bytes;
         self
     }
     /// Set the graceful-termination drain grace period.
+    #[must_use]
     pub fn termination_grace(mut self, grace: Duration) -> Self {
         self.term_grace = grace;
         self
     }
     /// Set UDP proxy, association, history, and ingress memory bounds.
+    #[must_use]
     pub fn datagram_limits(mut self, limits: DatagramRuntimeLimits) -> Self {
         self.datagram_limits = limits;
         self

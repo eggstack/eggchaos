@@ -1,4 +1,7 @@
 #![forbid(unsafe_code)]
+//! `eggchaos` native control CLI: thin adapter over the `/v1` HTTP control
+//! plane via `eggfetch-core`. It owns no proxy state or networking policy;
+//! every command builds one request and prints the server response.
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
@@ -20,7 +23,7 @@ struct Cli {
     /// Native admin endpoint.
     #[arg(long, default_value = "http://127.0.0.1:8475")]
     admin: String,
-    /// Bearer token for a secured native admin endpoint (overrides EGGCHAOS_ADMIN_TOKEN).
+    /// Bearer token for a secured native admin endpoint (overrides `EGGCHAOS_ADMIN_TOKEN`).
     #[arg(long, env = "EGGCHAOS_ADMIN_TOKEN")]
     admin_token: Option<String>,
     /// Emit one machine-readable JSON document.
@@ -396,6 +399,9 @@ impl std::fmt::Display for ServerError {
 
 impl std::error::Error for ServerError {}
 
+// M059: `dispatch` is the single CLI-to-route table; splitting it would fork
+// the command/route inventory contract documented in docs/control-plane.md.
+#[allow(clippy::too_many_lines)]
 async fn dispatch(
     command: Command,
     admin: &str,

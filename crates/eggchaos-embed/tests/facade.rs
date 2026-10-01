@@ -75,6 +75,9 @@ fn concurrent_calls_from_multiple_threads_are_safe() {
 }
 
 #[test]
+// M059: probability round-trips use exact DTO values, so strict float
+// equality preserves exact wire semantics.
+#[allow(clippy::float_cmp)]
 fn stream_proxy_and_fault_crud_round_trip() {
     let service = EmbeddedService::start(EmbedOptions::default()).unwrap();
     let (view, _) = service.create_proxy(proxy("web")).unwrap();
@@ -145,6 +148,9 @@ fn invalid_config_and_missing_resources_map_to_categories() {
 }
 
 #[test]
+// M059: probability round-trips use exact DTO values, so strict float
+// equality preserves exact wire semantics.
+#[allow(clippy::float_cmp)]
 fn datagram_proxy_and_fault_crud_round_trip() {
     let service = EmbeddedService::start(EmbedOptions::default()).unwrap();
     let request: NativeDatagramProxyRequestV1 = serde_json::from_value(serde_json::json!({
@@ -197,7 +203,7 @@ fn scenario_v1_and_v2_lifecycle() {
     let schedule: ScenarioScheduleV2Dto = serde_json::from_value(serde_json::json!({
         "version": 2, "seed": 7, "execution_key": 11,
         "isolation": "strict", "cleanup": "restore-initial",
-        "phases": [{"name": "probe", "duration_ns": 1000000, "actions": [
+        "phases": [{"name": "probe", "duration_ns": 1_000_000, "actions": [
             {"type": "remove-fault", "proxy": "web", "direction": "downstream", "id": "lag"}
         ]}]
     }))
@@ -291,6 +297,10 @@ fn datagram_upsert(direction: &str, id: &str, probability: f64) -> DatagramFault
 /// Both surfaces delegate to one `ControlState` authority, so any
 /// reintroduced semantic split fails here.
 #[test]
+// M059: conformance fixture must stay in one test to share the service and
+// admin; splitting would fork the cross-surface assertions. Probability
+// round-trips use exact DTO values, so strict float equality is exact.
+#[allow(clippy::too_many_lines, clippy::float_cmp)]
 fn datagram_facade_and_http_admin_agree_on_mutation_and_conflicts() {
     let service = EmbeddedService::start(EmbedOptions::default()).unwrap();
     let request: NativeDatagramProxyRequestV1 = serde_json::from_value(serde_json::json!({

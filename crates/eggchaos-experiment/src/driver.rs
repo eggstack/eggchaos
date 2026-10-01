@@ -141,7 +141,7 @@ pub async fn drive<T: PolicyTarget, S: EventSink>(
     let mut cancelled = false;
     let mut applied = 0usize;
 
-    for event in compiled.events.iter() {
+    for event in &compiled.events {
         // Check cancellation before the deadline wait: an already-due
         // (e.g. 0-offset) event must not publish when cancellation won
         // before the run started. The wait below still wakes promptly
@@ -220,6 +220,11 @@ async fn wait_for_deadline(
     }
 }
 
+// M059: `apply_event` is a single match over the four scenario actions with
+// shared evidence plumbing; splitting it would fork the deterministic
+// generation/evidence contract. Elapsed-ns clamping via `min(u64::MAX) as u64`
+// preserves exact saturating semantics.
+#[allow(clippy::too_many_lines, clippy::cast_possible_truncation)]
 #[allow(clippy::too_many_arguments)]
 async fn apply_event<T: PolicyTarget, S: EventSink>(
     target: &T,
@@ -233,7 +238,7 @@ async fn apply_event<T: PolicyTarget, S: EventSink>(
     let applied_elapsed_ns = Instant::now()
         .duration_since(epoch)
         .as_nanos()
-        .min(u64::MAX as u128) as u64;
+        .min(u128::from(u64::MAX)) as u64;
     let late_by_ns = applied_elapsed_ns.saturating_sub(event.offset_ns);
     let namespace = derive_schedule_policy_seed(
         compiled.seed,
@@ -556,9 +561,8 @@ async fn restore_target<T: PolicyTarget>(
     namespace: u64,
 ) -> CleanupResourceOutcome {
     let owned_gen = entry.last_owned_generation;
-    let current = match target.current_generation(&entry.resource).await {
-        Ok(generation) => generation,
-        Err(_) => return CleanupResourceOutcome::Missing,
+    let Ok(current) = target.current_generation(&entry.resource).await else {
+        return CleanupResourceOutcome::Missing;
     };
     if current != owned_gen {
         return CleanupResourceOutcome::Conflict;

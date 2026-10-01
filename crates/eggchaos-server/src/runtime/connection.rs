@@ -1,4 +1,10 @@
-use super::*;
+use super::{
+    io, outcome_class, timeout, Arc, AtomicUsize, CancellationToken, ChaosStream, ClosedConnection,
+    ConnectionEvidence, ConnectionOutcome, ConnectionSnapshot, ConnectionState, Direction,
+    DirectionBytes, Duration, HalfClosePolicy, NonZeroUsize, Ordering, PolicyConflict,
+    ProxyConnParams, RelayOptions, ResetResult, ResettableTcpStream, RuntimeInner, TcpResetHandle,
+    TcpStream, TerminationInfo, TerminationRequest,
+};
 
 /// Remove exactly one connection record plus its cancellation token and
 /// live evidence. Returns the snapshot, token, and evidence when this
@@ -140,7 +146,7 @@ pub(super) fn aggregate_close_metrics(
             .metrics
             .tables
             .lock()
-            .unwrap_or_else(|p| p.into_inner());
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         tables.record_complete(
             &snapshot.proxy,
             [
@@ -319,6 +325,9 @@ pub(super) fn merge_evidence(
 }
 
 #[allow(clippy::too_many_arguments)]
+// M059: connection tasks need the full spawn bundle; threading a params
+// struct through would fork the supervisor spawn contract.
+#[allow(clippy::too_many_lines)]
 pub(super) async fn run_connection(
     client: TcpStream,
     id: u64,

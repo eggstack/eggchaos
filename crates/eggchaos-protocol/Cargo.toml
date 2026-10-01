@@ -21,3 +21,6 @@ toml.workspace = true
 
 [dev-dependencies]
 serde_yaml = "0.9"
+
+[lints]
+workspace = true

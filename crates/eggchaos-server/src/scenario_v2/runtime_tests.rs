@@ -1282,13 +1282,12 @@ async fn scheduled_publication_lands_while_stream_traffic_flows() {
                 let mut buffer = [0; 4096];
                 loop {
                     match stream.read(&mut buffer).await {
-                        Ok(0) => break,
+                        Ok(0) | Err(_) => break,
                         Ok(n) => {
                             if stream.write_all(&buffer[..n]).await.is_err() {
                                 break;
                             }
                         }
-                        Err(_) => break,
                     }
                 }
             });

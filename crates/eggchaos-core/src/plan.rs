@@ -6,7 +6,7 @@ use thiserror::Error;
 /// The deterministic RNG contract used by eggchaos.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum RngVersion {
-    /// SplitMix64 with the eggchaos v1 domain-separation encoding.
+    /// `SplitMix64` with the eggchaos v1 domain-separation encoding.
     #[default]
     V1,
 }
@@ -374,6 +374,7 @@ impl FaultPlan {
         Ok(self)
     }
     /// Remove one fault while preserving the remaining order.
+    #[must_use]
     pub fn without_fault(mut self, id: &str) -> Self {
         self.faults.retain(|fault| fault.id.as_str() != id);
         self
@@ -553,6 +554,8 @@ mod tests {
     }
 
     #[test]
+    // M059: boundary round-trips are exact by construction; strict comparison is the semantic assertion.
+    #[allow(clippy::float_cmp)]
     fn probability_accepts_boundary_values_via_serde() {
         let zero = serde_json::from_str::<Probability>("0.0").unwrap();
         assert_eq!(zero.get(), 0.0);

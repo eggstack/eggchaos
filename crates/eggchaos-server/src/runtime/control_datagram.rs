@@ -159,7 +159,7 @@ impl ControlState {
             .publish_fault_plan(name, direction, plan, seed_namespace, expected_generation)
             .await
             .map_err(map_datagram_error)?;
-        let _policy_generation = generation;
+        let _ = generation;
         Ok(self.next_generation())
     }
 

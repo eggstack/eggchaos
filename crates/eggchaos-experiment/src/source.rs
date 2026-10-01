@@ -94,7 +94,7 @@ pub struct ScheduleRepeatV2 {
     pub phases: Vec<SchedulePhaseV2>,
 }
 
-/// ScenarioScheduleV2 source document.
+/// `ScenarioScheduleV2` source document.
 ///
 /// The schema version is the literal `2` (compared exactly) and the
 /// runtime must reject any other value. All randomness derives from

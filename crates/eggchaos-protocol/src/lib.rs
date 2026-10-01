@@ -3,7 +3,7 @@
 //! This crate owns the JSON wire DTOs, defaults, units, bounds,
 //! discriminators, and unknown-field rejection for the versioned native
 //! control plane. It is intentionally narrow: no sockets, no Tokio
-//! runtime/tasks, no EggServe dependency, no live policy/state, no CLI
+//! runtime/tasks, no `EggServe` dependency, no live policy/state, no CLI
 //! presentation, no Toxiproxy DTOs, and no EggReplay/EggProbe dependency.
 //!
 //! ```text

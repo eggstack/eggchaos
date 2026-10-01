@@ -57,6 +57,9 @@ fn assert_routed(status: u16, json: &serde_json::Value, context: &str) {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+// M059: full native operation inventory; splitting would fork the
+// per-operation coverage sequence.
+#[allow(clippy::too_many_lines)]
 async fn every_native_operation_resolves_on_the_live_server() {
     let state = ControlState::default();
     let mut admin = NativeAdmin::start(
@@ -122,7 +125,7 @@ async fn every_native_operation_resolves_on_the_live_server() {
         "POST",
         format!("{base}/v1/proxies/web/faults"),
         Some(
-            serde_json::json!({"direction":"downstream","id":"lag","probability":1.0,"kind":{"type":"latency","delay_ns":1000000,"jitter_ns":0,"max_buffer_bytes":1024}})
+            serde_json::json!({"direction":"downstream","id":"lag","probability":1.0,"kind":{"type":"latency","delay_ns":1_000_000,"jitter_ns":0,"max_buffer_bytes":1024}})
         )
     );
     assert_eq!(status, 201);
@@ -197,7 +200,7 @@ async fn every_native_operation_resolves_on_the_live_server() {
     let schedule = serde_json::json!({
         "version": 2, "seed": 7, "execution_key": 11,
         "isolation": "strict", "cleanup": "restore-initial",
-        "phases": [{"name": "warmup", "duration_ns": 1000000, "actions": [
+        "phases": [{"name": "warmup", "duration_ns": 1_000_000, "actions": [
             {"type": "remove-fault", "proxy": "web", "direction": "downstream", "id": "lag"}
         ]}]
     });
@@ -215,10 +218,7 @@ async fn every_native_operation_resolves_on_the_live_server() {
         Some(schedule)
     );
     assert_eq!(status, 200);
-    assert_eq!(
-        json["events"].as_array().map(|events| events.len()),
-        Some(1)
-    );
+    assert_eq!(json["events"].as_array().map(std::vec::Vec::len), Some(1));
 
     let (status, _) = call!(
         "getScenario",

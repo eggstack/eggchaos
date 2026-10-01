@@ -212,7 +212,7 @@ pub struct ToxicAttributes {
     pub average_size: Option<u64>,
     /// Slice variation.
     pub size_variation: Option<u64>,
-    /// Slice delay in microseconds; slow_close delay in milliseconds.
+    /// Slice delay in microseconds; `slow_close` delay in milliseconds.
     pub delay: Option<u64>,
     /// Timeout in milliseconds.
     pub timeout: Option<u64>,
@@ -241,9 +241,10 @@ pub enum CompatibilityError {
 impl From<CompatibilityError> for CompatError {
     fn from(error: CompatibilityError) -> Self {
         match error {
-            CompatibilityError::Invalid(message) => CompatError::new(400, message),
+            CompatibilityError::Invalid(message) | CompatibilityError::Address(message) => {
+                CompatError::new(400, message)
+            }
             CompatibilityError::Unsupported(_) => CompatError::invalid_type(),
-            CompatibilityError::Address(message) => CompatError::new(400, message),
         }
     }
 }
@@ -275,7 +276,7 @@ fn clamp_toxicity(toxicity: f64) -> Result<f64, CompatError> {
 /// Build a native fault kind from a v2.12 toxic type plus its attributes.
 /// Zero-valued numerics that native `NonZero` bounds cannot represent are
 /// coalesced to the minimal representable value (documented divergence):
-/// bandwidth rate 0 -> 1 KiB/s, slicer average_size 0 -> 1, limit_data bytes
+/// bandwidth rate 0 -> 1 KiB/s, slicer `average_size` 0 -> 1, `limit_data` bytes
 /// 0 -> 1. Timeout 0 means indefinite blackhole (`close_after: None`),
 /// matching the oracle.
 ///
@@ -347,6 +348,9 @@ fn kind_from_attrs(
 /// active profile accepts it; under strict v2.12 a native `StreamLoss` is
 /// a documentation/configuration error and the adapter surfaces an
 /// `Unsupported` `CompatError` rather than silently aliasing it.
+// M059: millisecond/microsecond exports clamp to `u64::MAX` before casting,
+// so truncation is exact and preserves the documented sub-unit divergence.
+#[allow(clippy::cast_possible_truncation)]
 fn attrs_from_kind(
     kind: &FaultKind,
     profile: CompatProfile,
@@ -359,8 +363,8 @@ fn attrs_from_kind(
         FaultKind::Latency(config) => Ok((
             "latency",
             ToxicAttributes {
-                latency: Some(config.delay.as_millis().min(u64::MAX as u128) as u64),
-                jitter: Some(config.jitter.as_millis().min(u64::MAX as u128) as u64),
+                latency: Some(config.delay.as_millis().min(u128::from(u64::MAX)) as u64),
+                jitter: Some(config.jitter.as_millis().min(u128::from(u64::MAX)) as u64),
                 ..ToxicAttributes::default()
             },
         )),
@@ -377,12 +381,9 @@ fn attrs_from_kind(
         FaultKind::Blackhole(config) => Ok((
             "timeout",
             ToxicAttributes {
-                timeout: Some(
-                    config
-                        .close_after
-                        .map(|after| after.as_millis().min(u64::MAX as u128) as u64)
-                        .unwrap_or(0),
-                ),
+                timeout: Some(config.close_after.map_or(0, |after| {
+                    after.as_millis().min(u128::from(u64::MAX)) as u64
+                })),
                 ..ToxicAttributes::default()
             },
         )),
@@ -396,7 +397,7 @@ fn attrs_from_kind(
         FaultKind::SlowClose(config) => Ok((
             "slow_close",
             ToxicAttributes {
-                delay: Some(config.delay.as_millis().min(u64::MAX as u128) as u64),
+                delay: Some(config.delay.as_millis().min(u128::from(u64::MAX)) as u64),
                 ..ToxicAttributes::default()
             },
         )),
@@ -405,14 +406,14 @@ fn attrs_from_kind(
             ToxicAttributes {
                 average_size: Some(config.average_size.get()),
                 size_variation: Some(config.variation),
-                delay: Some(config.delay.as_micros().min(u64::MAX as u128) as u64),
+                delay: Some(config.delay.as_micros().min(u128::from(u64::MAX)) as u64),
                 ..ToxicAttributes::default()
             },
         )),
         FaultKind::Disconnect(config) => Ok((
             "reset_peer",
             ToxicAttributes {
-                timeout: Some(config.after.as_millis().min(u64::MAX as u128) as u64),
+                timeout: Some(config.after.as_millis().min(u128::from(u64::MAX)) as u64),
                 ..ToxicAttributes::default()
             },
         )),
@@ -639,6 +640,9 @@ pub fn translate_proxy_with_profile(
 /// `packet_loss`; under strict v2.12 any native `StreamLoss` is a
 /// documentation/configuration error and the response surfaces an
 /// `invalid toxic type` rather than silently aliasing.
+// M059: `CompatProfile` is the stable public compat API; keep by-value
+// ownership instead of a borrow to avoid a breaking presentation change.
+#[allow(clippy::needless_pass_by_value)]
 pub fn proxy_json(view: &ProxyView, profile: CompatProfile) -> Result<Value, CompatError> {
     let listen = view.bound_addr.unwrap_or(view.listen);
     let mut toxics = Vec::new();
@@ -832,8 +836,8 @@ impl ToxiproxyAdapter {
     fn map_update_error(error: ControlError) -> CompatError {
         match error {
             ControlError::NotFound(_) => CompatError::proxy_not_found(),
-            ControlError::RestartFailed { reason, .. } => CompatError::new(500, reason),
-            ControlError::BindFailed { reason, .. } => CompatError::new(500, reason),
+            ControlError::RestartFailed { reason, .. }
+            | ControlError::BindFailed { reason, .. } => CompatError::new(500, reason),
             ControlError::Invalid(message) => CompatError::new(400, message),
             ControlError::Conflict(message) => CompatError::new(409, message),
         }
@@ -863,9 +867,8 @@ impl ToxiproxyAdapter {
                     message: format!("missing required field: name at proxy {}", index + 1),
                 });
             }
-            match self.populate_entry(input).await {
-                Some(value) => rendered.push(value),
-                None => continue,
+            if let Some(value) = self.populate_entry(input).await {
+                rendered.push(value);
             }
         }
         Ok(json!({ "proxies": Value::Array(rendered) }))
@@ -1069,6 +1072,10 @@ impl ToxiproxyAdapter {
     }
 }
 
+/// Compatibility profile selecting the Toxiproxy presentation version.
+///
+/// Strict v2.12 is the frozen default; the post-v2.12 snapshot opts into
+/// the `packet_loss` toxic while keeping the v2.12 route family unchanged.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum CompatProfile {
@@ -1201,6 +1208,9 @@ fn json_value(code: u16, value: &Value) -> eggserve_primitives::Response {
 
 /// Compatibility error: JSON `{"error","status"}` body served as
 /// `text/plain`, matching the oracle's error content type.
+// M059: error values are small and constructed per-request; keep by-value
+// ownership to avoid touching every compatibility call site.
+#[allow(clippy::needless_pass_by_value)]
 fn error_response(error: CompatError) -> eggserve_primitives::Response {
     let body = serde_json::to_vec(&json!({"error": error.message, "status": error.status}))
         .unwrap_or_else(|_| b"{}".to_vec());
@@ -1236,6 +1246,9 @@ fn parse_json<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<T, CompatE
     serde_json::from_slice(bytes).map_err(CompatError::bad_body)
 }
 
+// M059: compatibility router covers the full v2.12 route family in one match;
+// splitting it would fork the oracle route-parity contract.
+#[allow(clippy::too_many_lines)]
 async fn compatibility_request(
     request: eggserve_primitives::Request,
     adapter: ToxiproxyAdapter,
@@ -1281,7 +1294,7 @@ async fn compatibility_request(
             }
         }
         ("POST", ["populate"]) => {
-            if bytes.iter().all(|byte| byte.is_ascii_whitespace()) {
+            if bytes.iter().all(u8::is_ascii_whitespace) {
                 return Ok(error_response(CompatError::bad_body("EOF")));
             }
             let inputs: Vec<ProxyInput> = match parse_json(&bytes) {
@@ -1311,12 +1324,12 @@ async fn compatibility_request(
             Ok(None) => error_response(CompatError::proxy_not_found()),
             Err(error) => error_response(error),
         },
-        ("POST", ["proxies", name]) | ("PATCH", ["proxies", name]) => {
-            let patch: ProxyUpdate = match parse_json(&bytes) {
-                Ok(patch) => patch,
+        ("POST" | "PATCH", ["proxies", name]) => {
+            let update: ProxyUpdate = match parse_json(&bytes) {
+                Ok(update) => update,
                 Err(error) => return Ok(error_response(error)),
             };
-            match adapter.update(name, patch).await {
+            match adapter.update(name, update).await {
                 Ok(value) => json_value(200, &value),
                 Err(error) => error_response(error),
             }
@@ -1343,13 +1356,12 @@ async fn compatibility_request(
             Ok(value) => json_value(200, &value),
             Err(error) => error_response(error),
         },
-        ("POST", ["proxies", proxy, "toxics", name])
-        | ("PATCH", ["proxies", proxy, "toxics", name]) => {
-            let patch: ToxicUpdate = match parse_json(&bytes) {
-                Ok(patch) => patch,
+        ("POST" | "PATCH", ["proxies", proxy, "toxics", name]) => {
+            let update: ToxicUpdate = match parse_json(&bytes) {
+                Ok(update) => update,
                 Err(error) => return Ok(error_response(error)),
             };
-            match adapter.update_toxic(proxy, name, patch).await {
+            match adapter.update_toxic(proxy, name, update).await {
                 Ok(value) => json_value(200, &value),
                 Err(error) => error_response(error),
             }
@@ -1502,6 +1514,9 @@ mod tests {
     }
 
     #[test]
+    // M059: clamped toxicity round-trips use exact DTO values, so strict
+    // float equality preserves exact compat semantics.
+    #[allow(clippy::float_cmp)]
     fn defaults_name_stream_and_clamps_toxicity() {
         let toxic = Toxic {
             name: None,

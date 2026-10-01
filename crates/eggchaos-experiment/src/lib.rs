@@ -19,8 +19,8 @@
 //! ```
 //!
 //! The crate depends only on `eggchaos-core` plus narrow async
-//! primitives. It never depends on `eggchaos-server`, EggServe, CLI
-//! parsing, Toxiproxy, EggReplay, or EggProbe.
+//! primitives. It never depends on `eggchaos-server`, `EggServe`, CLI
+//! parsing, Toxiproxy, `EggReplay`, or `EggProbe`.
 //!
 //! The shared-epoch contract synchronizes the schedule clock only:
 //! every deadline is `epoch + compiled_offset` for both the schedule

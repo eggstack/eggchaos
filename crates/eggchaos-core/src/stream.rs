@@ -156,7 +156,7 @@ impl StreamEvidence {
     pub fn termination_info(&self) -> Option<TerminationInfo> {
         self.termination
             .lock()
-            .unwrap_or_else(|poison| poison.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone()
     }
     /// Capture the current counters as one bounded snapshot (no payloads).
@@ -199,7 +199,7 @@ impl StreamEvidence {
     pub fn active_faults(&self) -> (Vec<ActiveFault>, bool) {
         self.active_faults
             .lock()
-            .unwrap_or_else(|poison| poison.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone()
     }
     fn refresh_policy(&self, snapshot: &PublishedPolicy) {
@@ -224,7 +224,7 @@ impl StreamEvidence {
         *self
             .active_faults
             .lock()
-            .unwrap_or_else(|poison| poison.into_inner()) = (faults, truncated);
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = (faults, truncated);
     }
     fn mirror_engine(&self, engine: &DirectionEngine) {
         let evidence = engine.evidence();
@@ -262,7 +262,7 @@ impl StreamEvidence {
             let mut slot = self
                 .termination
                 .lock()
-                .unwrap_or_else(|poison| poison.into_inner());
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             if slot.is_none() {
                 *slot = Some(TerminationInfo {
                     request,
@@ -654,7 +654,7 @@ impl<T: AsyncWrite + Unpin> AsyncWrite for ChaosStream<T> {
         let total: usize = bufs
             .iter()
             .map(|b| b.len())
-            .fold(0usize, |acc, len| acc.saturating_add(len));
+            .fold(0usize, usize::saturating_add);
         let take = total.min(bounded);
         let mut joined = Vec::with_capacity(take);
         let mut remaining = take;
@@ -1083,6 +1083,8 @@ impl<T: AsyncRead + AsyncWrite + Unpin> BidirectionalChaosStream<T> {
 }
 
 impl<T: AsyncRead + AsyncWrite + Unpin> AsyncRead for BidirectionalChaosStream<T> {
+    // M059: downstream admission, queue drain, and termination handling share one poll loop; splitting would fork the read contract.
+    #[allow(clippy::too_many_lines)]
     fn poll_read(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -1231,8 +1233,10 @@ impl<T: AsyncRead + AsyncWrite + Unpin> AsyncRead for BidirectionalChaosStream<T
                         .downstream
                         .termination_info()
                         .and_then(|info| info.fault_id)
-                        .map(|id| format!("connection reset by fault {id}"))
-                        .unwrap_or_else(|| "connection reset".into());
+                        .map_or_else(
+                            || "connection reset".into(),
+                            |id| format!("connection reset by fault {id}"),
+                        );
                     return Poll::Ready(Err(io::Error::new(
                         io::ErrorKind::ConnectionReset,
                         detail,
@@ -1310,7 +1314,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> AsyncWrite for BidirectionalChaosStream<
             Poll::Ready(Ok(())) => {}
             Poll::Ready(Err(error)) => return Poll::Ready(Err(error)),
             Poll::Pending => return Poll::Pending,
-        };
+        }
         let outcome = this.upstream.poll_flush(cx, &mut this.inner);
         this.upstream_evidence.mirror_engine(&this.upstream);
         outcome
@@ -1321,7 +1325,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> AsyncWrite for BidirectionalChaosStream<
             Poll::Ready(Ok(())) => {}
             Poll::Ready(Err(error)) => return Poll::Ready(Err(error)),
             Poll::Pending => return Poll::Pending,
-        };
+        }
         this.upstream.poll_shutdown(cx, &mut this.inner)
     }
     fn is_write_vectored(&self) -> bool {
@@ -1866,6 +1870,8 @@ mod tests {
     }
 
     #[tokio::test]
+    // M059: `i % 251` stays in 0..251 for every test length, so the u8 cast is exact.
+    #[allow(clippy::cast_sign_loss)]
     async fn preserving_combination_conserves_bytes_under_fragmentation() {
         let plan = crate::FaultPlan::new(vec![
             fault(
@@ -2131,6 +2137,8 @@ mod bidirectional_read_tests {
     }
 
     #[tokio::test]
+    // M059: `i % 251` stays in 0..251 for every test length, so the u8 cast is exact.
+    #[allow(clippy::cast_sign_loss)]
     async fn downstream_partial_accept_retains_unaccepted_suffix() {
         let plan = crate::FaultPlan::new(vec![crate::FaultSpec {
             id: crate::FaultId::new("tiny-buffer").unwrap(),

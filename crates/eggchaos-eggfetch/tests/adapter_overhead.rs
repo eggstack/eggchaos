@@ -84,8 +84,8 @@ async fn empty_plan_adapter_throughput_stays_close_to_bare() {
 
     // M029 adapter, empty plan, bounded observer enabled.
     let observer = Arc::new(RecordingObserver::new(8));
-    let observed = ChaosDialer::wrap(DuplexDialer, 1, "perf").with_observer(observer);
-    let observed_stream = observed.dial(target).await.unwrap();
+    let metered = ChaosDialer::wrap(DuplexDialer, 1, "perf").with_observer(observer);
+    let observed_stream = metered.dial(target).await.unwrap();
     let observed_elapsed = push_bytes(observed_stream, PAYLOAD_BYTES).await;
 
     let bare_secs = bare_elapsed.as_secs_f64().max(1e-9);
@@ -118,10 +118,10 @@ async fn wrap_latency_with_observer_stays_bounded() {
     let plain_elapsed = start.elapsed();
 
     let observer = Arc::new(RecordingObserver::new(256));
-    let observed = ChaosDialer::wrap(DuplexDialer, 1, "perf").with_observer(observer);
+    let metered = ChaosDialer::wrap(DuplexDialer, 1, "perf").with_observer(observer);
     let start = Instant::now();
     for _ in 0..200 {
-        let _stream = observed.dial(target.clone()).await.unwrap();
+        let _stream = metered.dial(target.clone()).await.unwrap();
     }
     let observed_elapsed = start.elapsed();
 

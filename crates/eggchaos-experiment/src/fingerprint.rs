@@ -207,7 +207,7 @@ fn write_stream_fault_kind(out: &mut Vec<u8>, kind: &eggchaos_core::FaultKind) {
             match c.close_after {
                 Some(d) => out.extend_from_slice(ns(d).to_string().as_bytes()),
                 None => out.extend_from_slice(b"<none>"),
-            };
+            }
         }
         FaultKind::LimitData(c) => {
             out.extend_from_slice(b"limit-data;bytes=");

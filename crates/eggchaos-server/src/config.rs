@@ -3,6 +3,7 @@ use std::{net::SocketAddr, path::Path, time::Duration};
 use eggchaos_core::{Direction, FaultId, FaultPlan, FaultSpec, Probability};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use tokio::io::AsyncReadExt as _;
 
 use crate::{
     DatagramFaultSpecV1, FaultKindV1, NativeDatagramProxyRequestV1, ProxySpec, RuntimeConfigV1,
@@ -59,6 +60,9 @@ impl std::fmt::Debug for AdminFileConfig {
     }
 }
 
+// M059: the manual impl redacts `admin.auth_token` token material and omits
+// the `runtime` mirror; the omitted field is intentional, not an oversight.
+#[allow(clippy::missing_fields_in_debug)]
 impl std::fmt::Debug for NativeConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("NativeConfig")
@@ -176,7 +180,12 @@ pub enum NativeConfigError {
     Version(u32),
     /// A typed field is invalid.
     #[error("invalid configuration field {field}: {message}")]
-    Field { field: String, message: String },
+    Field {
+        /// Configuration field path (e.g. `proxy.name`, `fault.delay`).
+        field: String,
+        /// Human-readable reason the field value was rejected.
+        message: String,
+    },
 }
 
 impl NativeConfig {
@@ -194,7 +203,7 @@ impl NativeConfig {
                     .admin
                     .auth_token
                     .as_ref()
-                    .is_none_or(|t| t.is_empty()))
+                    .is_none_or(std::string::String::is_empty))
         {
             return Err(NativeConfigError::Field {
                 field: "admin".into(),
@@ -292,7 +301,6 @@ impl NativeConfig {
         }
         // Cap the read itself: the file can grow between the metadata check
         // and the read, so `take` bounds the actual bytes consumed.
-        use tokio::io::AsyncReadExt as _;
         let file = tokio::fs::File::open(path.as_ref()).await?;
         let mut limited = file.take(MAX_CONFIG_BYTES + 1);
         let mut text = String::new();
@@ -342,23 +350,34 @@ impl NativeConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DatagramProxyFileConfig {
+    /// Proxy name, unique across datagram proxies.
     pub name: String,
+    /// Local UDP listener address.
     pub listen: SocketAddr,
+    /// Fixed upstream UDP target.
     pub upstream: SocketAddr,
+    /// Maximum simultaneously active client associations.
     #[serde(default = "default_datagram_associations")]
     pub max_associations: usize,
+    /// Idle expiry in milliseconds; associations with queued datagrams never expire.
     #[serde(default = "default_datagram_idle_ms")]
     pub association_idle_timeout_ms: u64,
+    /// Maximum queued datagrams per association direction.
     #[serde(default = "default_datagram_queue_count")]
     pub max_queued_datagrams: u64,
+    /// Maximum queued bytes per association direction.
     #[serde(default = "default_datagram_queue_bytes")]
     pub max_queued_bytes: u64,
+    /// Maximum accepted datagram size in bytes.
     #[serde(default = "default_datagram_size")]
     pub max_datagram_size: u64,
+    /// Per-proxy deterministic seed namespace.
     #[serde(default)]
     pub seed: u64,
+    /// Client-to-target datagram faults.
     #[serde(default)]
     pub upstream_faults: Vec<DatagramFaultSpecV1>,
+    /// Target-to-client datagram faults.
     #[serde(default)]
     pub downstream_faults: Vec<DatagramFaultSpecV1>,
 }
@@ -441,6 +460,9 @@ impl ProxyFileConfig {
 }
 
 impl FaultFileConfig {
+    // M059: per-kind native v1 validation arms; splitting would fork the
+    // single fault-type dispatch contract.
+    #[allow(clippy::too_many_lines)]
     fn compile(&self) -> Result<FaultSpec, NativeConfigError> {
         let id = FaultId::new(self.id.clone()).map_err(|e| NativeConfigError::Field {
             field: "fault.id".into(),
@@ -455,8 +477,7 @@ impl FaultFileConfig {
             |value: &Option<String>, field: &str| -> Result<Duration, NativeConfigError> {
                 value
                     .as_deref()
-                    .map(parse_duration)
-                    .unwrap_or(Ok(Duration::ZERO))
+                    .map_or(Ok(Duration::ZERO), parse_duration)
                     .map_err(|message| NativeConfigError::Field {
                         field: field.into(),
                         message,

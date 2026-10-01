@@ -146,6 +146,11 @@ pub fn derive_stream_loss_seed(
         .wrapping_add(0x5752_4d5f_4348_554e)
 }
 
+/// Deterministic SplitMix64-v1 generator for connection-local fault decisions.
+///
+/// The seed-derivation math and wrapping arithmetic are the frozen
+/// determinism contract: golden vectors in tests pin every output, so the
+/// wrapping/truncating casts below must never change meaning.
 #[derive(Debug, Clone)]
 pub struct DeterministicRng {
     state: u64,
@@ -175,6 +180,12 @@ impl DeterministicRng {
         }
     }
     /// Return an unbiased-ish deterministic probability decision using integer thresholds.
+    // M059: probability is range-checked to [0, 1) above, so the f64 threshold scaling and truncation are the frozen decision contract.
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss
+    )]
     pub fn bernoulli(&mut self, probability: f64) -> bool {
         if probability.is_nan() || probability <= 0.0 {
             return false;

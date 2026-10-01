@@ -53,7 +53,7 @@ async fn listener_loop(
     loop {
         tokio::select! {
             biased;
-            _ = cancel.cancelled() => break,
+            () = cancel.cancelled() => break,
             received = socket.recv_from(&mut recv) => {
                 let Ok((size, client)) = received else { continue };
                 receive_client_datagram(&socket, &state, client, Bytes::copy_from_slice(&recv[..size])).await;
@@ -68,6 +68,9 @@ async fn listener_loop(
     }
 }
 
+// M059: single-packet ingress classification stays in one function so
+// the drop/forward decision order remains auditable; length is style only.
+#[allow(clippy::too_many_lines)]
 async fn receive_client_datagram(
     socket: &Arc<UdpSocket>,
     state: &Arc<ProxyState>,
@@ -82,7 +85,10 @@ async fn receive_client_datagram(
     // obtainable under a brief read guard and never co-resident with
     // the awaiting `resolve_association` future.
     let max_datagram_bytes = {
-        let spec = state.spec.read().unwrap_or_else(|p| p.into_inner());
+        let spec = state
+            .spec
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         spec.queue_limits.max_datagram_bytes
     };
     if payload.len() as u64 > max_datagram_bytes.get() {
@@ -93,11 +99,14 @@ async fn receive_client_datagram(
         if let Some(association) = state
             .associations
             .read()
-            .unwrap_or_else(|p| p.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .get(&client)
             .and_then(AssociationSlot::active)
         {
-            let mut record = association.record.lock().unwrap_or_else(|p| p.into_inner());
+            let mut record = association
+                .record
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             record.oversize_datagrams = record.oversize_datagrams.saturating_add(1);
             record.last_activity = Instant::now();
         }
@@ -121,7 +130,10 @@ async fn receive_client_datagram(
         }
     };
     let policy = {
-        let spec = state.spec.read().unwrap_or_else(|p| p.into_inner());
+        let spec = state
+            .spec
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         spec.upstream_policy.snapshot()
     };
     let ingress_bytes = payload.len() as u64;
@@ -134,7 +146,10 @@ async fn receive_client_datagram(
             .counters
             .ingress_overflow
             .fetch_add(1, Ordering::Relaxed);
-        let mut record = association.record.lock().unwrap_or_else(|p| p.into_inner());
+        let mut record = association
+            .record
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         record.ingress_queue_overflow = record.ingress_queue_overflow.saturating_add(1);
         record.last_activity = Instant::now();
         return;
@@ -147,7 +162,10 @@ async fn receive_client_datagram(
     association.pending_ingress.fetch_add(1, Ordering::Relaxed);
     match association.sender.try_send(ingress) {
         Ok(()) => {
-            let mut record = association.record.lock().unwrap_or_else(|p| p.into_inner());
+            let mut record = association
+                .record
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             record.ingress_datagrams = record.ingress_datagrams.saturating_add(1);
             record.ingress_bytes = record.ingress_bytes.saturating_add(ingress_bytes);
             record.last_activity = Instant::now();
@@ -158,7 +176,10 @@ async fn receive_client_datagram(
                 .counters
                 .ingress_overflow
                 .fetch_add(1, Ordering::Relaxed);
-            let mut record = association.record.lock().unwrap_or_else(|p| p.into_inner());
+            let mut record = association
+                .record
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             record.ingress_queue_overflow = record.ingress_queue_overflow.saturating_add(1);
             record.last_activity = Instant::now();
         }
@@ -170,7 +191,10 @@ async fn receive_client_datagram(
                 .counters
                 .ingress_overflow
                 .fetch_add(1, Ordering::Relaxed);
-            let mut record = association.record.lock().unwrap_or_else(|p| p.into_inner());
+            let mut record = association
+                .record
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             record.ingress_queue_overflow = record.ingress_queue_overflow.saturating_add(1);
             record.administrative_discards = record.administrative_discards.saturating_add(1);
             record.last_activity = Instant::now();
@@ -182,16 +206,22 @@ async fn reap_idle(state: &Arc<ProxyState>) {
     let idle_timeout = state
         .spec
         .read()
-        .unwrap_or_else(|p| p.into_inner())
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
         .association_idle_timeout;
     let expired: Vec<(SocketAddr, Arc<Association>)> = {
-        let associations = state.associations.read().unwrap_or_else(|p| p.into_inner());
+        let associations = state
+            .associations
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         associations
             .iter()
             .filter_map(|(client, slot)| {
                 let association = slot.active()?;
                 let (queues_empty, pending, idle) = {
-                    let record = association.record.lock().unwrap_or_else(|p| p.into_inner());
+                    let record = association
+                        .record
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
                     (
                         record.upstream_evidence.queued_datagrams == 0
                             && record.downstream_evidence.queued_datagrams == 0,
@@ -211,7 +241,7 @@ async fn reap_idle(state: &Arc<ProxyState>) {
             let mut associations = state
                 .associations
                 .write()
-                .unwrap_or_else(|p| p.into_inner());
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             let ours = matches!(
                 associations.get(&client),
                 Some(AssociationSlot::Active(current)) if Arc::ptr_eq(current, &association)

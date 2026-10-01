@@ -1,9 +1,9 @@
-//! Mechanical drift check: the checked-in OpenAPI document must agree with
+//! Mechanical drift check: the checked-in `OpenAPI` document must agree with
 //! the protocol DTO authority (`NATIVE_OPERATIONS`, fault discriminators,
 //! required fields, error envelope).
 //!
 //! This is M032's single-authority mechanism (option 3): executable
-//! contract tests prove the checked-in OpenAPI operations/schemas against
+//! contract tests prove the checked-in `OpenAPI` operations/schemas against
 //! protocol DTO serialization and the operation inventory. Any added,
 //! removed, or reshaped route, discriminator, required field, default
 //! unit, or error envelope fails this test until the contract is

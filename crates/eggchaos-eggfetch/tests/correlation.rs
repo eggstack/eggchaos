@@ -99,6 +99,9 @@ async fn read_request_head(stream: &mut tokio::net::TcpStream) {
 const HTTP_OK: &[u8] = b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: keep-alive\r\n\r\nok";
 
 #[tokio::test]
+// M059: cross-layer correlation must stay in one test to share the epoch,
+// workload, and evidence; splitting would fork the correlated assertions.
+#[allow(clippy::too_many_lines)]
 async fn cross_layer_experiment_correlates_schedule_and_transport() {
     // Local test service speaking keep-alive HTTP/1.1.
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();

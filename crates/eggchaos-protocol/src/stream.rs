@@ -169,6 +169,8 @@ impl NativeProxyPatchV1 {
 }
 
 /// Explicit fault behavior schema. Time values are integer nanoseconds.
+// M059: field prose lives in the drift-checked OpenAPI contract; duplicating it here risks drift.
+#[allow(missing_docs)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum FaultKindV1 {
@@ -242,6 +244,7 @@ impl FaultKindV1 {
         .map_err(|error| error.to_string())
     }
 
+    /// Convert this wire fault into its core semantic form with bounds checks.
     pub fn into_core(self) -> Result<FaultKind, String> {
         let nonzero = |field: &str, value| {
             NonZeroU64::new(value).ok_or_else(|| format!("{field} must be non-zero"))
@@ -313,8 +316,11 @@ impl FaultKindV1 {
         })
     }
 
+    /// Build the wire fault from its core semantic form, saturating durations.
+    // M059: saturating `u128`-to-`u64` cast is exact because the value is clamped to `u64::MAX` by `.min()` above.
+    #[allow(clippy::cast_possible_truncation)]
     pub fn from_core(kind: FaultKind) -> Self {
-        let ns = |duration: Duration| duration.as_nanos().min(u64::MAX as u128) as u64;
+        let ns = |duration: Duration| duration.as_nanos().min(u128::from(u64::MAX)) as u64;
         match kind {
             FaultKind::Latency(v) => Self::Latency {
                 delay_ns: ns(v.delay),
@@ -374,6 +380,7 @@ impl FaultUpsertV1 {
         self.kind.validate()
     }
 
+    /// Split this upsert into its validated direction and core fault spec.
     pub fn into_core(self) -> Result<(Direction, FaultSpec), String> {
         let id = FaultId::new(self.id.clone()).map_err(|error| error.to_string())?;
         let probability = Probability::new(self.probability).map_err(|error| error.to_string())?;
@@ -411,6 +418,7 @@ impl FaultPatchV1 {
         Ok(())
     }
 
+    /// Split this patch into its validated probability and core fault parts.
     pub fn into_core(self) -> Result<(Option<f64>, Option<FaultKind>), String> {
         if let Some(probability) = self.probability {
             Probability::new(probability).map_err(|error| error.to_string())?;
@@ -501,6 +509,8 @@ pub struct RuntimeConfigV1 {
 }
 
 /// Global limits for the separate datagram resource family.
+// M059: field prose lives in the drift-checked OpenAPI contract; duplicating it here risks drift.
+#[allow(missing_docs)]
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DatagramRuntimeConfigV1 {
@@ -650,6 +660,8 @@ pub struct ScenarioEventV1 {
 }
 
 /// Supported scenario action schema.
+// M059: field prose lives in the drift-checked OpenAPI contract; duplicating it here risks drift.
+#[allow(missing_docs)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum ScenarioActionV1 {
@@ -726,12 +738,12 @@ impl ScenarioV1 {
                     validate_proxy_name(proxy)?;
                 }
             }
-            self.validate_action(&event.action)?;
+            Self::validate_action(&event.action)?;
         }
         Ok(())
     }
 
-    fn validate_action(&self, action: &ScenarioActionV1) -> Result<(), String> {
+    fn validate_action(action: &ScenarioActionV1) -> Result<(), String> {
         match action {
             ScenarioActionV1::SetPlan { faults, .. } => {
                 let converted = faults
@@ -750,7 +762,7 @@ impl ScenarioV1 {
                     .cloned()
                     .map(DatagramFaultSpecV1::into_core)
                     .collect::<Result<Vec<_>, _>>()?;
-                DatagramPlan::new(converted).map_err(|error| error.to_string())?;
+                DatagramPlan::new(converted).map_err(std::string::ToString::to_string)?;
             }
             ScenarioActionV1::RemoveDatagramFault { id, .. } => {
                 FaultId::new(id.clone()).map_err(|error| error.to_string())?;
@@ -806,7 +818,8 @@ impl ScenarioV1 {
                         .into_iter()
                         .map(DatagramFaultSpecV1::into_core)
                         .collect::<Result<Vec<_>, _>>()?;
-                    DatagramPlan::new(converted.clone()).map_err(|error| error.to_string())?;
+                    DatagramPlan::new(converted.clone())
+                        .map_err(std::string::ToString::to_string)?;
                     eggchaos_experiment::ScenarioAction::SetDatagramPlan {
                         proxy,
                         direction,
@@ -836,11 +849,17 @@ impl ScenarioV1 {
 #[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ScenarioStatusV1 {
+    /// Scenario is queued but not yet running.
     Pending,
+    /// Scenario is currently executing.
     Running,
+    /// Scenario is draining toward cancellation.
     Cancelling,
+    /// Scenario was cancelled before completion.
     Cancelled,
+    /// Scenario finished all events successfully.
     Completed,
+    /// Scenario stopped on a failed event.
     Failed,
 }
 
@@ -907,6 +926,8 @@ impl ScenarioRunV1 {
 }
 
 /// Explicit native schema for one datagram fault stage.
+// M059: field prose lives in the drift-checked OpenAPI contract; duplicating it here risks drift.
+#[allow(missing_docs)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DatagramFaultSpecV1 {
@@ -917,24 +938,26 @@ pub struct DatagramFaultSpecV1 {
 }
 
 /// Versioned datagram fault vocabulary. Durations are integer nanoseconds.
+// M059: field prose lives in the drift-checked OpenAPI contract; duplicating it here risks drift.
+#[allow(missing_docs)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum DatagramFaultKindV1 {
+    /// Delay whole datagrams with optional jitter.
     Delay {
         delay_ns: u64,
         #[serde(default)]
         jitter_ns: u64,
     },
+    /// Drop the datagram according to the plan probability.
     Loss,
-    Duplicate {
-        additional_copies: u8,
-    },
-    Reorder {
-        hold_ns: u64,
-    },
-    PayloadCorrupt {
-        bytes: u64,
-    },
+    /// Emit extra copies of the datagram.
+    Duplicate { additional_copies: u8 },
+    /// Hold and re-emit the datagram after a delay.
+    Reorder { hold_ns: u64 },
+    /// Corrupt payload bytes in place.
+    PayloadCorrupt { bytes: u64 },
+    /// Rate-limit datagram emission with a token bucket.
     Bandwidth {
         bytes_per_second: u64,
         burst_bytes: u64,
@@ -976,8 +999,11 @@ impl DatagramFaultKindV1 {
         })
     }
 
+    // M059: by-value keeps symmetry with `FaultKindV1::from_core` and avoids ref churn at the single call site; all fields are `Copy`.
+    // M059: saturating `u128`-to-`u64` cast is exact because the value is clamped to `u64::MAX` by `.min()`.
+    #[allow(clippy::needless_pass_by_value, clippy::cast_possible_truncation)]
     fn from_core(kind: DatagramFaultKind) -> Self {
-        let ns = |duration: Duration| duration.as_nanos().min(u64::MAX as u128) as u64;
+        let ns = |duration: Duration| duration.as_nanos().min(u128::from(u64::MAX)) as u64;
         match kind {
             DatagramFaultKind::Delay { delay, jitter } => Self::Delay {
                 delay_ns: ns(delay),
@@ -1010,12 +1036,14 @@ impl DatagramFaultSpecV1 {
             probability: Probability::new(self.probability).map_err(|error| error.to_string())?,
             kind: self.kind.into_core()?,
         };
-        DatagramPlan::new(vec![spec.clone()]).map_err(|error| error.to_string())?;
+        DatagramPlan::new(vec![spec.clone()]).map_err(std::string::ToString::to_string)?;
         Ok(spec)
     }
 }
 
 /// Add one datagram fault to a proxy direction.
+// M059: field prose lives in the drift-checked OpenAPI contract; duplicating it here risks drift.
+#[allow(missing_docs)]
 #[derive(Debug, Clone, Serialize)]
 pub struct DatagramFaultUpsertV1 {
     pub direction: eggchaos_core::Direction,
@@ -1025,6 +1053,12 @@ pub struct DatagramFaultUpsertV1 {
 
 impl<'de> serde::Deserialize<'de> for DatagramFaultUpsertV1 {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(serde::Deserialize)]
+        struct Helper {
+            direction: eggchaos_core::Direction,
+            #[serde(flatten)]
+            fault: DatagramFaultSpecV1,
+        }
         // `deny_unknown_fields` does not enforce on `#[serde(flatten)]`
         // parts, so reject unknown top-level fields explicitly to match
         // every other wire DTO's unknown-field rejection contract.
@@ -1042,12 +1076,6 @@ impl<'de> serde::Deserialize<'de> for DatagramFaultUpsertV1 {
                     ));
                 }
             }
-        }
-        #[derive(serde::Deserialize)]
-        struct Helper {
-            direction: eggchaos_core::Direction,
-            #[serde(flatten)]
-            fault: DatagramFaultSpecV1,
         }
         let helper: Helper = serde_json::from_value(value).map_err(serde::de::Error::custom)?;
         Ok(Self {
@@ -1068,6 +1096,8 @@ impl From<DatagramFaultSpec> for DatagramFaultSpecV1 {
 }
 
 /// Explicit datagram proxy create schema for `/v1`.
+// M059: field prose lives in the drift-checked OpenAPI contract; duplicating it here risks drift.
+#[allow(missing_docs)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NativeDatagramProxyRequestV1 {
@@ -1156,7 +1186,7 @@ impl NativeDatagramProxyRequestV1 {
                 .ok_or("max_datagram_size must be nonzero")?,
         }
         .validate()
-        .map_err(|error| error.to_string())?;
+        .map_err(std::string::ToString::to_string)?;
         let upstream = self
             .upstream_faults
             .into_iter()
@@ -1175,8 +1205,8 @@ impl NativeDatagramProxyRequestV1 {
                 );
             }
         }
-        DatagramPlan::new(upstream.clone()).map_err(|error| error.to_string())?;
-        DatagramPlan::new(downstream.clone()).map_err(|error| error.to_string())?;
+        DatagramPlan::new(upstream.clone()).map_err(std::string::ToString::to_string)?;
+        DatagramPlan::new(downstream.clone()).map_err(std::string::ToString::to_string)?;
         Ok(DatagramProxyCoreParts {
             name: self.name,
             listen: self.listen,
@@ -1197,6 +1227,8 @@ impl NativeDatagramProxyRequestV1 {
 }
 
 /// Enable or disable a datagram listener without changing its definition.
+// M059: field prose lives in the drift-checked OpenAPI contract; duplicating it here risks drift.
+#[allow(missing_docs)]
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NativeDatagramProxyPatchV1 {
@@ -1227,6 +1259,8 @@ impl NativeDatagramProxyPatchV1 {
 }
 
 /// Patch one datagram fault's probability or behavior.
+// M059: field prose lives in the drift-checked OpenAPI contract; duplicating it here risks drift.
+#[allow(missing_docs)]
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DatagramFaultPatchV1 {
@@ -1258,6 +1292,8 @@ impl DatagramFaultPatchV1 {
 }
 
 /// Stable v1 representation of per-direction datagram evidence.
+// M059: field prose lives in the drift-checked OpenAPI contract; duplicating it here risks drift.
+#[allow(missing_docs)]
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct NativeDatagramEvidenceV1 {
     pub admitted_datagrams: u64,
@@ -1310,6 +1346,8 @@ impl From<eggchaos_core::DatagramEvidence> for NativeDatagramEvidenceV1 {
 }
 
 /// Explicit datagram proxy view DTO.
+// M059: field prose lives in the drift-checked OpenAPI contract; duplicating it here risks drift.
+#[allow(missing_docs)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NativeDatagramProxyViewV1 {
     pub name: String,
@@ -1335,6 +1373,8 @@ pub struct NativeDatagramProxyViewV1 {
 // Assembled by `eggchaos-server` from its runtime datagram proxy view.
 
 /// Explicit datagram association evidence DTO. Payloads are never captured.
+// M059: field prose lives in the drift-checked OpenAPI contract; duplicating it here risks drift.
+#[allow(missing_docs)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NativeDatagramAssociationViewV1 {
     pub id: u64,
@@ -1454,8 +1494,7 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&bandwidth).unwrap(),
             format!(
-                r#"{{"type":"bandwidth","bytes_per_second":{},"burst_bytes":{}}}"#,
-                NATIVE_DEFAULT_BANDWIDTH_BYTES_PER_SECOND, NATIVE_DEFAULT_BANDWIDTH_BURST_BYTES
+                r#"{{"type":"bandwidth","bytes_per_second":{NATIVE_DEFAULT_BANDWIDTH_BYTES_PER_SECOND},"burst_bytes":{NATIVE_DEFAULT_BANDWIDTH_BURST_BYTES}}}"#
             )
         );
         let limit_data: FaultKindV1 = serde_json::from_str(r#"{"type":"limit-data"}"#).unwrap();
@@ -1467,8 +1506,7 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&slice).unwrap(),
             format!(
-                r#"{{"type":"slice","average_size":{},"variation":0,"delay_ns":0}}"#,
-                NATIVE_DEFAULT_SLICE_AVERAGE_SIZE
+                r#"{{"type":"slice","average_size":{NATIVE_DEFAULT_SLICE_AVERAGE_SIZE},"variation":0,"delay_ns":0}}"#
             )
         );
     }

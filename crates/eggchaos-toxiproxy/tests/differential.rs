@@ -158,7 +158,7 @@ fn normalize(value: &mut Value) {
 }
 
 /// Canonicalize every JSON number to its f64 value so encoding-only
-/// differences (`1` from Go vs `1.0` from serde_json) do not fail
+/// differences (`1` from Go vs `1.0` from `serde_json`) do not fail
 /// comparison. Numeric magnitudes still compare exactly.
 fn normalize_numbers(value: &mut Value) {
     match value {
@@ -188,7 +188,7 @@ fn normalize_numbers(value: &mut Value) {
 ///   dedicated toxicity cases);
 /// - degenerate zero numerics that native `NonZero` bounds cannot represent
 ///   coalesce to 1 on both sides (bandwidth `rate`, slicer `average_size`,
-///   limit_data `bytes`).
+///   `limit_data` `bytes`).
 fn normalize_recorded(value: &mut Value) {
     match value {
         Value::Object(map) => {
@@ -197,8 +197,7 @@ fn normalize_recorded(value: &mut Value) {
                     map.insert(
                         "toxicity".to_owned(),
                         serde_json::Number::from_f64(float.clamp(0.0, 1.0))
-                            .map(Value::Number)
-                            .unwrap_or(Value::Null),
+                            .map_or(Value::Null, Value::Number),
                     );
                 }
             }
@@ -209,7 +208,7 @@ fn normalize_recorded(value: &mut Value) {
                 .to_owned();
             if let Some(Value::Object(attrs)) = map.get_mut("attributes") {
                 let coalesce = |attrs: &mut serde_json::Map<String, Value>, key: &str| {
-                    if attrs.get(key).and_then(|v| v.as_f64()) == Some(0.0) {
+                    if attrs.get(key).and_then(serde_json::Value::as_f64) == Some(0.0) {
                         attrs.insert(key.to_owned(), json!(1.0));
                     }
                 };
@@ -364,6 +363,9 @@ fn proxy_listen(body: &[u8]) -> SocketAddr {
     value["listen"].as_str().unwrap().parse().unwrap()
 }
 
+// M059: differential data-plane fixture must stay in one function to share
+// the oracle/ours corpus; splitting would fork the pinned v2.12 coverage.
+#[allow(clippy::too_many_lines)]
 async fn data_plane(corpus: &mut Corpus, oracle_base: &str, ours_base: &str) {
     // One echo upstream and one ephemeral proxy per server.
     let mut listens = Vec::new();
@@ -685,17 +687,16 @@ async fn data_plane(corpus: &mut Corpus, oracle_base: &str, ours_base: &str) {
         socket.write_all(b"hello").await.unwrap();
         let mut received = Vec::new();
         let outcome = timeout(Duration::from_secs(5), socket.read_to_end(&mut received)).await;
-        let terminated = match outcome {
-            Err(_) => false,
-            Ok(Err(_)) => true,
-            Ok(Ok(_)) => true,
-        };
+        let terminated = outcome.is_ok();
         assert!(terminated, "{tag} reset_peer eventually terminates");
     }
     corpus.passed += 1;
 }
 
 #[tokio::test]
+// M059: pinned v2.12 differential corpus must stay in one test to preserve
+// byte-identical API/data-plane coverage; splitting would fork the corpus.
+#[allow(clippy::too_many_lines)]
 async fn toxiproxy_v212_differential() {
     let Some(bin) = std::env::var("TOXIPROXY_SERVER").ok() else {
         println!("differential: incomplete (TOXIPROXY_SERVER unset)");

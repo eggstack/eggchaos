@@ -1,4 +1,4 @@
-//! Wire DTOs for ScenarioScheduleV2 and TOML/JSON parsing.
+//! Wire DTOs for `ScenarioScheduleV2` and TOML/JSON parsing.
 //!
 //! Scenario v2 is a separate, additive wire family from Scenario v1 —
 //! v1 wire format remains unchanged, v2 carries the same scenario
@@ -23,6 +23,8 @@ use eggchaos_experiment::{
 
 /// Wire DTO mirroring the internal model. JSON forms of v2 use this;
 /// TOML authoring forms follow the same shape modulo duration strings.
+// M059: field prose lives in the drift-checked OpenAPI contract; duplicating it here risks drift.
+#[allow(missing_docs)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ScenarioScheduleV2Dto {
@@ -39,6 +41,10 @@ pub struct ScenarioScheduleV2Dto {
     pub repeat: Option<ScenarioRepeatV2Dto>,
 }
 
+/// One phase of a v2 schedule: a named window carrying actions.
+/// Wire DTO for the JSON/TOML schedule envelope.
+// M059: field prose lives in the drift-checked OpenAPI contract; duplicating it here risks drift.
+#[allow(missing_docs)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ScenarioPhaseV2Dto {
@@ -48,6 +54,10 @@ pub struct ScenarioPhaseV2Dto {
     pub actions: Vec<ScenarioActionDto>,
 }
 
+/// Repeat block of a v2 schedule: a count plus phases to replay.
+/// Wire DTO for the JSON/TOML schedule envelope.
+// M059: field prose lives in the drift-checked OpenAPI contract; duplicating it here risks drift.
+#[allow(missing_docs)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ScenarioRepeatV2Dto {
@@ -57,9 +67,12 @@ pub struct ScenarioRepeatV2Dto {
 
 /// Wire-only mirror of [`ScenarioAction`] using the same kebab-case
 /// tags as `ScenarioActionV1`. Conversions land on the internal enum.
+// M059: field prose lives in the drift-checked OpenAPI contract; duplicating it here risks drift.
+#[allow(missing_docs)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum ScenarioActionDto {
+    /// Replace one directional stream fault plan.
     #[serde(rename = "set-plan")]
     SetPlan {
         proxy: String,
@@ -67,18 +80,21 @@ pub enum ScenarioActionDto {
         faults: Vec<crate::ScenarioFaultV1>,
     },
     #[serde(rename = "remove-fault")]
+    /// Remove one stream fault by identity.
     RemoveFault {
         proxy: String,
         direction: eggchaos_core::Direction,
         id: String,
     },
     #[serde(rename = "set-datagram-plan")]
+    /// Replace one directional datagram fault plan.
     SetDatagramPlan {
         proxy: String,
         direction: eggchaos_core::Direction,
         faults: Vec<crate::DatagramFaultSpecV1>,
     },
     #[serde(rename = "remove-datagram-fault")]
+    /// Remove one datagram fault by identity.
     RemoveDatagramFault {
         proxy: String,
         direction: eggchaos_core::Direction,
@@ -135,7 +151,7 @@ impl ScenarioActionDto {
                     .map(crate::DatagramFaultSpecV1::into_core)
                     .collect::<Result<Vec<_>, _>>()?;
                 eggchaos_core::DatagramPlan::new(converted.clone())
-                    .map_err(|error| error.to_string())?;
+                    .map_err(std::string::ToString::to_string)?;
                 Ok(ScenarioAction::SetDatagramPlan {
                     proxy,
                     direction,
@@ -329,6 +345,8 @@ impl ScenarioRepeatV2Dto {
 /// extension is a separate plan that must round-trip to this integer
 /// form. Keeping the boundary deterministic avoids silent
 /// rounding/overflow at the parser edge.
+// M059: field prose lives in the drift-checked OpenAPI contract; duplicating it here risks drift.
+#[allow(missing_docs)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ScenarioScheduleV2Toml {
@@ -345,6 +363,9 @@ pub struct ScenarioScheduleV2Toml {
     pub repeat: Option<ScenarioRepeatV2Toml>,
 }
 
+/// One TOML authoring phase mirroring [`ScenarioPhaseV2Dto`].
+// M059: field prose lives in the drift-checked OpenAPI contract; duplicating it here risks drift.
+#[allow(missing_docs)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ScenarioPhaseV2Toml {
@@ -354,6 +375,9 @@ pub struct ScenarioPhaseV2Toml {
     pub actions: Vec<ScenarioActionDto>,
 }
 
+/// One TOML authoring repeat block mirroring [`ScenarioRepeatV2Dto`].
+// M059: field prose lives in the drift-checked OpenAPI contract; duplicating it here risks drift.
+#[allow(missing_docs)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ScenarioRepeatV2Toml {

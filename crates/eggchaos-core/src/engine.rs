@@ -80,7 +80,7 @@ impl TerminationHandle {
         self.slot
             .inner
             .lock()
-            .unwrap_or_else(|poison| poison.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone()
     }
 
@@ -91,7 +91,7 @@ impl TerminationHandle {
             .slot
             .inner
             .lock()
-            .unwrap_or_else(|poison| poison.into_inner());
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if guard.is_none() {
             *guard = Some(info);
             self.slot.notify.notify_waiters();
@@ -120,7 +120,7 @@ impl TerminationHandle {
             return Poll::Ready(info);
         }
         match notified.poll(cx) {
-            Poll::Ready(()) => self.get().map(Poll::Ready).unwrap_or(Poll::Pending),
+            Poll::Ready(()) => self.get().map_or(Poll::Pending, Poll::Ready),
             Poll::Pending => Poll::Pending,
         }
     }
@@ -276,6 +276,8 @@ impl TokenBucket {
 
     /// Schedule `len` bytes. Returns the earliest release time and the
     /// throttle delay in milliseconds imposed by this call.
+    // M059: wait/throttle nanos are clamped to u64::MAX before casting, so truncation is exact.
+    #[allow(clippy::cast_possible_truncation)]
     fn consume(&mut self, len: usize, now: Instant, earliest: Instant) -> (Instant, u64) {
         self.refill(now);
         let need = (len as u128).saturating_mul(1_000_000);
@@ -382,6 +384,8 @@ pub struct DirectionEngine {
     stream_loss_evaluated: u64,
 }
 
+// M059: intentional summary Debug; queue payloads, RNG streams, and timers are excluded to keep Debug bounded and side-effect free.
+#[allow(clippy::missing_fields_in_debug)]
 impl std::fmt::Debug for DirectionEngine {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DirectionEngine")
@@ -439,6 +443,8 @@ impl DirectionEngine {
     /// `LivePolicy` snapshot path in `ChaosStream::new_live`) reach this
     /// directly; the legacy `FaultPlan`-accepting constructors wrap
     /// their argument in a fresh `Arc` and forward here.
+    // M059: per-fault compilation branches compose nine fault kinds; splitting would fork the determinism contract.
+    #[allow(clippy::too_many_lines)]
     pub fn new_with_arc_plan(
         plan: Arc<FaultPlan>,
         run_seed: u64,
@@ -505,7 +511,14 @@ impl DirectionEngine {
                         }
                     }
                 }
-                FaultKind::SlowClose(_) => {}
+                FaultKind::SlowClose(_) | FaultKind::StreamLoss(_) => {
+                    // No engine-wide combination: every active stream-loss
+                    // fault keeps fault-local chunk state/RNG below, and the
+                    // frozen composition rule (drop if any fault drops) is
+                    // applied per logical chunk at accept time.
+                    // (`SlowClose` likewise needs no construction-time
+                    // state: its delays compose by sum below.)
+                }
                 FaultKind::Bandwidth(c) => {
                     bandwidth_cfg = Some(match bandwidth_cfg {
                         Some((rate, burst)) => (
@@ -538,12 +551,6 @@ impl DirectionEngine {
                             fault_id: fault.id.clone(),
                         });
                     }
-                }
-                FaultKind::StreamLoss(_) => {
-                    // No engine-wide combination: every active stream-loss
-                    // fault keeps fault-local chunk state/RNG below, and the
-                    // frozen composition rule (drop if any fault drops) is
-                    // applied per logical chunk at accept time.
                 }
             }
             stream_loss.push(match fault.kind {
@@ -647,11 +654,11 @@ impl DirectionEngine {
 
     /// True when no configured stage discards accepted bytes.
     ///
-    /// Blackhole and StreamLoss compositions switch into a destructive
+    /// Blackhole and `StreamLoss` compositions switch into a destructive
     /// path that may discard sub-ranges independent of the bounded queue,
     /// so the vectored-write prefix optimization stays on the
-    /// scalar-join fallback for those plans. LimitData, Disconnect, and
-    /// SlowClose don't discard accepted bytes directly and remain
+    /// scalar-join fallback for those plans. `LimitData`, Disconnect, and
+    /// `SlowClose` don't discard accepted bytes directly and remain
     /// compatible with the prefix path; the bounded capacity/limit
     /// check below naturally honors `LimitData` without code
     /// duplication.
@@ -676,8 +683,7 @@ impl DirectionEngine {
         let limit_available = self
             .remaining_limit
             .as_ref()
-            .map(|(remaining, _)| *remaining)
-            .unwrap_or(u64::MAX);
+            .map_or(u64::MAX, |(remaining, _)| *remaining);
         let capacity = self.max_buffer.saturating_sub(self.buffered);
         let limit = usize::try_from(limit_available).unwrap_or(usize::MAX);
         limit.min(capacity)
@@ -689,7 +695,7 @@ impl DirectionEngine {
     /// For preserving-only plans this avoids the existing full-vector
     /// join whenever the bounded queue capacity is smaller than the
     /// caller-supplied total; for plans containing a destructive stage
-    /// (Blackhole or StreamLoss) the engine requires the complete
+    /// (Blackhole or `StreamLoss`) the engine requires the complete
     /// joined buffer to honour its segmentation and RNG draws, so this
     /// method falls back to a full join.
     ///
@@ -700,7 +706,7 @@ impl DirectionEngine {
         let total: usize = bufs
             .iter()
             .map(|b| b.len())
-            .fold(0usize, |acc, len| acc.saturating_add(len));
+            .fold(0usize, usize::saturating_add);
         if total == 0 {
             // Mirror `accept`'s empty-input contract (always returns 0 on
             // an empty buffer; due terminations are refreshed first).
@@ -837,7 +843,7 @@ impl DirectionEngine {
         self.queue.is_empty()
     }
 
-    fn publish_termination(&mut self, info: TerminationInfo) -> bool {
+    fn publish_termination(&mut self, info: &TerminationInfo) -> bool {
         self.term_handle.publish(info.clone());
         // First published request wins end to end.
         if self.termination.is_none() {
@@ -867,7 +873,7 @@ impl DirectionEngine {
                     direction: self.direction,
                     fault_id: Some(state.fault_id.to_string()),
                 };
-                if self.publish_termination(info) {
+                if self.publish_termination(&info) {
                     // disconnect activation, indexed by FaultKind::type_index.
                     self.evidence.activations[6] = self.evidence.activations[6].saturating_add(1);
                 }
@@ -885,7 +891,7 @@ impl DirectionEngine {
                         direction: self.direction,
                         fault_id: Some(state.fault_id.to_string()),
                     };
-                    if self.publish_termination(info) {
+                    if self.publish_termination(&info) {
                         // blackhole close_after activation.
                         self.evidence.activations[2] =
                             self.evidence.activations[2].saturating_add(1);
@@ -905,6 +911,8 @@ impl DirectionEngine {
         }
     }
 
+    // M059: result is clamped to the live `remaining` byte bound, so truncation is exact.
+    #[allow(clippy::cast_possible_truncation)]
     fn next_slice_size(&mut self, remaining: usize) -> usize {
         // Every active slicer constrains the output size; the smallest
         // deterministic draw applies all configured stages.
@@ -990,6 +998,12 @@ impl DirectionEngine {
     /// Returns the owned byte count plus whether latency/slice stages
     /// engaged. Stops at the first slice the bounded queue cannot own; the
     /// caller must not skip ahead to later dropped ranges.
+    // M059: symmetric jitter math clamps to [0, u64::MAX] (24h validation cap keeps nanos far below i128::MAX), so wrap/truncation/sign casts are exact.
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_possible_wrap,
+        clippy::cast_sign_loss
+    )]
     fn push_preserve_run(&mut self, data: &[u8], now: Instant) -> (usize, bool, bool) {
         let mut offset = 0usize;
         let mut latency_engaged = false;
@@ -1014,16 +1028,16 @@ impl DirectionEngine {
                 }
                 match fault.kind {
                     FaultKind::Latency(c) => {
-                        let jitter_range = c.jitter.as_nanos().min(u64::MAX as u128) as u64;
+                        let jitter_range = c.jitter.as_nanos().min(u128::from(u64::MAX)) as u64;
                         let jitter = if jitter_range == 0 {
                             0
                         } else {
-                            rng.below(jitter_range.saturating_mul(2).saturating_add(1)) as i128
-                                - jitter_range as i128
+                            i128::from(rng.below(jitter_range.saturating_mul(2).saturating_add(1)))
+                                - i128::from(jitter_range)
                         };
                         let nanos = (c.delay.as_nanos() as i128 + jitter)
                             .max(0)
-                            .min(u64::MAX as i128) as u64;
+                            .min(i128::from(u64::MAX)) as u64;
                         // Delay stages are sequential, so each adds to the
                         // preceding stage's release deadline.
                         // Nanos precision preserves sub-ms delays; evidence
@@ -1085,6 +1099,8 @@ impl DirectionEngine {
     /// always stops at the first preserving byte the bounded queue cannot
     /// own and never skips ahead to a later dropped range, so the reported
     /// prefix keeps Tokio prefix ownership.
+    // M059: the accepted prefix is capped by the live input length, so truncation is exact.
+    #[allow(clippy::cast_possible_truncation)]
     fn accept_with_stream_loss(
         &mut self,
         input: &[u8],
@@ -1181,7 +1197,7 @@ impl DirectionEngine {
                         .as_ref()
                         .map(|(_, id)| id.clone())
                         .expect("limit checked");
-                    if self.publish_termination(TerminationInfo {
+                    if self.publish_termination(&TerminationInfo {
                         request: TerminationRequest::Graceful,
                         direction: self.direction,
                         fault_id: Some(id.to_string()),
@@ -1207,6 +1223,14 @@ impl DirectionEngine {
     /// contract. A return of zero means either the bounded queue is full
     /// (retry after the release timer wakes the task) or a termination is
     /// already due.
+    // M059: per-segment admission composes slicer/latency/bandwidth/limit/blackhole paths; splitting would fork the determinism contract.
+    #[allow(clippy::too_many_lines)]
+    // M059: accepted caps are bounded by the live input length and queue capacity; jitter math clamps to [0, u64::MAX] under the 24h cap, so casts are exact.
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_possible_wrap,
+        clippy::cast_sign_loss
+    )]
     pub fn accept(&mut self, input: &[u8]) -> usize {
         if input.is_empty() {
             self.refresh_sync_terminations();
@@ -1222,7 +1246,7 @@ impl DirectionEngine {
             if self.termination.is_none() {
                 if let Some((_, id)) = &self.remaining_limit {
                     let id = id.clone();
-                    if self.publish_termination(TerminationInfo {
+                    if self.publish_termination(&TerminationInfo {
                         request: TerminationRequest::Graceful,
                         direction: self.direction,
                         fault_id: Some(id.to_string()),
@@ -1266,7 +1290,7 @@ impl DirectionEngine {
                 if limit_available == 0 {
                     if let Some((_, id)) = &self.remaining_limit {
                         let id = id.clone();
-                        if self.publish_termination(TerminationInfo {
+                        if self.publish_termination(&TerminationInfo {
                             request: TerminationRequest::Graceful,
                             direction: self.direction,
                             fault_id: Some(id.to_string()),
@@ -1311,16 +1335,16 @@ impl DirectionEngine {
                 }
                 match fault.kind {
                     FaultKind::Latency(c) => {
-                        let jitter_range = c.jitter.as_nanos().min(u64::MAX as u128) as u64;
+                        let jitter_range = c.jitter.as_nanos().min(u128::from(u64::MAX)) as u64;
                         let jitter = if jitter_range == 0 {
                             0
                         } else {
-                            rng.below(jitter_range.saturating_mul(2).saturating_add(1)) as i128
-                                - jitter_range as i128
+                            i128::from(rng.below(jitter_range.saturating_mul(2).saturating_add(1)))
+                                - i128::from(jitter_range)
                         };
                         let nanos = (c.delay.as_nanos() as i128 + jitter)
                             .max(0)
-                            .min(u64::MAX as i128) as u64;
+                            .min(i128::from(u64::MAX)) as u64;
                         // Delay stages are sequential, so each adds to the
                         // preceding stage's release deadline.
                         // Nanos precision preserves sub-ms delays; evidence
@@ -1407,7 +1431,7 @@ impl DirectionEngine {
                         .as_ref()
                         .map(|(_, id)| id.clone())
                         .expect("limit checked");
-                    if self.publish_termination(TerminationInfo {
+                    if self.publish_termination(&TerminationInfo {
                         request: TerminationRequest::Graceful,
                         direction: self.direction,
                         fault_id: Some(id.to_string()),

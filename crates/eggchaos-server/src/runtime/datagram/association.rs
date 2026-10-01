@@ -142,11 +142,11 @@ impl CapacityLease {
         let _capacity = state
             .capacity_mutation
             .lock()
-            .unwrap_or_else(|p| p.into_inner());
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let proxy_limit = state
             .spec
             .read()
-            .unwrap_or_else(|p| p.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .max_associations;
         state
             .proxy_active
@@ -457,7 +457,7 @@ pub(crate) async fn resolve_association(
         if let Some(association) = state
             .associations
             .read()
-            .unwrap_or_else(|p| p.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .get(&client)
             .and_then(AssociationSlot::active)
         {
@@ -467,7 +467,7 @@ pub(crate) async fn resolve_association(
             let mut associations = state
                 .associations
                 .write()
-                .unwrap_or_else(|p| p.into_inner());
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             match associations.get(&client) {
                 Some(AssociationSlot::Active(association)) => return Ok(association.clone()),
                 Some(AssociationSlot::Starting { reservation }) if reservation.is_terminal() => {
@@ -482,7 +482,11 @@ pub(crate) async fn resolve_association(
                     receiver: reservation.subscribe(),
                 },
                 None => {
-                    let spec = state.spec.read().unwrap_or_else(|p| p.into_inner()).clone();
+                    let spec = state
+                        .spec
+                        .read()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .clone();
                     let capacity = CapacityLease::try_acquire(state)
                         .ok_or(DatagramRuntimeError::AssociationLimit)?;
                     let reservation = StartingReservation::new(
@@ -500,7 +504,7 @@ pub(crate) async fn resolve_association(
             }
         };
         match step {
-            ResolveStep::Retry => continue,
+            ResolveStep::Retry => {}
             ResolveStep::Wait {
                 reservation_id,
                 version,
@@ -530,6 +534,9 @@ pub(crate) async fn resolve_association(
     }
 }
 
+// M059: single association-publication transaction; splitting would fork the
+// bind/connect/publish/rollback sequencing.
+#[allow(clippy::too_many_lines)]
 async fn publish_association(
     socket: Arc<UdpSocket>,
     state: &Arc<ProxyState>,
@@ -621,7 +628,7 @@ async fn publish_association(
         let mut associations = state
             .associations
             .write()
-            .unwrap_or_else(|p| p.into_inner());
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if same_reservation_slot(associations.get(&client), &reservation) {
             associations.insert(client, AssociationSlot::Active(association.clone()));
             reservation.transition(SetupOutcome::Published);
@@ -645,6 +652,9 @@ async fn publish_association(
     ))
 }
 
+// M059: `async` retained so setup/teardown call sites share one await
+// shape even though the body is currently lock-only.
+#[allow(clippy::unused_async)]
 async fn abandon_starting(
     state: &ProxyState,
     client: SocketAddr,
@@ -654,7 +664,7 @@ async fn abandon_starting(
     let mut associations = state
         .associations
         .write()
-        .unwrap_or_else(|p| p.into_inner());
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     if same_reservation_slot(associations.get(&client), reservation) {
         associations.remove(&client);
     }
@@ -670,7 +680,7 @@ pub(crate) async fn drain_associations(
         let mut associations = state
             .associations
             .write()
-            .unwrap_or_else(|p| p.into_inner());
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let slots = associations
             .drain()
             .map(|(_, slot)| slot)
@@ -691,6 +701,10 @@ pub(crate) async fn drain_associations(
         })
         .collect()
 }
+// M059: the association task owns the full ingress→upstream→egress
+// loop; splitting it would scatter the shutdown/drop ordering it exists
+// to keep together.
+#[allow(clippy::too_many_lines)]
 async fn association_loop(
     upstream_socket: UdpSocket,
     listener_socket: Arc<UdpSocket>,
@@ -744,7 +758,7 @@ async fn association_loop(
             .min();
         tokio::select! {
             biased;
-            _ = association.cancel.cancelled() => break,
+            () = association.cancel.cancelled() => break,
             item = ingress.recv() => match item {
                 Some(item) => {
                     association.pending_ingress.fetch_sub(1, Ordering::Relaxed);
@@ -758,33 +772,30 @@ async fn association_loop(
                         | eggchaos_core::DatagramAdmission::Consumed => {}
                     }
                     evidence_dirty = true;
-                    let mut r = record.lock().unwrap_or_else(|p| p.into_inner()); r.last_activity = Instant::now();
+                    let mut r = record.lock().unwrap_or_else(std::sync::PoisonError::into_inner); r.last_activity = Instant::now();
                 }
                 None => break,
             },
-            received = upstream_socket.recv(&mut recv) => match received {
-                Ok(size) => {
-                    if size as u64 > spec.queue_limits.max_datagram_bytes.get() {
-                        counters.oversize_datagrams.fetch_add(1, Ordering::Relaxed);
-                        evidence_dirty = true;
-                        let mut r = record.lock().unwrap_or_else(|p| p.into_inner()); r.oversize_datagrams = r.oversize_datagrams.saturating_add(1); r.last_activity = Instant::now();
-                    } else {
-                        match downstream.admit(Instant::now(), Bytes::copy_from_slice(&recv[..size]), &spec.downstream_policy.snapshot()) {
-                            eggchaos_core::DatagramAdmission::Immediate(ready) => {
-                                if send_downstream(&send_context, ready, &mut evidence_dirty).await {
-                                    break;
-                                }
+            received = upstream_socket.recv(&mut recv) => if let Ok(size) = received {
+                if size as u64 > spec.queue_limits.max_datagram_bytes.get() {
+                    counters.oversize_datagrams.fetch_add(1, Ordering::Relaxed);
+                    evidence_dirty = true;
+                    let mut r = record.lock().unwrap_or_else(std::sync::PoisonError::into_inner); r.oversize_datagrams = r.oversize_datagrams.saturating_add(1); r.last_activity = Instant::now();
+                } else {
+                    match downstream.admit(Instant::now(), Bytes::copy_from_slice(&recv[..size]), &spec.downstream_policy.snapshot()) {
+                        eggchaos_core::DatagramAdmission::Immediate(ready) => {
+                            if send_downstream(&send_context, ready, &mut evidence_dirty).await {
+                                break;
                             }
-                            eggchaos_core::DatagramAdmission::Queued
-                            | eggchaos_core::DatagramAdmission::Consumed => {}
                         }
-                        evidence_dirty = true;
-                        let mut r = record.lock().unwrap_or_else(|p| p.into_inner()); r.last_activity = Instant::now();
+                        eggchaos_core::DatagramAdmission::Queued
+                        | eggchaos_core::DatagramAdmission::Consumed => {}
                     }
+                    evidence_dirty = true;
+                    let mut r = record.lock().unwrap_or_else(std::sync::PoisonError::into_inner); r.last_activity = Instant::now();
                 }
-                Err(_) => { evidence_dirty = true; let mut r = record.lock().unwrap_or_else(|p| p.into_inner()); r.send_errors = r.send_errors.saturating_add(1); }
-            },
-            _ = wait_deadline(next) => {},
+            } else { evidence_dirty = true; let mut r = record.lock().unwrap_or_else(std::sync::PoisonError::into_inner); r.send_errors = r.send_errors.saturating_add(1); },
+            () = wait_deadline(next) => {},
         }
         // Evidence snapshots move to this single observation point and only
         // when admission, emission, or error state actually changed, instead
@@ -797,7 +808,9 @@ async fn association_loop(
         .discard_all()
         .saturating_add(downstream.discard_all()) as u64
         + ingress.len() as u64;
-    let mut r = record.lock().unwrap_or_else(|p| p.into_inner());
+    let mut r = record
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     if association.administrative_cancel.load(Ordering::Relaxed) > 0 {
         r.administrative_discards = r.administrative_discards.saturating_add(discarded);
     }
@@ -849,7 +862,10 @@ async fn send_upstream(
     let mut send_errors = 0u64;
     for (index, DatagramScheduled { payload, .. }) in ready.iter().enumerate() {
         if context.cancel.is_cancelled() {
-            let mut r = context.record.lock().unwrap_or_else(|p| p.into_inner());
+            let mut r = context
+                .record
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             r.egress_datagrams = r.egress_datagrams.saturating_add(egress_datagrams);
             r.egress_bytes = r.egress_bytes.saturating_add(egress_bytes);
             r.send_errors = r.send_errors.saturating_add(send_errors);
@@ -870,7 +886,10 @@ async fn send_upstream(
         }
     }
     if egress_datagrams > 0 || send_errors > 0 {
-        let mut r = context.record.lock().unwrap_or_else(|p| p.into_inner());
+        let mut r = context
+            .record
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         r.egress_datagrams = r.egress_datagrams.saturating_add(egress_datagrams);
         r.egress_bytes = r.egress_bytes.saturating_add(egress_bytes);
         r.send_errors = r.send_errors.saturating_add(send_errors);
@@ -891,7 +910,10 @@ async fn send_downstream(
     let mut send_errors = 0u64;
     for (index, DatagramScheduled { payload, .. }) in ready.iter().enumerate() {
         if context.cancel.is_cancelled() {
-            let mut r = context.record.lock().unwrap_or_else(|p| p.into_inner());
+            let mut r = context
+                .record
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             r.egress_datagrams = r.egress_datagrams.saturating_add(egress_datagrams);
             r.egress_bytes = r.egress_bytes.saturating_add(egress_bytes);
             r.send_errors = r.send_errors.saturating_add(send_errors);
@@ -916,7 +938,10 @@ async fn send_downstream(
         }
     }
     if egress_datagrams > 0 || send_errors > 0 {
-        let mut r = context.record.lock().unwrap_or_else(|p| p.into_inner());
+        let mut r = context
+            .record
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         r.egress_datagrams = r.egress_datagrams.saturating_add(egress_datagrams);
         r.egress_bytes = r.egress_bytes.saturating_add(egress_bytes);
         r.send_errors = r.send_errors.saturating_add(send_errors);
@@ -930,7 +955,9 @@ fn update_evidence(
     upstream: &DatagramDirectionEngine,
     downstream: &DatagramDirectionEngine,
 ) {
-    let mut r = record.lock().unwrap_or_else(|p| p.into_inner());
+    let mut r = record
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     r.upstream_evidence = upstream.evidence().clone();
     r.downstream_evidence = downstream.evidence().clone();
 }
@@ -953,9 +980,12 @@ pub(crate) async fn stop_association(
     let snapshot = association
         .record
         .lock()
-        .unwrap_or_else(|p| p.into_inner())
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
         .snapshot(Instant::now());
-    let mut history = state.history.lock().unwrap_or_else(|p| p.into_inner());
+    let mut history = state
+        .history
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     if state.limits.history > 0 {
         while history.len() >= state.limits.history {
             history.pop_front();

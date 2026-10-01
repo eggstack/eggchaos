@@ -31,13 +31,12 @@ async fn echo_server() -> (SocketAddr, JoinHandle<()>) {
                 let mut buffer = [0; 4096];
                 loop {
                     match stream.read(&mut buffer).await {
-                        Ok(0) => break,
+                        Ok(0) | Err(_) => break,
                         Ok(n) => {
                             if stream.write_all(&buffer[..n]).await.is_err() {
                                 break;
                             }
                         }
-                        Err(_) => break,
                     }
                 }
             });
@@ -457,6 +456,8 @@ async fn concurrent_mutations_serialize_into_unique_generations() {
 }
 
 #[tokio::test]
+// M059: 1.0 is the exact configured fault probability round-trip.
+#[allow(clippy::float_cmp)]
 async fn fault_crud_syncs_canonical_and_live_state() {
     let (origin_addr, origin_task) = echo_server().await;
     let control = test_control();
@@ -1199,7 +1200,7 @@ async fn concurrent_fault_publications_serialize_monotonically() {
     for handle in handles {
         generations.push(handle.await.unwrap().unwrap());
     }
-    generations.sort();
+    generations.sort_unstable();
     // Ten serialized publications yield ten unique monotonic global
     // generations.
     let mut deduped = generations.clone();
@@ -1853,6 +1854,9 @@ async fn stream_loss_prometheus_metrics_count_final_evidence_once() {
 }
 
 #[tokio::test]
+// M059: exposition uniqueness regression; splitting would fork the
+// sample/overflow assertion sequence.
+#[allow(clippy::too_many_lines)]
 async fn stream_loss_prometheus_exposition_is_unique_and_well_formed() {
     // M041 regression: the per-proxy/direction stream-loss sample
     // renderer must emit exactly one valid exposition line per
@@ -1914,14 +1918,13 @@ async fn stream_loss_prometheus_exposition_is_unique_and_well_formed() {
         if !line.starts_with("eggchaos_stream_loss_") {
             continue;
         }
-        let (metric, rest) = match line.split_once('{') {
-            Some(pair) => pair,
-            None => panic!("exposition sample missing labels: {line:?}"),
-        };
-        let labelset = rest
-            .split_once('}')
-            .map(|(labels, _)| labels.to_owned())
-            .unwrap_or_else(|| panic!("exposition sample missing label close: {line:?}"));
+        let (metric, rest) = line
+            .split_once('{')
+            .unwrap_or_else(|| panic!("exposition sample missing labels: {line:?}"));
+        let labelset = rest.split_once('}').map_or_else(
+            || panic!("exposition sample missing label close: {line:?}"),
+            |(labels, _)| labels.to_owned(),
+        );
         let value = line
             .rsplit(' ')
             .next()
@@ -1981,9 +1984,8 @@ async fn stream_loss_prometheus_exposition_is_unique_and_well_formed() {
             if line.starts_with('#') || line.trim().is_empty() {
                 continue;
             }
-            let (metric, rest) = match line.split_once('{') {
-                Some(pair) => pair,
-                None => continue,
+            let Some((metric, rest)) = line.split_once('{') else {
+                continue;
             };
             let labelset = match rest.split_once('}') {
                 Some(pair) => pair.0,

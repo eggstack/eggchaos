@@ -219,6 +219,9 @@ async fn validate_action(
 /// stale snapshot) and publishes with an expected-generation guard, so a
 /// concurrent manual publication fails the run instead of being silently
 /// overwritten.
+// M059: single event-dispatch loop; splitting would fork the per-event
+// generation-guard control flow.
+#[allow(clippy::too_many_lines)]
 pub async fn drive_scenario_run(
     state: ControlState,
     run_id: u64,

@@ -24,6 +24,8 @@ use eggchaos_core::{
 use proptest::prelude::*;
 use tokio::io::{AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
+// M059: the 32 KiB grain constant fits every supported `usize`, so truncation is exact.
+#[allow(clippy::cast_possible_truncation)]
 const GRAIN: usize = STREAM_LOSS_GRAIN_BYTES as usize;
 const SEED: u64 = 7;
 
@@ -59,6 +61,8 @@ fn engine(plan: FaultPlan) -> DirectionEngine {
 
 /// Input where chunk `i` is filled with byte `i`: forwarded content then
 /// records exactly which logical chunks survived.
+// M059: chunk indices are asserted below 256, so the marker-byte cast is exact.
+#[allow(clippy::cast_possible_truncation)]
 fn chunked_input(chunks: usize) -> Vec<u8> {
     assert!(chunks <= 256, "chunk marker bytes must stay unique");
     let mut out = Vec::with_capacity(chunks * GRAIN);
@@ -276,7 +280,7 @@ async fn identical_stream_under_any_fragmentation_decides_identically() {
     }
     let fragmented = run_traffic(plan(), SEED, &kilobytes).await;
     let mut bytes = Vec::new();
-    for byte in input.iter() {
+    for byte in &input {
         bytes.push(vec![*byte]);
     }
     let byte_at_a_time = run_traffic(plan(), SEED, &bytes).await;
@@ -358,6 +362,8 @@ proptest! {
 // ---------------------------------------------------------------------------
 
 /// Probe which of the first two chunks survive for a seed/config pair.
+// M059: chunk indices are 0..2, so the marker-byte cast is exact.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 async fn probe_two_chunks(seed: u64, rate: f64, correlation: f64) -> Vec<bool> {
     let outcome = run_traffic(
         FaultPlan::new(vec![loss("loss", rate, correlation)]).unwrap(),
@@ -521,7 +527,7 @@ async fn two_loss_faults_compose_by_union_without_double_counting() {
     };
     let (set_a, set_b, set_both) = (set(&a), set(&b), set(&both));
     // A byte range survives only when no active loss fault drops it.
-    assert_eq!(set_both, set_a.intersection(&set_b).cloned().collect());
+    assert_eq!(set_both, set_a.intersection(&set_b).copied().collect());
     // Aggregate evidence never double-counts shared discards.
     assert_eq!(
         both.summary.bytes_discarded,
@@ -701,6 +707,8 @@ async fn loss_plus_limit_counts_discards_toward_exact_termination() {
 }
 
 #[tokio::test]
+// M059: the limit is one grain plus 100 bytes, far below `usize::MAX` on every target.
+#[allow(clippy::cast_possible_truncation)]
 async fn loss_inside_limit_boundary_preserves_exact_prefix() {
     // Find a seed whose first chunk drops and second preserves, then set the
     // limit inside the preserved chunk: discards count, survivors forward.
@@ -849,6 +857,8 @@ async fn loss_plus_slow_close_delays_shutdown_only() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
+// M059: at most a handful of chunks are dropped, so the count cast is exact.
+#[allow(clippy::cast_possible_truncation)]
 async fn flush_after_mixed_traffic_delivers_every_survivor() {
     let outcome = run_traffic(
         FaultPlan::new(vec![loss("loss", 0.3, 0.2)]).unwrap(),
@@ -1011,7 +1021,7 @@ fn stream_loss_chunk_seed_helper_is_stable() {
     );
     println!("M036 chunk-seed golden: {first}");
     // Pinned golden: any change here is a replay break, not a refresh.
-    assert_eq!(first, 12272131545510661749);
+    assert_eq!(first, 12_272_131_545_510_661_749);
     assert_eq!(
         first,
         eggchaos_core::derive_stream_loss_seed(
@@ -1056,6 +1066,8 @@ fn stream_loss_chunk_seed_helper_is_stable() {
 }
 
 #[tokio::test]
+// M059: three chunks are evaluated, so the dropped-count cast is exact.
+#[allow(clippy::cast_possible_truncation)]
 async fn golden_mixed_loss_trace_is_pinned() {
     // Canonical mixed trace: 3 chunks at rate 0.3 / correlation 0.2 under
     // the frozen (seed 7, "proxy", key 41, upstream, fault "loss") identity.
@@ -1070,7 +1082,7 @@ async fn golden_mixed_loss_trace_is_pinned() {
     .await;
     let counts = surviving_counts(&outcome.forwarded);
     let survived: Vec<u8> = {
-        let mut markers: Vec<u8> = counts.keys().cloned().collect();
+        let mut markers: Vec<u8> = counts.keys().copied().collect();
         markers.sort_unstable();
         markers
     };

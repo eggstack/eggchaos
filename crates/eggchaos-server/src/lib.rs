@@ -8,7 +8,9 @@ mod native;
 mod native_v2;
 mod operations;
 mod runtime;
+/// Scenario V1 run driver and validation authority.
 pub mod scenario;
+/// Scenario V2 schedule compiler and run driver.
 pub mod scenario_v2;
 
 pub use admin::{AdminConfig, AdminError, AdminHandle, NativeAdmin};

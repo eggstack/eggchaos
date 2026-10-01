@@ -1,4 +1,9 @@
-use super::*;
+use super::{
+    purge_proxy_connections, run_connection, Arc, CancellationToken, ConnectionOutcome,
+    ConnectionSnapshot, ConnectionState, DirectionBytes, DoneGuard, JoinSet, ManagedProxy,
+    Ordering, ProxyConnParams, RngVersion, RuntimeInner, SocketAddr, SupervisorDone, TcpListener,
+    TcpStream,
+};
 
 pub(super) async fn proxy_supervisor(
     listener: TcpListener,
@@ -73,7 +78,7 @@ async fn accept_connection(
             .metrics
             .tables
             .lock()
-            .unwrap_or_else(|p| p.into_inner());
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         tables.record_accept(&entry.spec.name);
     }
     let id = runtime.next_conn_id.fetch_add(1, Ordering::AcqRel);

@@ -28,8 +28,11 @@ pub const COMPILER_SEMANTICS_VERSION: u32 = 1;
 /// that the runtime can switch on without parsing human labels.
 #[derive(Debug, Clone, Copy, PartialEq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum CompiledPhaseIdentity {
-    /// Top-level phase index.
-    Top { index: u32 },
+    /// Top-level phase identity with its zero-based phase index.
+    Top {
+        /// Zero-based index of the top-level phase.
+        index: u32,
+    },
     /// Iteration of the repeat block, then phase index inside the block.
     Repeat {
         /// 1-based repeat iteration.
@@ -96,6 +99,10 @@ fn phase_target_offset(running: &mut u64, duration_ns: u64) -> Result<(), Schedu
 /// The compiler is pure for a fixed `(source, compiler_version)` pair.
 /// Failures are structural — the result is either a complete compile or
 /// no compile; partial-event emission followed by truncation is forbidden.
+// M059: phase/top indices are bounded by `MAX_PHASES`/`MAX_PHASE_ACTIONS`
+// structural checks, so `as u32` truncation is unreachable; keep exact
+// integer semantics instead of fallible conversions in this hot path.
+#[allow(clippy::cast_possible_truncation)]
 pub fn compile_schedule(source: &ScenarioScheduleV2) -> Result<CompiledScenarioV2, ScheduleError> {
     source.check_structure()?;
 

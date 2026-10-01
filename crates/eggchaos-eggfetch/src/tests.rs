@@ -338,9 +338,8 @@ async fn inner_error_kinds_pass_through_with_observer_silence() {
             "p",
         )
         .with_observer(sink);
-        let error = match dialer.dial(target("127.0.0.1", 1)).await {
-            Ok(_) => panic!("inner failure must fail the dial"),
-            Err(error) => error,
+        let Err(error) = dialer.dial(target("127.0.0.1", 1)).await else {
+            panic!("inner failure must fail the dial")
         };
         assert_eq!(error.kind(), kind);
         assert_eq!(error.message(), "boom");
@@ -626,9 +625,8 @@ async fn provider_failure_fails_dial_with_bounded_error() {
     let dialer = ChaosDialer::wrap(DuplexDialer::default(), 1, "p")
         .with_key_provider(Arc::new(FailProvider))
         .with_observer(sink);
-    let error = match dialer.dial(target("h", 9)).await {
-        Ok(_) => panic!("provider failure must fail the dial"),
-        Err(error) => error,
+    let Err(error) = dialer.dial(target("h", 9)).await else {
+        panic!("provider failure must fail the dial")
     };
     assert_eq!(error.kind(), DialErrorKind::Other);
     assert!(error.message().contains("provider exploded"));

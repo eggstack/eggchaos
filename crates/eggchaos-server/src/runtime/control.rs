@@ -1,4 +1,11 @@
-use super::*;
+use super::{
+    conflict_message, merge_evidence, proxy_supervisor, Arc, AtomicU64, AtomicUsize,
+    CancellationToken, ClosedConnection, ConnectionSnapshot, ControlError, ControlState,
+    DatagramRuntimeError, Direction, Duration, EggchaosError, ExpectedPublish, FaultPatch,
+    FaultPlan, FaultSpec, FaultUpsert, HashMap, JoinHandle, ManagedProxy, Ordering, ProxyPatch,
+    ProxySpec, ProxyView, ResetReport, RuntimeInner, RuntimeParams, SocketAddr, SupervisorDone,
+    TcpListener, OUTCOME_CLASS_NAMES,
+};
 
 pub(super) fn map_datagram_error(error: DatagramRuntimeError) -> ControlError {
     match error {
@@ -64,7 +71,11 @@ impl ControlState {
     /// construction: proxy names come from a capped table, directions and
     /// fault types are fixed vocabularies, and no connection ID, peer
     /// address, scenario run, or arbitrary fault ID ever becomes a label.
+    // M059: single exposition renderer covering stream + datagram series;
+    // splitting would fork the label-cardinality contract.
+    #[allow(clippy::too_many_lines)]
     pub async fn metrics_text(&self) -> String {
+        use std::fmt::Write as _;
         let mut text = format!(
             "# HELP eggchaos_config_generation Current configuration generation\n# TYPE eggchaos_config_generation gauge\neggchaos_config_generation {}\n# HELP eggchaos_connections_accepted_total Accepted connections\n# TYPE eggchaos_connections_accepted_total counter\neggchaos_connections_accepted_total {}\n# HELP eggchaos_connections_completed_total Completed connections\n# TYPE eggchaos_connections_completed_total counter\neggchaos_connections_completed_total {}\n# HELP eggchaos_connections_rejected_total Rejected connections\n# TYPE eggchaos_connections_rejected_total counter\neggchaos_connections_rejected_total {}\n# HELP eggchaos_connections_active Active connections\n# TYPE eggchaos_connections_active gauge\neggchaos_connections_active {}\n",
             self.generation(),
@@ -74,13 +85,15 @@ impl ControlState {
             self.runtime.active.load(Ordering::Relaxed),
         );
         for (index, name) in OUTCOME_CLASS_NAMES.iter().enumerate() {
-            text.push_str(&format!(
-                "eggchaos_connection_outcomes_total{{outcome=\"{name}\"}} {}\n",
+            let _ = writeln!(
+                text,
+                "eggchaos_connection_outcomes_total{{outcome=\"{name}\"}} {}",
                 self.runtime.metrics.outcomes[index].load(Ordering::Relaxed),
-            ));
+            );
         }
-        text.push_str(&format!(
-            "# HELP eggchaos_termination_requests_total Injected termination requests observed at close\n# TYPE eggchaos_termination_requests_total counter\neggchaos_termination_requests_total{{request=\"graceful\"}} {}\neggchaos_termination_requests_total{{request=\"hard_reset\"}} {}\n# HELP eggchaos_reset_results_total Abortive-close outcomes at the TCP edge\n# TYPE eggchaos_reset_results_total counter\neggchaos_reset_results_total{{result=\"applied\"}} {}\neggchaos_reset_results_total{{result=\"unsupported\"}} {}\neggchaos_reset_results_total{{result=\"failed\"}} {}\n# HELP eggchaos_bytes_total Bytes by flow across closed connections\n# TYPE eggchaos_bytes_total counter\neggchaos_bytes_total{{flow=\"accepted\"}} {}\neggchaos_bytes_total{{flow=\"forwarded\"}} {}\neggchaos_bytes_total{{flow=\"discarded\"}} {}\n# HELP eggchaos_policy_transitions_total Completed live-policy transitions\n# TYPE eggchaos_policy_transitions_total counter\neggchaos_policy_transitions_total {}\n# HELP eggchaos_schedule_v2_runs_total V2 schedule runs started\n# TYPE eggchaos_schedule_v2_runs_total counter\neggchaos_schedule_v2_runs_total {}\n# HELP eggchaos_schedule_v2_events_total V2 schedule events applied\n# TYPE eggchaos_schedule_v2_events_total counter\neggchaos_schedule_v2_events_total {}\n# HELP eggchaos_schedule_v2_late_events_total V2 schedule events applied after their deadline\n# TYPE eggchaos_schedule_v2_late_events_total counter\neggchaos_schedule_v2_late_events_total {}\n",
+        let _ = writeln!(
+            text,
+            "# HELP eggchaos_termination_requests_total Injected termination requests observed at close\n# TYPE eggchaos_termination_requests_total counter\neggchaos_termination_requests_total{{request=\"graceful\"}} {}\neggchaos_termination_requests_total{{request=\"hard_reset\"}} {}\n# HELP eggchaos_reset_results_total Abortive-close outcomes at the TCP edge\n# TYPE eggchaos_reset_results_total counter\neggchaos_reset_results_total{{result=\"applied\"}} {}\neggchaos_reset_results_total{{result=\"unsupported\"}} {}\neggchaos_reset_results_total{{result=\"failed\"}} {}\n# HELP eggchaos_bytes_total Bytes by flow across closed connections\n# TYPE eggchaos_bytes_total counter\neggchaos_bytes_total{{flow=\"accepted\"}} {}\neggchaos_bytes_total{{flow=\"forwarded\"}} {}\neggchaos_bytes_total{{flow=\"discarded\"}} {}\n# HELP eggchaos_policy_transitions_total Completed live-policy transitions\n# TYPE eggchaos_policy_transitions_total counter\neggchaos_policy_transitions_total {}\n# HELP eggchaos_schedule_v2_runs_total V2 schedule runs started\n# TYPE eggchaos_schedule_v2_runs_total counter\neggchaos_schedule_v2_runs_total {}\n# HELP eggchaos_schedule_v2_events_total V2 schedule events applied\n# TYPE eggchaos_schedule_v2_events_total counter\neggchaos_schedule_v2_events_total {}\n# HELP eggchaos_schedule_v2_late_events_total V2 schedule events applied after their deadline\n# TYPE eggchaos_schedule_v2_late_events_total counter\neggchaos_schedule_v2_late_events_total {}",
             self.runtime.metrics.graceful_requests.load(Ordering::Relaxed),
             self.runtime.metrics.hard_reset_requests.load(Ordering::Relaxed),
             self.runtime.metrics.reset_applied.load(Ordering::Relaxed),
@@ -96,7 +109,7 @@ impl ControlState {
                 .metrics
                 .schedule_v2_late_events
                 .load(Ordering::Relaxed),
-        ));
+            );
         text.push_str("# HELP eggchaos_stream_loss_chunks_evaluated_total Logical stream-loss chunks evaluated\n# TYPE eggchaos_stream_loss_chunks_evaluated_total counter\n# HELP eggchaos_stream_loss_chunks_dropped_total Logical stream-loss chunks dropped\n# TYPE eggchaos_stream_loss_chunks_dropped_total counter\n# HELP eggchaos_stream_loss_bytes_discarded_total Bytes discarded by stream-loss faults\n# TYPE eggchaos_stream_loss_bytes_discarded_total counter\n");
         let write_stream_loss_samples = |text: &mut String, proxy: &str, samples: [[u64; 3]; 2]| {
             for (direction, index) in [("upstream", 0), ("downstream", 1)] {
@@ -114,9 +127,10 @@ impl ControlState {
                         samples[index][2],
                     ),
                 ] {
-                    text.push_str(&format!(
-                        "{metric}{{proxy=\"{proxy}\",direction=\"{direction}\"}} {value}\n"
-                    ));
+                    let _ = writeln!(
+                        text,
+                        "{metric}{{proxy=\"{proxy}\",direction=\"{direction}\"}} {value}",
+                    );
                 }
             }
         };
@@ -126,31 +140,34 @@ impl ControlState {
                 .metrics
                 .tables
                 .lock()
-                .unwrap_or_else(|p| p.into_inner());
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             let mut proxies: Vec<_> = tables.proxies.iter().collect();
             proxies.sort_by_key(|(name, _)| *name);
             for (name, entry) in proxies {
-                text.push_str(&format!(
-                    "eggchaos_proxy_connections_accepted_total{{proxy=\"{name}\"}} {}\neggchaos_proxy_connections_completed_total{{proxy=\"{name}\"}} {}\n",
+                let _ = writeln!(
+                    text,
+                    "eggchaos_proxy_connections_accepted_total{{proxy=\"{name}\"}} {}\neggchaos_proxy_connections_completed_total{{proxy=\"{name}\"}} {}",
                     entry.accepted, entry.completed,
-                ));
+                );
                 for (direction, index) in [("upstream", 0), ("downstream", 1)] {
                     for (flow, value) in ["accepted", "forwarded", "discarded"]
                         .iter()
                         .zip(entry.bytes[index])
                     {
-                        text.push_str(&format!(
-                            "eggchaos_proxy_bytes_total{{proxy=\"{name}\",direction=\"{direction}\",flow=\"{flow}\"}} {value}\n",
-                        ));
+                        let _ = writeln!(
+                            text,
+                            "eggchaos_proxy_bytes_total{{proxy=\"{name}\",direction=\"{direction}\",flow=\"{flow}\"}} {value}",
+                        );
                     }
                 }
                 write_stream_loss_samples(&mut text, name, entry.stream_loss);
             }
             if tables.overflow_proxy.accepted + tables.overflow_proxy.completed > 0 {
-                text.push_str(&format!(
-                    "eggchaos_proxy_connections_accepted_total{{proxy=\"_overflow\"}} {}\neggchaos_proxy_connections_completed_total{{proxy=\"_overflow\"}} {}\n",
+                let _ = writeln!(
+                    text,
+                    "eggchaos_proxy_connections_accepted_total{{proxy=\"_overflow\"}} {}\neggchaos_proxy_connections_completed_total{{proxy=\"_overflow\"}} {}",
                     tables.overflow_proxy.accepted, tables.overflow_proxy.completed,
-                ));
+                );
                 write_stream_loss_samples(
                     &mut text,
                     "_overflow",
@@ -160,15 +177,17 @@ impl ControlState {
             let mut activations: Vec<_> = tables.activations.iter().collect();
             activations.sort();
             for ((proxy, direction, fault_type), count) in activations {
-                text.push_str(&format!(
-                    "eggchaos_fault_activations_total{{proxy=\"{proxy}\",direction=\"{direction}\",fault_type=\"{fault_type}\"}} {count}\n",
-                ));
+                let _ = writeln!(
+                    text,
+                    "eggchaos_fault_activations_total{{proxy=\"{proxy}\",direction=\"{direction}\",fault_type=\"{fault_type}\"}} {count}",
+                );
             }
             if tables.overflow_activations > 0 {
-                text.push_str(&format!(
-                    "eggchaos_fault_activations_total{{proxy=\"_overflow\",direction=\"_overflow\",fault_type=\"_overflow\"}} {}\n",
+                let _ = writeln!(
+                    text,
+                    "eggchaos_fault_activations_total{{proxy=\"_overflow\",direction=\"_overflow\",fault_type=\"_overflow\"}} {}",
                     tables.overflow_activations,
-                ));
+                );
             }
         }
         // Live gauges read directly from policies: per-proxy active
@@ -201,14 +220,15 @@ impl ControlState {
             let entry = &map[name];
             let upstream = entry.spec.upstream_policy.snapshot();
             let downstream = entry.spec.downstream_policy.snapshot();
-            text.push_str(&format!(
-                "eggchaos_proxy_connections_active{{proxy=\"{name}\"}} {}\neggchaos_proxy_policy_generation{{proxy=\"{name}\",direction=\"upstream\"}} {}\neggchaos_proxy_policy_generation{{proxy=\"{name}\",direction=\"downstream\"}} {}\neggchaos_proxy_queue_bytes{{proxy=\"{name}\",direction=\"upstream\"}} {}\neggchaos_proxy_queue_bytes{{proxy=\"{name}\",direction=\"downstream\"}} {}\n",
+            let _ = writeln!(
+                text,
+                "eggchaos_proxy_connections_active{{proxy=\"{name}\"}} {}\neggchaos_proxy_policy_generation{{proxy=\"{name}\",direction=\"upstream\"}} {}\neggchaos_proxy_policy_generation{{proxy=\"{name}\",direction=\"downstream\"}} {}\neggchaos_proxy_queue_bytes{{proxy=\"{name}\",direction=\"upstream\"}} {}\neggchaos_proxy_queue_bytes{{proxy=\"{name}\",direction=\"downstream\"}} {}",
                 entry.active.load(Ordering::Relaxed),
                 upstream.generation,
                 downstream.generation,
                 queued.get(&(name.as_str(), "upstream")).copied().unwrap_or(0),
                 queued.get(&(name.as_str(), "downstream")).copied().unwrap_or(0),
-            ));
+            );
         }
         drop(connections);
         drop(evidence);
@@ -221,10 +241,11 @@ impl ControlState {
         text.push_str("# HELP eggchaos_datagram_proxy_drops Proxy-level UDP admission/drop observations\n# TYPE eggchaos_datagram_proxy_drops gauge\n");
         text.push_str("# HELP eggchaos_datagram_administrative_discards Queued datagrams discarded by operator lifecycle actions\n# TYPE eggchaos_datagram_administrative_discards gauge\n");
         for proxy in &datagram_proxies {
-            text.push_str(&format!(
-                "eggchaos_datagram_associations_active{{proxy=\"{}\"}} {}\n",
+            let _ = writeln!(
+                text,
+                "eggchaos_datagram_associations_active{{proxy=\"{}\"}} {}",
                 proxy.name, proxy.active_associations
-            ));
+            );
             for (kind, value) in [
                 ("oversize", proxy.oversize_datagrams),
                 ("capacity_rejection", proxy.association_capacity_rejections),
@@ -234,10 +255,11 @@ impl ControlState {
                     proxy.association_setup_failures,
                 ),
             ] {
-                text.push_str(&format!(
-                    "eggchaos_datagram_proxy_drops{{proxy=\"{}\",kind=\"{kind}\"}} {value}\n",
+                let _ = writeln!(
+                    text,
+                    "eggchaos_datagram_proxy_drops{{proxy=\"{}\",kind=\"{kind}\"}} {value}",
                     proxy.name
-                ));
+                );
             }
             let administrative_discards = datagram_evidence
                 .iter()
@@ -245,7 +267,7 @@ impl ControlState {
                 .fold(0u64, |total, association| {
                     total.saturating_add(association.administrative_discards)
                 });
-            text.push_str(&format!("eggchaos_datagram_administrative_discards{{proxy=\"{}\"}} {administrative_discards}\n", proxy.name));
+            let _ = writeln!(text, "eggchaos_datagram_administrative_discards{{proxy=\"{}\"}} {administrative_discards}", proxy.name);
             for direction in ["upstream", "downstream"] {
                 let mut totals = [0u64; 12];
                 let mut activations = [0u64; 6];
@@ -291,13 +313,13 @@ impl ControlState {
                 .into_iter()
                 .zip(totals)
                 {
-                    text.push_str(&format!("eggchaos_datagram_evidence{{proxy=\"{}\",direction=\"{direction}\",kind=\"{kind}\"}} {value}\n", proxy.name));
+                    let _ = writeln!(text, "eggchaos_datagram_evidence{{proxy=\"{}\",direction=\"{direction}\",kind=\"{kind}\"}} {value}", proxy.name);
                 }
                 for (fault_type, value) in eggchaos_core::DATAGRAM_FAULT_TYPE_NAMES
                     .into_iter()
                     .zip(activations)
                 {
-                    text.push_str(&format!("eggchaos_datagram_fault_activations{{proxy=\"{}\",direction=\"{direction}\",fault_type=\"{fault_type}\"}} {value}\n", proxy.name));
+                    let _ = writeln!(text, "eggchaos_datagram_fault_activations{{proxy=\"{}\",direction=\"{direction}\",fault_type=\"{fault_type}\"}} {value}", proxy.name);
                 }
             }
         }
@@ -420,21 +442,18 @@ impl ControlState {
             .collect();
         let mut first_error: Option<ControlError> = None;
         for name in names {
-            let spec = match self
+            let Some(spec) = self
                 .runtime
                 .proxies
                 .read()
                 .await
                 .get(&name)
                 .map(|entry| entry.spec.clone())
-            {
-                Some(spec) => spec,
-                None => {
-                    if first_error.is_none() {
-                        first_error = Some(ControlError::NotFound(name.clone()));
-                    }
-                    continue;
+            else {
+                if first_error.is_none() {
+                    first_error = Some(ControlError::NotFound(name.clone()));
                 }
+                continue;
             };
             if let Err(error) = self.start_stored(&name, &spec).await {
                 if first_error.is_none() {
@@ -697,6 +716,9 @@ impl ControlState {
     /// replacement binds before the old listener stops, so a bind failure
     /// keeps the old listener serving and reports `RestartFailed` without
     /// changing the spec.
+    // M059: single restart-class update transaction; splitting would fork
+    // the bind-before-stop control flow.
+    #[allow(clippy::too_many_lines)]
     pub async fn update_proxy(
         &self,
         name: &str,
@@ -1327,6 +1349,9 @@ impl ControlState {
     /// enable every proxy, replace all fault plans with empty plans, and
     /// terminate active connections. Exactly one generation covers the
     /// transaction; proxies whose bind fails stay disabled and are reported.
+    // M059: single-generation reset transaction; splitting would fork the
+    // enable/publish/restart sequencing.
+    #[allow(clippy::too_many_lines)]
     pub async fn reset(&self) -> Result<ResetReport, ControlError> {
         let mut failed_enables = Vec::new();
         let mut failed_datagram_enables = Vec::new();
@@ -1537,7 +1562,7 @@ impl ControlState {
 
     /// Start an owned v2 schedule run. The source compiles entirely
     /// upfront; a compile failure creates no run and no side effects.
-    /// The compiled tape plays through the shared scenario JoinSet with
+    /// The compiled tape plays through the shared scenario `JoinSet` with
     /// a child of the service shutdown token, so no v2 task outlives
     /// the service untracked and no second supervisor registry exists.
     pub async fn start_schedule_v2(

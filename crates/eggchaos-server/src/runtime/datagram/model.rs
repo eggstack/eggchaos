@@ -46,6 +46,7 @@ impl Default for DatagramRuntimeLimits {
 }
 
 impl DatagramRuntimeLimits {
+    /// Validate global datagram bounds against the compiled hard ceilings.
     pub fn validate(self) -> Result<Self, DatagramRuntimeError> {
         if self.max_proxies == 0 || self.max_proxies > MAX_DATAGRAM_PROXIES {
             return Err(DatagramRuntimeError::Invalid(
@@ -189,6 +190,8 @@ impl DatagramProxySpec {
 
 /// Current runtime status for one datagram proxy.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+// M059: runtime-internal snapshot; field invariants documented on the struct.
+#[allow(missing_docs)]
 pub struct DatagramProxyView {
     pub name: String,
     pub listen: SocketAddr,
@@ -212,6 +215,8 @@ pub struct DatagramProxyView {
 
 /// Retained or live association evidence. No payload is stored.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+// M059: runtime-internal snapshot; field invariants documented on the struct.
+#[allow(missing_docs)]
 pub struct DatagramAssociationSnapshot {
     pub id: u64,
     pub proxy: String,
@@ -234,16 +239,22 @@ pub struct DatagramAssociationSnapshot {
 /// Datagram runtime lifecycle and validation failures.
 #[derive(Debug, Error)]
 pub enum DatagramRuntimeError {
+    /// Proxy definition failed validation.
     #[error("invalid datagram proxy: {0}")]
     Invalid(String),
+    /// A proxy with the same name already exists.
     #[error("datagram proxy already exists: {0}")]
     Duplicate(String),
+    /// No proxy exists under the requested name.
     #[error("datagram proxy not found: {0}")]
     NotFound(String),
+    /// The UDP listener socket failed to bind.
     #[error("datagram proxy listener bind failed: {0}")]
     Bind(#[source] io::Error),
+    /// The global association ceiling is exhausted.
     #[error("datagram runtime has reached its association limit")]
     AssociationLimit,
+    /// A concurrent mutation changed the proxy under the caller.
     #[error("datagram policy conflict: {0}")]
     Conflict(String),
 }
@@ -273,6 +284,9 @@ pub(crate) struct AssociationRecord {
     pub(crate) downstream_evidence: DatagramEvidence,
 }
 impl AssociationRecord {
+    // M059: millisecond snapshots saturate at `u64::MAX`; truncation is the
+    // documented saturation bound, not data loss.
+    #[allow(clippy::cast_possible_truncation)]
     pub(crate) fn snapshot(&self, now: Instant) -> DatagramAssociationSnapshot {
         DatagramAssociationSnapshot {
             id: self.id,
@@ -282,11 +296,11 @@ impl AssociationRecord {
             age_ms: now
                 .saturating_duration_since(self.created)
                 .as_millis()
-                .min(u64::MAX as u128) as u64,
+                .min(u128::from(u64::MAX)) as u64,
             idle_ms: now
                 .saturating_duration_since(self.last_activity)
                 .as_millis()
-                .min(u64::MAX as u128) as u64,
+                .min(u128::from(u64::MAX)) as u64,
             ingress_datagrams: self.ingress_datagrams,
             ingress_bytes: self.ingress_bytes,
             egress_datagrams: self.egress_datagrams,

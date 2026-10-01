@@ -246,6 +246,9 @@ fn normalize_packet_loss(value: &mut Value) {
 
 /// Canonicalize JSON numbers so Go `1` and Rust `1.0` compare equal under
 /// `Value` (Go emits the integer form; we emit the float form).
+// M059: u32/i32-range integers convert to f64 exactly for canonicalization;
+// keep exact cast semantics for the pinned comparison.
+#[allow(clippy::cast_precision_loss)]
 fn normalize_numbers(value: &mut Value) {
     match value {
         Value::Object(map) => {
@@ -260,11 +263,11 @@ fn normalize_numbers(value: &mut Value) {
         }
         Value::Number(number) => {
             if let Some(int) = number.as_u64() {
-                if int <= u32::MAX as u64 {
+                if u32::try_from(int).is_ok() {
                     *value = json!(int as f64);
                 }
             } else if let Some(int) = number.as_i64() {
-                if int >= i32::MIN as i64 && int <= i32::MAX as i64 {
+                if i32::try_from(int).is_ok() {
                     *value = json!(int as f64);
                 }
             }
@@ -357,6 +360,18 @@ async fn echo_upstream() -> SocketAddr {
 }
 
 #[tokio::test]
+// M059: pinned post-v2.12 differential corpus must stay byte-identical;
+// keep exact cast/float semantics and single-test coverage instead of
+// splitting or reworking the stochastic comparators.
+#[allow(
+    clippy::too_many_lines,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss,
+    clippy::items_after_statements,
+    clippy::large_futures,
+    clippy::match_same_arms
+)]
 async fn post_v212_packet_loss_differential() {
     let Some(bin) = std::env::var("TOXIPROXY_POST_V2_12_SERVER").ok() else {
         println!("post-v212 differential: incomplete (TOXIPROXY_POST_V2_12_SERVER unset)");
@@ -673,8 +688,7 @@ async fn post_v212_packet_loss_differential() {
         let rate = count as f64 / LOSS_PROBES as f64;
         assert!(
             (LOSS_INTERVAL.0..=LOSS_INTERVAL.1).contains(&rate),
-            "{label} loss fraction {rate:.4} outside frozen {:?}",
-            LOSS_INTERVAL
+            "{label} loss fraction {rate:.4} outside frozen {LOSS_INTERVAL:?}"
         );
     }
     corpus.stochastic_passed = 1;
@@ -712,7 +726,7 @@ async fn post_v212_packet_loss_differential() {
     corpus.observations.push(format!("correlation probes={BURST_PROBES} previous_drop_bucket_min={BURST_MIN_BUCKET} gap_floor={BURST_GAP_FLOOR} oracle_gap={oracle_gap:.4} eggchaos_gap={ours_gap:.4}"));
 
     // Drop unused locals.
-    let _ = ();
+    let () = ();
 
     let summary = json!({
         "oracle_version": std::env::var("TOXIPROXY_POST_V2_12_COMMIT")
@@ -742,6 +756,9 @@ async fn post_v212_packet_loss_differential() {
 
 /// Connect to the proxy, send `payload`, drain until EOF / timeout, and
 /// return how many bytes were received.
+// M059: EOF/timeout drain treats `Ok(0)` and `Err` identically by design;
+// keep the explicit arms for oracle-readable control flow.
+#[allow(clippy::match_same_arms)]
 async fn forward_one(addr: SocketAddr, payload: &[u8]) -> Vec<u8> {
     let connect = tokio::net::TcpStream::connect(addr).await;
     let Ok(mut client) = connect else {
@@ -749,10 +766,10 @@ async fn forward_one(addr: SocketAddr, payload: &[u8]) -> Vec<u8> {
     };
     if client.write_all(payload).await.is_err() {
         return Vec::new();
-    };
+    }
     if client.flush().await.is_err() {
         return Vec::new();
-    };
+    }
     let mut received = Vec::new();
     let mut buf = [0u8; 8192];
     let drain = async {
@@ -775,6 +792,9 @@ async fn forward_one(addr: SocketAddr, payload: &[u8]) -> Vec<u8> {
 
 /// Probe one persistent connection with fixed-size tagged chunks. The marker
 /// lets later replies be identified even when an earlier chunk was dropped.
+// M059: 32 KiB probe buffers and `sequence as u8` tagging are pinned by the
+// correlation comparator; keep exact stack/cast semantics.
+#[allow(clippy::large_stack_arrays, clippy::cast_possible_truncation)]
 async fn correlation_outcomes(addr: SocketAddr, count: usize) -> Vec<bool> {
     let mut stream = tokio::net::TcpStream::connect(addr)
         .await
@@ -835,6 +855,9 @@ async fn correlation_outcomes(addr: SocketAddr, count: usize) -> Vec<bool> {
 
 /// P(drop[n] | drop[n-1]) - P(drop[n] | pass[n-1]); false entries are
 /// passed probes. The bucket bound is part of the predeclared comparator.
+// M059: bucket counts fit the predeclared 512-probe comparator; f64 division
+// keeps exact stochastic-comparison semantics.
+#[allow(clippy::cast_precision_loss)]
 fn conditional_drop_gap(passed: &[bool], minimum_bucket: usize) -> f64 {
     let mut dropped_after_drop = 0usize;
     let mut dropped_after_pass = 0usize;

@@ -99,8 +99,8 @@ impl From<eggchaos_server::DatagramRuntimeError> for EmbedError {
     fn from(error: eggchaos_server::DatagramRuntimeError) -> Self {
         match error {
             eggchaos_server::DatagramRuntimeError::NotFound(detail) => Self::NotFound(detail),
-            eggchaos_server::DatagramRuntimeError::Duplicate(detail) => Self::Conflict(detail),
-            eggchaos_server::DatagramRuntimeError::Conflict(detail) => Self::Conflict(detail),
+            eggchaos_server::DatagramRuntimeError::Duplicate(detail)
+            | eggchaos_server::DatagramRuntimeError::Conflict(detail) => Self::Conflict(detail),
             eggchaos_server::DatagramRuntimeError::Bind(error) => Self::Bind(error.to_string()),
             eggchaos_server::DatagramRuntimeError::Invalid(detail) => Self::Validation(detail),
             eggchaos_server::DatagramRuntimeError::AssociationLimit => {
@@ -160,6 +160,9 @@ pub struct EmbeddedService {
 
 impl EmbeddedService {
     /// Start an embedded service with no proxies.
+    // M059: `EmbedOptions` is the stable public construction API; keep
+    // by-value ownership instead of borrowing to avoid a breaking change.
+    #[allow(clippy::needless_pass_by_value)]
     pub fn start(options: EmbedOptions) -> Result<Self, EmbedError> {
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
@@ -698,13 +701,15 @@ impl EmbeddedService {
         // `restart_failed`, ...): lifecycle/internal map to the 500-class
         // `restart_failed`, unsupported maps to `invalid`.
         let (code, message) = match error {
-            EmbedError::Validation(detail) => ("invalid", detail.clone()),
+            EmbedError::Validation(detail) | EmbedError::Unsupported(detail) => {
+                ("invalid", detail.clone())
+            }
             EmbedError::NotFound(detail) => ("not_found", detail.clone()),
             EmbedError::Conflict(detail) => ("conflict", detail.clone()),
-            EmbedError::Unsupported(detail) => ("invalid", detail.clone()),
-            EmbedError::Lifecycle(detail) => ("restart_failed", detail.clone()),
+            EmbedError::Lifecycle(detail) | EmbedError::Internal(detail) => {
+                ("restart_failed", detail.clone())
+            }
             EmbedError::Bind(detail) => ("bind_failed", detail.clone()),
-            EmbedError::Internal(detail) => ("restart_failed", detail.clone()),
         };
         ErrorEnvelopeV1::new(code, message)
     }

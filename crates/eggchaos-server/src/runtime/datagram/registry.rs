@@ -246,7 +246,7 @@ impl DatagramRuntime {
                 .state
                 .spec
                 .read()
-                .unwrap_or_else(|p| p.into_inner())
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .listen;
             managed.cancel_start = false;
             (managed.state.clone(), listen)
@@ -342,6 +342,9 @@ impl DatagramRuntime {
     /// replacement listener before stopping the current one; target changes
     /// retain the listener but cancel existing associations so only future
     /// associations use the new fixed target.
+    // M059: single bind-before-stop update transaction; splitting would fork
+    // the prebind/stop/publish sequencing.
+    #[allow(clippy::too_many_lines)]
     pub async fn update_proxy(
         &self,
         name: &str,
@@ -360,11 +363,15 @@ impl DatagramRuntime {
                 .state
                 .spec
                 .read()
-                .unwrap_or_else(|p| p.into_inner())
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .clone();
             (managed.state.clone(), managed.listener.is_some(), next)
         };
-        let old = state.spec.read().unwrap_or_else(|p| p.into_inner()).clone();
+        let old = state
+            .spec
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
         if let Some(listen) = listen {
             next.listen = listen;
         }
@@ -420,16 +427,56 @@ impl DatagramRuntime {
                 tracing::warn!("datagram listener supervisor join failed: {error}");
             }
         }
-        if !must_stop_old {
+        if must_stop_old {
+            let current = state
+                .spec
+                .read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .clone();
+            if current.listen != old.listen
+                || current.upstream != old.upstream
+                || current.max_associations != old.max_associations
+                || current.association_idle_timeout != old.association_idle_timeout
+            {
+                return Err(DatagramRuntimeError::Conflict(
+                    "datagram proxy changed concurrently".into(),
+                ));
+            }
+            {
+                let _capacity = state
+                    .capacity_mutation
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                if state.proxy_active.load(Ordering::Acquire) > next.max_associations {
+                    return Err(DatagramRuntimeError::Invalid(
+                        "max_associations cannot be lower than the current active count".into(),
+                    ));
+                }
+                *state
+                    .spec
+                    .write()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner) = next;
+            }
+            for association in drain_associations(&state, false).await {
+                stop_association(&state, association, true).await;
+            }
+        } else {
             // The `Sync` association registry's read guard is `!Send`, so
             // the guard must not cross the below `drain_associations().await`.
             // Acquire the guard, validate the cap, write the spec, then drop.
             {
-                let _associations = state.associations.read().unwrap_or_else(|p| p.into_inner());
+                let _associations = state
+                    .associations
+                    .read()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                 // Re-check under the write path: reject concurrent updates
                 // that changed the spec since the stale pre-validation clone
                 // instead of last-writer-wins overwriting them.
-                let current = state.spec.read().unwrap_or_else(|p| p.into_inner()).clone();
+                let current = state
+                    .spec
+                    .read()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .clone();
                 if current.listen != old.listen
                     || current.upstream != old.upstream
                     || current.max_associations != old.max_associations
@@ -447,44 +494,21 @@ impl DatagramRuntime {
                 let _capacity = state
                     .capacity_mutation
                     .lock()
-                    .unwrap_or_else(|p| p.into_inner());
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                 if state.proxy_active.load(Ordering::Acquire) > next.max_associations {
                     return Err(DatagramRuntimeError::Invalid(
                         "max_associations cannot be lower than the current active count".into(),
                     ));
                 }
-                *state.spec.write().unwrap_or_else(|p| p.into_inner()) = next;
+                *state
+                    .spec
+                    .write()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner) = next;
             }
             if upstream_changed {
                 for association in drain_associations(&state, running).await {
                     stop_association(&state, association, true).await;
                 }
-            }
-        } else {
-            let current = state.spec.read().unwrap_or_else(|p| p.into_inner()).clone();
-            if current.listen != old.listen
-                || current.upstream != old.upstream
-                || current.max_associations != old.max_associations
-                || current.association_idle_timeout != old.association_idle_timeout
-            {
-                return Err(DatagramRuntimeError::Conflict(
-                    "datagram proxy changed concurrently".into(),
-                ));
-            }
-            {
-                let _capacity = state
-                    .capacity_mutation
-                    .lock()
-                    .unwrap_or_else(|p| p.into_inner());
-                if state.proxy_active.load(Ordering::Acquire) > next.max_associations {
-                    return Err(DatagramRuntimeError::Invalid(
-                        "max_associations cannot be lower than the current active count".into(),
-                    ));
-                }
-                *state.spec.write().unwrap_or_else(|p| p.into_inner()) = next;
-            }
-            for association in drain_associations(&state, false).await {
-                stop_association(&state, association, true).await;
             }
         }
         if let Some(socket) = prebound {
@@ -523,7 +547,11 @@ impl DatagramRuntime {
     ) -> Option<(DatagramPlan, u64, u64)> {
         let proxies = self.inner.proxies.lock().await;
         let state = &proxies.get(name)?.state;
-        let spec = state.spec.read().unwrap_or_else(|p| p.into_inner()).clone();
+        let spec = state
+            .spec
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
         let snapshot = match direction {
             Direction::Upstream => spec.upstream_policy.snapshot(),
             Direction::Downstream => spec.downstream_policy.snapshot(),
@@ -555,7 +583,11 @@ impl DatagramRuntime {
             .policy_mutation
             .lock()
             .expect("datagram policy mutation");
-        let spec = state.spec.read().unwrap_or_else(|p| p.into_inner()).clone();
+        let spec = state
+            .spec
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
         let policy = match direction {
             Direction::Upstream => &spec.upstream_policy,
             Direction::Downstream => &spec.downstream_policy,
@@ -585,13 +617,13 @@ impl DatagramRuntime {
                 .state
                 .associations
                 .read()
-                .unwrap_or_else(|p| p.into_inner());
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             for association in associations.values().filter_map(AssociationSlot::active) {
                 views.push(
                     association
                         .record
                         .lock()
-                        .unwrap_or_else(|p| p.into_inner())
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
                         .snapshot(Instant::now()),
                 );
             }
@@ -606,7 +638,7 @@ impl DatagramRuntime {
             .inner
             .history
             .lock()
-            .unwrap_or_else(|p| p.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .iter()
             .cloned()
             .collect::<Vec<_>>();
@@ -623,7 +655,7 @@ impl DatagramRuntime {
                 .state
                 .associations
                 .read()
-                .unwrap_or_else(|p| p.into_inner());
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             if let Some(association) = associations
                 .values()
                 .filter_map(AssociationSlot::active)
@@ -633,7 +665,7 @@ impl DatagramRuntime {
                     association
                         .record
                         .lock()
-                        .unwrap_or_else(|p| p.into_inner())
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
                         .snapshot(Instant::now()),
                 );
             }
@@ -641,7 +673,7 @@ impl DatagramRuntime {
         self.inner
             .history
             .lock()
-            .unwrap_or_else(|p| p.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .iter()
             .find(|x| x.id == id)
             .cloned()
@@ -665,7 +697,7 @@ impl DatagramRuntime {
                 let mut associations = state
                     .associations
                     .write()
-                    .unwrap_or_else(|p| p.into_inner());
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                 let key = associations.iter().find_map(|(key, slot)| {
                     matches!(slot, AssociationSlot::Active(association) if association.id == id)
                         .then_some(*key)
@@ -688,12 +720,20 @@ impl DatagramRuntime {
         }
     }
 }
+// M059: `async` retained so view call sites share one await shape even
+// though the body is currently lock- and snapshot-only. Millisecond
+// snapshots saturate at `u64::MAX`; truncation is the documented bound.
+#[allow(clippy::unused_async, clippy::cast_possible_truncation)]
 async fn proxy_view(
     state: &ProxyState,
     bound: Option<SocketAddr>,
     running: bool,
 ) -> DatagramProxyView {
-    let spec = state.spec.read().unwrap_or_else(|p| p.into_inner()).clone();
+    let spec = state
+        .spec
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone();
     DatagramProxyView {
         name: spec.name.clone(),
         listen: spec.listen,
@@ -704,7 +744,7 @@ async fn proxy_view(
         association_idle_timeout_ms: spec
             .association_idle_timeout
             .as_millis()
-            .min(u64::MAX as u128) as u64,
+            .min(u128::from(u64::MAX)) as u64,
         max_datagram_size: spec.queue_limits.max_datagram_bytes.get(),
         max_queued_datagrams: spec.queue_limits.max_queued_datagrams.get(),
         max_queued_bytes: spec.queue_limits.max_queued_bytes.get(),
@@ -712,7 +752,7 @@ async fn proxy_view(
         active_associations: state
             .associations
             .read()
-            .unwrap_or_else(|p| p.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .values()
             .filter(|slot| matches!(slot, AssociationSlot::Active(_)))
             .count(),

@@ -23,9 +23,8 @@ fn public_config(public_admin: bool, auth_token: Option<&str>) -> AdminConfig {
 #[tokio::test]
 async fn public_bind_without_token_is_rejected_before_listen() {
     let result = NativeAdmin::start(public_config(true, None), ControlState::default()).await;
-    let error = match result {
-        Ok(_) => panic!("public admin without a token must not start"),
-        Err(error) => error,
+    let Err(error) = result else {
+        panic!("public admin without a token must not start")
     };
     assert!(
         error.to_string().contains("public_admin=true"),
@@ -40,9 +39,8 @@ async fn public_bind_without_opt_in_is_rejected_despite_token() {
         ControlState::default(),
     )
     .await;
-    let error = match result {
-        Ok(_) => panic!("non-loopback admin without opt-in must not start"),
-        Err(error) => error,
+    let Err(error) = result else {
+        panic!("non-loopback admin without opt-in must not start")
     };
     assert!(
         error.to_string().contains("public_admin=true"),
@@ -53,9 +51,8 @@ async fn public_bind_without_opt_in_is_rejected_despite_token() {
 #[tokio::test]
 async fn public_bind_with_empty_token_is_rejected() {
     let result = NativeAdmin::start(public_config(true, Some("")), ControlState::default()).await;
-    let error = match result {
-        Ok(_) => panic!("public admin with an empty token must not start"),
-        Err(error) => error,
+    let Err(error) = result else {
+        panic!("public admin with an empty token must not start")
     };
     assert!(
         error.to_string().contains("public_admin=true"),

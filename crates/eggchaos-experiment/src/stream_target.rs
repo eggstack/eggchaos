@@ -185,7 +185,7 @@ impl PolicyTarget for StreamPolicyTarget {
 }
 
 /// Build a one-resource stream target directly from an M029-style
-/// policy pair without importing the EggFetch adapter crate.
+/// policy pair without importing the `EggFetch` adapter crate.
 pub fn stream_target_from_policies(
     name: impl Into<String>,
     upstream: LivePolicy,

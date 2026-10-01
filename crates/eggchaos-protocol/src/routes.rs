@@ -1,19 +1,19 @@
 //! Native operation inventory: the single machine-readable route authority.
 //!
 //! Every implemented native route appears exactly once in
-//! [`NATIVE_OPERATIONS`]. The checked-in OpenAPI document and the
+//! [`NATIVE_OPERATIONS`]. The checked-in `OpenAPI` document and the
 //! drift tests compare against this table, so adding a route without
 //! updating the table fails CI by construction.
 //!
 //! Path templates use `{name}` / `{id}` placeholders matching the
-//! OpenAPI document. Authentication is uniform: when the admin listener
+//! `OpenAPI` document. Authentication is uniform: when the admin listener
 //! is configured with a bearer token, every operation below requires
 //! `Authorization: Bearer <token>`; loopback listeners without a token
 //! accept unauthenticated requests.
 
 use serde::{Deserialize, Serialize};
 
-/// OpenAPI contract document version served alongside the DTO authority.
+/// `OpenAPI` contract document version served alongside the DTO authority.
 ///
 /// Bump only with an explicit versioned contract decision; DTO moves alone
 /// (M032) do not bump the native contract.
@@ -26,7 +26,7 @@ pub struct NativeOperation {
     pub method: &'static str,
     /// Path template (`/v1/proxies/{name}/faults/{id}`, `/metrics`, ...).
     pub path: &'static str,
-    /// Stable operation identifier used by the OpenAPI document.
+    /// Stable operation identifier used by the `OpenAPI` document.
     pub operation_id: &'static str,
     /// Short human summary.
     pub summary: &'static str,

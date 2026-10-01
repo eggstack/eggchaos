@@ -1,3 +1,4 @@
+//! CLI end-to-end fixtures against an in-process native admin service.
 use std::net::SocketAddr;
 use std::process::Command;
 use std::time::Duration;
@@ -62,6 +63,9 @@ async fn find_connection(admin: SocketAddr, proxy: &str) -> u64 {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+// M059: end-to-end CLI fixture must stay in one test to share the admin,
+// origin, and child-process invocations; splitting would fork the coverage.
+#[allow(clippy::too_many_lines)]
 async fn cli_json_create_fault_kill_reset_end_to_end() {
     // Multi-thread: the synchronous child-process waits must not freeze
     // the runtime hosting the admin under test.
@@ -76,13 +80,12 @@ async fn cli_json_create_fault_kill_reset_end_to_end() {
                 let mut buffer = [0; 4096];
                 loop {
                     match stream.read(&mut buffer).await {
-                        Ok(0) => break,
+                        Ok(0) | Err(_) => break,
                         Ok(n) => {
                             if stream.write_all(&buffer[..n]).await.is_err() {
                                 break;
                             }
                         }
-                        Err(_) => break,
                     }
                 }
             });
@@ -346,6 +349,9 @@ async fn datagram_cli_is_json_first_and_uses_native_routes() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+// M059: end-to-end CLI fixture must stay in one test to share the admin,
+// origin, and child-process invocations; splitting would fork the coverage.
+#[allow(clippy::too_many_lines)]
 async fn cli_scenario_v2_validate_compile_apply_json_and_toml() {
     let origin = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let origin_addr = origin.local_addr().unwrap();
@@ -358,13 +364,12 @@ async fn cli_scenario_v2_validate_compile_apply_json_and_toml() {
                 let mut buffer = [0; 4096];
                 loop {
                     match stream.read(&mut buffer).await {
-                        Ok(0) => break,
+                        Ok(0) | Err(_) => break,
                         Ok(n) => {
                             if stream.write_all(&buffer[..n]).await.is_err() {
                                 break;
                             }
                         }
-                        Err(_) => break,
                     }
                 }
             });

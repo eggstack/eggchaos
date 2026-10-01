@@ -37,11 +37,15 @@ pub fn derive_datagram_seed(
 /// Bounds shared by one direction's pending datagram scheduler.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DatagramQueueLimits {
+    /// Maximum datagrams owned in the scheduler at once.
     pub max_queued_datagrams: NonZeroU64,
+    /// Maximum payload bytes owned in the scheduler at once.
     pub max_queued_bytes: NonZeroU64,
+    /// Maximum payload bytes accepted for a single datagram.
     pub max_datagram_bytes: NonZeroU64,
 }
 impl DatagramQueueLimits {
+    /// Check the limits against the hard capability bounds.
     pub fn validate(self) -> Result<Self, &'static str> {
         if self.max_queued_datagrams.get() > 1_000_000
             || self.max_queued_bytes.get() > 1_073_741_824
@@ -56,8 +60,11 @@ impl DatagramQueueLimits {
 /// One ordered datagram fault stage.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DatagramFaultSpec {
+    /// Stable fault identity.
     pub id: FaultId,
+    /// Per-datagram activation probability.
     pub probability: Probability,
+    /// Fault behavior applied at this stage.
     pub kind: DatagramFaultKind,
 }
 
@@ -65,27 +72,41 @@ pub struct DatagramFaultSpec {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum DatagramFaultKind {
+    /// Hold datagrams for a base delay plus symmetric jitter.
     Delay {
+        /// Base release delay.
         delay: Duration,
+        /// Symmetric jitter, clipped at zero total delay.
         jitter: Duration,
     },
+    /// Discard activated datagrams.
     Loss,
+    /// Emit extra copies of activated datagrams.
     Duplicate {
+        /// Additional copies emitted per activated datagram (1..=16).
         additional_copies: u8,
     },
+    /// Hold datagrams to force out-of-order delivery.
     Reorder {
+        /// Maximum hold before the datagram releases.
         hold: Duration,
     },
+    /// Deterministically corrupt payload bytes.
     PayloadCorrupt {
+        /// Number of payload bytes to corrupt per activated datagram.
         bytes: NonZeroU64,
     },
+    /// Pace datagrams through a token-bucket rate limiter.
     Bandwidth {
+        /// Sustained rate in bytes per second.
         bytes_per_second: NonZeroU64,
+        /// Maximum initial/refill burst in bytes.
         burst_bytes: NonZeroU64,
     },
 }
 
 impl DatagramFaultKind {
+    /// Stable low-cardinality type name for metrics and evidence.
     pub const fn type_name(&self) -> &'static str {
         DATAGRAM_FAULT_TYPE_NAMES[fault_type_index(self)]
     }
@@ -109,6 +130,7 @@ impl<'de> serde::Deserialize<'de> for DatagramPlan {
 }
 
 impl DatagramPlan {
+    /// Construct and validate an ordered datagram plan.
     pub fn new(faults: Vec<DatagramFaultSpec>) -> Result<Self, &'static str> {
         let plan = Self { faults };
         plan.validate()?;
@@ -158,15 +180,19 @@ impl DatagramPlan {
         }
         Ok(())
     }
+    /// Construct an empty plan that admits every datagram immediately.
     pub fn empty() -> Self {
         Self::default()
     }
+    /// Borrow fault stages in their execution order.
     pub fn faults(&self) -> &[DatagramFaultSpec] {
         &self.faults
     }
 }
 
 /// Immutable plan generation used when a datagram enters the engine.
+// M059: engine-internal state; field invariants documented on the struct and in docs/architecture.md.
+#[allow(missing_docs)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct PublishedDatagramPolicy {
     pub generation: u64,
@@ -181,6 +207,7 @@ pub struct DatagramLivePolicy {
 }
 
 impl DatagramLivePolicy {
+    /// Publish the initial generation after validating the plan.
     pub fn new(plan: DatagramPlan, seed_namespace: u64) -> Result<Self, &'static str> {
         plan.validate()?;
         Ok(Self {
@@ -191,9 +218,11 @@ impl DatagramLivePolicy {
             }))),
         })
     }
+    /// Load the currently published generation.
     pub fn snapshot(&self) -> Arc<PublishedDatagramPolicy> {
         self.current.load_full()
     }
+    /// Validate and publish the next generation, returning its snapshot.
     pub fn publish(
         &self,
         plan: DatagramPlan,
@@ -220,6 +249,8 @@ impl DatagramLivePolicy {
 }
 
 /// Evidence for a direction-local datagram engine.
+// M059: engine-internal state; field invariants documented on the struct and in docs/architecture.md.
+#[allow(missing_docs)]
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DatagramEvidence {
     pub admitted_datagrams: u64,
@@ -245,6 +276,8 @@ pub struct DatagramEvidence {
 }
 
 /// A datagram ready for transport emission, preserving identity and generation.
+// M059: engine-internal state; field invariants documented on the struct and in docs/architecture.md.
+#[allow(missing_docs)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DatagramScheduled {
     pub payload: Bytes,
@@ -322,6 +355,7 @@ pub struct DatagramDirectionEngine {
 }
 
 impl DatagramDirectionEngine {
+    /// Compile one direction engine from explicit identity components.
     pub fn new(
         limits: DatagramQueueLimits,
         proxy: impl Into<String>,
@@ -347,15 +381,19 @@ impl DatagramDirectionEngine {
             buckets_generation: 0,
         })
     }
+    /// Borrow the current direction-local evidence counters.
     pub fn evidence(&self) -> &DatagramEvidence {
         &self.evidence
     }
+    /// Earliest pending release deadline, if the scheduler owns candidates.
     pub fn next_deadline(&self) -> Option<Instant> {
         self.queue.peek().map(|item| item.0.at)
     }
+    /// True when the scheduler owns no pending candidates.
     pub fn is_empty(&self) -> bool {
         self.queue.is_empty()
     }
+    /// Drop all pending candidates, returning how many were discarded.
     pub fn discard_all(&mut self) -> usize {
         let n = self.queue.len();
         self.evidence.queued_datagrams = 0;
@@ -375,6 +413,10 @@ impl DatagramDirectionEngine {
     /// scheduler keeps immediate emission observably identical to
     /// queue-then-drain ordering; evidence, ingress ordinals, generation, and
     /// seed tracking are identical on every path.
+    // M059: per-stage admission composes six fault kinds; splitting would fork the determinism contract.
+    #[allow(clippy::too_many_lines)]
+    // M059: corruption-window indices stay within the validated per-datagram bound, so truncation is exact.
+    #[allow(clippy::cast_possible_truncation)]
     pub fn admit(
         &mut self,
         now: Instant,
@@ -646,6 +688,8 @@ impl DatagramDirectionEngine {
         self.emit_immediate(ordinal, payload, generation, 0)
     }
 
+    // M059: refill/service nanos are clamped to u64::MAX before casting, so truncation is exact.
+    #[allow(clippy::cast_possible_truncation)]
     fn bandwidth_delay(
         &mut self,
         id: &str,
@@ -666,7 +710,7 @@ impl DatagramDirectionEngine {
         let refill = elapsed.saturating_mul(u128::from(rate)) / 1_000_000_000;
         bucket.tokens = bucket
             .tokens
-            .saturating_add(refill.min(u64::MAX as u128) as u64)
+            .saturating_add(refill.min(u128::from(u64::MAX)) as u64)
             .min(burst);
         bucket.updated = virtual_now;
         if bucket.tokens >= bytes {
@@ -679,7 +723,7 @@ impl DatagramDirectionEngine {
                 .saturating_mul(1_000_000_000)
                 .saturating_add(u128::from(rate - 1)))
                 / u128::from(rate);
-            let service = Duration::from_nanos(nanos.min(u64::MAX as u128) as u64);
+            let service = Duration::from_nanos(nanos.min(u128::from(u64::MAX)) as u64);
             bucket.updated = virtual_now.checked_add(service).unwrap_or(virtual_now);
             virtual_now
                 .saturating_duration_since(now)
@@ -725,6 +769,8 @@ const fn fault_type_index(kind: &DatagramFaultKind) -> usize {
     }
 }
 
+// M059: per-second rate converts to f64 only for the 1/rate pacing term; mantissa rounding is exact for this use.
+#[allow(clippy::cast_precision_loss)]
 fn fault_delay(kind: &DatagramFaultKind, rng: &mut DeterministicRng) -> Duration {
     match kind {
         DatagramFaultKind::Delay { delay, jitter } => jittered(*delay, *jitter, rng),
@@ -735,14 +781,22 @@ fn fault_delay(kind: &DatagramFaultKind, rng: &mut DeterministicRng) -> Duration
         _ => Duration::ZERO,
     }
 }
+// M059: symmetric jitter math clamps to [0, u64::MAX] (24h validation cap keeps nanos far below i128::MAX), so wrap/truncation/sign casts are exact.
+// M059: see also docs/architecture.md datagram jitter contract.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss
+)]
 fn jittered(delay: Duration, jitter: Duration, rng: &mut DeterministicRng) -> Duration {
     if jitter.is_zero() {
         return delay;
     }
-    let range = jitter.as_nanos().min(u64::MAX as u128) as u64;
-    let signed = rng.below(range.saturating_mul(2).saturating_add(1)) as i128 - range as i128;
+    let range = jitter.as_nanos().min(u128::from(u64::MAX)) as u64;
+    let signed =
+        i128::from(rng.below(range.saturating_mul(2).saturating_add(1))) - i128::from(range);
     let total = delay.as_nanos() as i128 + signed;
-    Duration::from_nanos(total.max(0).min(u64::MAX as i128) as u64)
+    Duration::from_nanos(total.max(0).min(i128::from(u64::MAX)) as u64)
 }
 
 #[cfg(test)]
@@ -1028,6 +1082,8 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
+    // M059: ingress ordinals 0..8 always fit u32; truncation is exact.
+    #[allow(clippy::cast_possible_truncation)]
     async fn heap_preserves_equal_and_mixed_deadline_ordering() {
         let now = Instant::now();
         let mut e =

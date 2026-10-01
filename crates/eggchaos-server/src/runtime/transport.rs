@@ -45,7 +45,7 @@ impl TcpResetHandle {
     pub fn outcome(&self) -> Option<ResetResult> {
         self.outcome
             .lock()
-            .unwrap_or_else(|poison| poison.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone()
     }
 }
@@ -104,7 +104,7 @@ impl Drop for ResettableTcpStream {
             .handle
             .outcome
             .lock()
-            .unwrap_or_else(|poison| poison.into_inner()) = Some(outcome);
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(outcome);
     }
 }
 
@@ -163,7 +163,6 @@ impl tokio::io::AsyncWrite for ResettableTcpStream {
     fn is_write_vectored(&self) -> bool {
         self.inner
             .as_ref()
-            .map(tokio::io::AsyncWrite::is_write_vectored)
-            .unwrap_or(false)
+            .is_some_and(tokio::io::AsyncWrite::is_write_vectored)
     }
 }

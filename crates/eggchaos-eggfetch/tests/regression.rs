@@ -414,9 +414,8 @@ async fn refused_dial_reports_shaped_error() {
     let outcome = dialer
         .dial(eggfetch_core::DialTarget::new("127.0.0.1", closed))
         .await;
-    let error = match outcome {
-        Err(error) => error,
-        Ok(_) => panic!("closed port must fail"),
+    let Err(error) = outcome else {
+        panic!("closed port must fail")
     };
     assert!(
         error.message().contains("direct route"),

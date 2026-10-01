@@ -193,16 +193,16 @@ pub fn datagram_proxy_request_into_spec(
     spec.seed = parts.seed;
     spec.upstream_policy = eggchaos_core::DatagramLivePolicy::new(
         eggchaos_core::DatagramPlan::new(parts.upstream_faults)
-            .map_err(|error| error.to_string())?,
+            .map_err(std::string::ToString::to_string)?,
         parts.seed,
     )
-    .map_err(|error| error.to_string())?;
+    .map_err(std::string::ToString::to_string)?;
     spec.downstream_policy = eggchaos_core::DatagramLivePolicy::new(
         eggchaos_core::DatagramPlan::new(parts.downstream_faults)
-            .map_err(|error| error.to_string())?,
+            .map_err(std::string::ToString::to_string)?,
         parts.seed,
     )
-    .map_err(|error| error.to_string())?;
+    .map_err(std::string::ToString::to_string)?;
     spec.validate(65_536).map_err(|error| error.to_string())?;
     Ok(spec)
 }

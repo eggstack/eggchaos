@@ -54,7 +54,7 @@ pub enum AdminError {
     /// Listener failed to bind.
     #[error("admin bind: {0}")]
     Bind(#[from] io::Error),
-    /// EggServe startup failed.
+    /// `EggServe` startup failed.
     #[error("admin server: {0}")]
     Server(String),
     /// Mutation conflicts with current state.
@@ -94,13 +94,17 @@ impl AdminHandle {
 }
 
 impl NativeAdmin {
-    /// Start a bounded versioned native admin API using EggServe's H1 leaf runtime.
+    /// Start a bounded versioned native admin API using `EggServe`'s H1 leaf runtime.
     pub async fn start(
         config: AdminConfig,
         state: ControlState,
     ) -> Result<AdminHandle, AdminError> {
         if !config.bind.ip().is_loopback()
-            && (!config.public_admin || config.auth_token.as_ref().is_none_or(|t| t.is_empty()))
+            && (!config.public_admin
+                || config
+                    .auth_token
+                    .as_ref()
+                    .is_none_or(std::string::String::is_empty))
         {
             return Err(AdminError::InsecurePublicBind);
         }
@@ -280,6 +284,9 @@ fn parse_json<T: serde::de::DeserializeOwned>(body: &[u8]) -> Result<T, RouteOut
     serde_json::from_slice(body).map_err(|error| RouteOutcome::BadJson(error.to_string()))
 }
 
+// M059: single native route table; splitting would fork the
+// method/segment dispatch contract.
+#[allow(clippy::too_many_lines)]
 async fn route(method: &str, segments: &[&str], body: &[u8], state: &ControlState) -> RouteOutcome {
     use crate::operations as ops;
     match (method, segments) {
@@ -714,6 +721,9 @@ fn text_response(body: String) -> Response {
 /// Keep this import in the public dependency audit: configuration errors are
 /// intentionally translated at the file boundary, never leaked as debug maps.
 #[allow(dead_code)]
+// M059: by-value error keeps the translation call sites infallible without
+// borrowing the consumed outcome value.
+#[allow(clippy::needless_pass_by_value)]
 fn _config_error_kind(error: NativeConfigError) -> String {
     error.to_string()
 }
@@ -769,6 +779,10 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    // M059: end-to-end datagram HTTP lifecycle; splitting would fork the
+    // shared-runtime assertion sequence. The 0.5 assertion is the exact
+    // configured loss probability round-trip.
+    #[allow(clippy::too_many_lines, clippy::float_cmp)]
     async fn datagram_http_resources_mutate_the_shared_runtime_and_reset_globally() {
         let target = tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap();
         let target_addr = target.local_addr().unwrap();

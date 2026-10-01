@@ -256,7 +256,10 @@ impl RecordingObserver {
 
     /// Number of retained records (never exceeds capacity).
     pub fn len(&self) -> usize {
-        self.records.lock().unwrap_or_else(|p| p.into_inner()).len()
+        self.records
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .len()
     }
 
     /// Whether no record is retained.
@@ -268,7 +271,7 @@ impl RecordingObserver {
     pub fn records(&self) -> Vec<ConnectionRecord> {
         self.records
             .lock()
-            .unwrap_or_else(|p| p.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .iter()
             .cloned()
             .collect()
@@ -280,7 +283,10 @@ impl ConnectionObserver for RecordingObserver {
         if self.capacity == 0 {
             return;
         }
-        let mut records = self.records.lock().unwrap_or_else(|p| p.into_inner());
+        let mut records = self
+            .records
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         while records.len() >= self.capacity {
             records.pop_front();
         }
@@ -519,12 +525,14 @@ impl<D> ChaosDialer<D> {
     }
 
     /// Set the deterministic connection-key provider.
+    #[must_use]
     pub fn with_key_provider(mut self, provider: Arc<dyn ConnectionKeyProvider>) -> Self {
         self.key_provider = provider;
         self
     }
 
     /// Set the optional evidence observer invoked per wrapped dial.
+    #[must_use]
     pub fn with_observer(mut self, observer: Arc<dyn ConnectionObserver>) -> Self {
         self.observer = Some(observer);
         self

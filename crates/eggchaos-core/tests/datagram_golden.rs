@@ -1,3 +1,4 @@
+//! Frozen datagram golden-trace corpus: exact emission/evidence replay checks.
 use std::num::NonZeroU64;
 
 use bytes::Bytes;
@@ -54,6 +55,8 @@ struct Policy {
 }
 
 #[tokio::test(start_paused = true)]
+// M059: the corpus runner covers every golden case in one trace; splitting would fork the fixture contract.
+#[allow(clippy::too_many_lines)]
 async fn frozen_datagram_golden_trace_corpus_matches_exactly() {
     let corpus: Corpus = serde_json::from_str(CORPUS).expect("golden corpus JSON");
     assert_eq!(corpus.version, 1);
@@ -173,6 +176,8 @@ async fn frozen_datagram_golden_trace_corpus_matches_exactly() {
     }
 }
 
+// M059: golden helper takes the scheduled datagram by value to keep the `.map(as_trace)` call sites exact.
+#[allow(clippy::needless_pass_by_value)]
 fn as_trace(datagram: eggchaos_core::DatagramScheduled) -> (u64, u16, u64, String) {
     (
         datagram.ingress_ordinal,
@@ -194,5 +199,9 @@ fn decode_hex(input: &str) -> Vec<u8> {
 }
 
 fn encode_hex(input: &[u8]) -> String {
-    input.iter().map(|byte| format!("{byte:02x}")).collect()
+    use std::fmt::Write as _;
+    input.iter().fold(String::new(), |mut acc, byte| {
+        let _ = write!(acc, "{byte:02x}");
+        acc
+    })
 }

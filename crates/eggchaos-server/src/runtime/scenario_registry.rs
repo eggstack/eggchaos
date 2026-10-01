@@ -37,7 +37,7 @@ pub(crate) const SCENARIO_FAMILY_CAPACITY: usize = 32;
 
 /// Internal registry owning run records and cancellation tokens for
 /// both scenario families. The `next_run_id` allocator and the
-/// scenario JoinSet supervisor stay where they are; this registry
+/// scenario `JoinSet` supervisor stay where they are; this registry
 /// owns the *bookkeeping* the previous per-family maps used to do.
 pub(crate) struct ScenarioRegistry {
     v1_runs: BTreeMap<u64, ScenarioRunRecord>,

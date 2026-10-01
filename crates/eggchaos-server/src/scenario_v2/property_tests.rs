@@ -150,7 +150,9 @@ proptest! {
     }
 
     #[test]
-    fn fingerprint_changes_with_seed(seed in 0u64..=u32::MAX as u64) {
+    // M059: trial index is bounded to 0..4; the `u64` cast cannot lose sign.
+    #[allow(clippy::cast_sign_loss)]
+    fn fingerprint_changes_with_seed(seed in 0u64..=u64::from(u32::MAX)) {
         let mut runner = proptest::test_runner::TestRunner::default();
         let mut s = arb_schedule(1, false)
             .new_tree(&mut runner)
@@ -176,23 +178,20 @@ proptest! {
     fn compiler_emits_expected_count(source in arb_schedule(3, true)) {
         let expected = expanded_event_count(&source);
         let outcome = compile_schedule(&source);
-        match outcome {
-            Ok(compiled) => {
-                assert_eq!(
-                    compiled.events.len(),
-                    expected,
-                    "compiled events must equal expanded count"
-                );
-                assert_eq!(compiled.compiler_semantics_version, COMPILER_SEMANTICS_VERSION);
-            }
-            Err(_) => {
-                // The proptest surface can produce structurally valid
-                // sources whose action bodies fail FaultPlan /
-                // DatagramPlan validation (e.g. duplicate fault ids)
-                // or exceed the compiled-event ceiling. Both
-                // rejection modes are expected and count as valid
-                // outcomes. Anything else would panic.
-            }
+        if let Ok(compiled) = outcome {
+            assert_eq!(
+                compiled.events.len(),
+                expected,
+                "compiled events must equal expanded count"
+            );
+            assert_eq!(compiled.compiler_semantics_version, COMPILER_SEMANTICS_VERSION);
+        } else {
+            // The proptest surface can produce structurally valid
+            // sources whose action bodies fail FaultPlan /
+            // DatagramPlan validation (e.g. duplicate fault ids)
+            // or exceed the compiled-event ceiling. Both
+            // rejection modes are expected and count as valid
+            // outcomes. Anything else would panic.
         }
     }
 }

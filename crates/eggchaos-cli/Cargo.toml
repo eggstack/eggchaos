@@ -23,3 +23,6 @@ toml.workspace = true
 [[bin]]
 name = "eggchaos"
 path = "src/main.rs"
+
+[lints]
+workspace = true

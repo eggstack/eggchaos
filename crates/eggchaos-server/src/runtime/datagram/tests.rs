@@ -29,6 +29,8 @@ fn limits() -> DatagramQueueLimits {
     }
 }
 
+// M059: 64 KiB echo buffer matches the max datagram path under test.
+#[allow(clippy::large_stack_arrays)]
 async fn echo_target() -> (SocketAddr, CancellationToken) {
     let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
     let addr = socket.local_addr().unwrap();
@@ -37,7 +39,7 @@ async fn echo_target() -> (SocketAddr, CancellationToken) {
     tokio::spawn(async move {
         let mut buf = [0u8; 65_536];
         loop {
-            tokio::select! { _ = done.cancelled() => break, result = socket.recv_from(&mut buf) => if let Ok((len, peer)) = result { let _ = socket.send_to(&buf[..len], peer).await; } }
+            tokio::select! { () = done.cancelled() => break, result = socket.recv_from(&mut buf) => if let Ok((len, peer)) = result { let _ = socket.send_to(&buf[..len], peer).await; } }
         }
     });
     (addr, cancel)
@@ -78,6 +80,9 @@ async fn direct_setup(
     )
 }
 
+// M059: `async` retained so reservation-poll call sites share one await
+// shape even though the body is currently lock-only.
+#[allow(clippy::unused_async)]
 async fn starting_reservation(state: &ProxyState, client: SocketAddr) -> Arc<StartingReservation> {
     state
         .associations
@@ -109,6 +114,8 @@ fn spawn_resolve(
     tokio::spawn(async move { resolve_association(socket, &state, client).await })
 }
 
+// M059: 64 KiB echo buffer matches the max datagram path under test.
+#[allow(clippy::large_stack_arrays)]
 async fn multi_response_target() -> (SocketAddr, CancellationToken, Arc<Mutex<Vec<SocketAddr>>>) {
     let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
     let addr = socket.local_addr().unwrap();
@@ -120,7 +127,7 @@ async fn multi_response_target() -> (SocketAddr, CancellationToken, Arc<Mutex<Ve
         let mut buf = [0u8; 65_536];
         loop {
             tokio::select! {
-                _ = done.cancelled() => break,
+                () = done.cancelled() => break,
                 result = socket.recv_from(&mut buf) => if let Ok((len, peer)) = result {
                     if &buf[..len] == b"push" {
                         let recipients = known_peers.lock().expect("peer list").clone();
@@ -436,6 +443,8 @@ async fn restart_patch_bind_failure_keeps_old_udp_listener_serving() {
 }
 
 #[tokio::test]
+// M059: 64 KiB echo buffer matches the max datagram path under test.
+#[allow(clippy::large_stack_arrays)]
 async fn ipv6_loopback_works_when_host_capability_is_available() {
     let target_socket = match UdpSocket::bind("[::1]:0").await {
         Ok(socket) => socket,
@@ -457,7 +466,7 @@ async fn ipv6_loopback_works_when_host_capability_is_available() {
         let mut buf = [0u8; 65_536];
         loop {
             tokio::select! {
-                _ = target_done.cancelled() => break,
+                () = target_done.cancelled() => break,
                 result = target_socket.recv_from(&mut buf) => if let Ok((size, peer)) = result { let _ = target_socket.send_to(&buf[..size], peer).await; }
             }
         }

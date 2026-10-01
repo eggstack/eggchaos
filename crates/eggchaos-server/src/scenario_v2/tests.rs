@@ -172,7 +172,7 @@ fn equal_offset_events_preserve_source_order() {
             ScenarioAction::SetPlan {
                 proxy, direction, ..
             } => {
-                format!("{proxy}:{:?}", direction)
+                format!("{proxy}:{direction:?}")
             }
             _ => unreachable!(),
         })
@@ -196,6 +196,9 @@ fn equal_offset_events_preserve_source_order() {
 }
 
 #[test]
+// M059: repeat indices are bounded by the 6-event expansion; `u32` casts
+// cannot truncate.
+#[allow(clippy::cast_possible_truncation)]
 fn finite_repeat_expands_in_source_order() {
     let source = ScenarioScheduleV2 {
         version: SCHEDULE_SCHEMA_VERSION,
@@ -413,7 +416,7 @@ fn too_many_actions_per_phase_is_rejected() {
         phases: vec![SchedulePhaseV2 {
             name: None,
             duration_ns: 0,
-            actions: (0..MAX_PHASE_ACTIONS + 1)
+            actions: (0..=MAX_PHASE_ACTIONS)
                 .map(|index| {
                     set_plan(
                         "p",
@@ -722,6 +725,9 @@ fn v2_namespace_derivation_is_run_id_independent() {
 }
 
 #[test]
+// M059: fingerprint index is bounded to 0..32; `u8` casts cannot truncate.
+// Golden seed-derivation vectors below must not change.
+#[allow(clippy::cast_possible_truncation)]
 fn schedule_seed_derivation_matches_documented_vector() {
     use eggchaos_core::derive_schedule_policy_seed;
     let fingerprint: [u8; 32] = std::array::from_fn(|i| (i as u8).wrapping_mul(7));
@@ -736,6 +742,8 @@ fn schedule_seed_derivation_matches_documented_vector() {
 }
 
 #[test]
+// M059: fingerprint index is bounded to 0..32; `u8` casts cannot truncate.
+#[allow(clippy::cast_possible_truncation)]
 fn schedule_seed_derivation_keyed_on_execution_key() {
     let fingerprint: [u8; 32] = std::array::from_fn(|i| (i as u8).wrapping_mul(7));
     let a = derive_schedule_policy_seed(7, 11, fingerprint, 0);
