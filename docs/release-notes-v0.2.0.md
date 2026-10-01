@@ -1,10 +1,8 @@
-# Eggchaos v0.2.0 release notes (draft — M058 blocked on M059)
+# Eggchaos v0.2.0 release notes
 
-Status: draft notes prepared during M058 execution; M058 is now
-**blocked** on M059 (ready) per `plans/registry.md`, so no tag,
-publication, or GitHub Release action is authorized until M059
-closes and M058 returns to ready. When reactivated, publication
-requires an
+Status: final notes for the M058 publication run; M059 closed on
+`1409d0f` (hosted CI `36922662654` 15/15 + release dispatch
+`36922672946` 7/7 green) and M058 is ready. Publication requires an
 annotated `v0.2.0` tag, eight crates.io publishes, a tag-triggered
 release workflow, a GitHub Release with five binaries + SHA-256
 sidecars, and fresh-install verification. Language registries are
@@ -80,6 +78,18 @@ separately gated (see below).
   consolidation, module-boundary hygiene, planning-status and
   version-coherence drift guards, and the `release-contract`
   workflow gate.
+- **Pre-release security/dependency hardening (M059):** workspace
+  lint policy active on all eight crates, first-party Eggstack
+  graphs reconciled within existing compatibility lines
+  (relay 1.0.11 / eggfetch-core 0.2.1 / primitives 0.2.2 /
+  server 0.2.1), every CI/release action SHA-pinned with
+  least-privilege permissions, scheduled audit plus PR review plus
+  Dependabot monitoring, deterministic npm/exact-Python CI installs,
+  narrowed PyO3 unsafe boundary, `cargo-semver-checks` API gate
+  green against M057, `SECURITY.md` private-reporting policy, and
+  Sigstore attestations on release binaries (SHA-256 sidecars
+  remain the primary checksum contract). No API, route, CLI,
+  RNG, fault, scenario, or compatibility behavior change.
 - **0.2.0 correctness hardening (owner-authorized, post-M057):**
   validation tightening (connection/relay/datagram bounds,
   `additional_copies 1..=16`, proxy-name checks, unknown-field
@@ -139,7 +149,7 @@ fixes):
 
 | Package | Registry | M058 disposition |
 | --- | --- | --- |
-| `eggchaos-client` (Python remote) | PyPI | **defer** — source at the `v0.2.0` tag stays versioned `0.2.0`; no PyPI upload in this release absent an explicit namespace/credential/artifact/consumer-smoke go |
+| `eggchaos-client` (Python remote) | PyPI | **defer** — owner decision 2026-10-01: the name is unclaimed on PyPI (404) and M058 does not allocate a new public namespace implicitly; source at the `v0.2.0` tag stays versioned `0.2.0` |
 | `@eggstack/eggchaos-client` (TypeScript remote) | npm | **defer** — source at the `v0.2.0` tag stays versioned `0.2.0`; no npm upload absent explicit scope/ownership/provenance go |
 | `eggchaos-native` (Python native pilot) | PyPI | **defer by default** — alpha pilot without a release-grade cross-platform wheel matrix; host-native build evidence does not imply broad wheel support |
 
@@ -152,7 +162,10 @@ says otherwise.
 
 - Rust MSRV 1.89+.
 - Binaries: five triples above, filenames encode `v0.2.0` plus the
-  target triple; each has a SHA-256 sidecar.
+  target triple; each has a SHA-256 sidecar. Each binary also
+  carries a Sigstore provenance attestation verifiable with
+  `gh attestation verify <binary> --repo eggstack/eggchaos`;
+  checksums remain the primary artifact contract.
 - After publication: `cargo install eggchaos-cli --version 0.2.0
   --locked`, then `eggchaos --json version`, `--help`, minimal TCP
   + UDP proxy startup/health, and one native control operation.
