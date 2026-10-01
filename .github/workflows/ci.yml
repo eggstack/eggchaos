@@ -181,3 +181,25 @@ jobs:
       - run: cargo install cargo-audit --locked --version 0.22.2
       - run: ./scripts/check_python_native.sh
       - run: ./scripts/qualify_python_native.sh
+  api-gate:
+    # M059 Rust public-API regression gate: zero drift vs the M059
+    # activation snapshot plus the pinned M057 census (see
+    # scripts/qualify_rust_api.sh). Runs on a current stable toolchain,
+    # never the 1.89 MSRV compiler. Full history is required: the tool
+    # compares against the M057 and activation revisions.
+    timeout-minutes: 25
+    runs-on: ubuntu-latest
+    env:
+      RUSTUP_TOOLCHAIN: stable
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Full history: semver baselines are git revisions.
+          fetch-depth: 0
+          # No authenticated Git operation follows checkout.
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # stable (master 2026-10-01)
+        with:
+          toolchain: stable
+      - run: cargo install cargo-semver-checks --locked --version 0.50.0
+      - run: ./scripts/qualify_rust_api.sh
