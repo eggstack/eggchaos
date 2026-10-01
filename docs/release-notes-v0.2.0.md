@@ -1,6 +1,10 @@
-# Eggchaos v0.2.0 release notes
+# Eggchaos v0.2.0 release notes (draft — M058 blocked on M059)
 
-Status: pre-tag candidate notes for M058. Publication requires an
+Status: draft notes prepared during M058 execution; M058 is now
+**blocked** on M059 (ready) per `plans/registry.md`, so no tag,
+publication, or GitHub Release action is authorized until M059
+closes and M058 returns to ready. When reactivated, publication
+requires an
 annotated `v0.2.0` tag, eight crates.io publishes, a tag-triggered
 release workflow, a GitHub Release with five binaries + SHA-256
 sidecars, and fresh-install verification. Language registries are
