@@ -718,6 +718,14 @@ impl ScenarioV1 {
                 return Err("scenario events must be ordered".into());
             }
             previous = event.at_ms;
+            match &event.action {
+                ScenarioActionV1::SetPlan { proxy, .. }
+                | ScenarioActionV1::RemoveFault { proxy, .. }
+                | ScenarioActionV1::SetDatagramPlan { proxy, .. }
+                | ScenarioActionV1::RemoveDatagramFault { proxy, .. } => {
+                    validate_proxy_name(proxy)?;
+                }
+            }
             self.validate_action(&event.action)?;
         }
         Ok(())
@@ -946,6 +954,9 @@ impl DatagramFaultKindV1 {
             },
             Self::Loss => DatagramFaultKind::Loss,
             Self::Duplicate { additional_copies } => {
+                if !(1..=16).contains(&additional_copies) {
+                    return Err("additional_copies must be in 1..=16".into());
+                }
                 DatagramFaultKind::Duplicate { additional_copies }
             }
             Self::Reorder { hold_ns } => DatagramFaultKind::Reorder {
@@ -994,11 +1005,13 @@ impl DatagramFaultKindV1 {
 impl DatagramFaultSpecV1 {
     /// Convert to the core datagram fault specification.
     pub fn into_core(self) -> Result<DatagramFaultSpec, String> {
-        Ok(DatagramFaultSpec {
+        let spec = DatagramFaultSpec {
             id: FaultId::new(self.id).map_err(|error| error.to_string())?,
             probability: Probability::new(self.probability).map_err(|error| error.to_string())?,
             kind: self.kind.into_core()?,
-        })
+        };
+        DatagramPlan::new(vec![spec.clone()]).map_err(|error| error.to_string())?;
+        Ok(spec)
     }
 }
 
@@ -1194,6 +1207,25 @@ pub struct NativeDatagramProxyPatchV1 {
     pub association_idle_timeout_ms: Option<u64>,
 }
 
+impl NativeDatagramProxyPatchV1 {
+    /// Validate supplied datagram proxy limits before applying a patch.
+    pub fn validate(&self) -> Result<(), String> {
+        if self
+            .max_associations
+            .is_some_and(|limit| limit == 0 || limit > 65_536)
+        {
+            return Err("max_associations must be in 1..=65536".into());
+        }
+        if self
+            .association_idle_timeout_ms
+            .is_some_and(|timeout| timeout == 0 || timeout > 86_400_000)
+        {
+            return Err("association_idle_timeout_ms must be in 1..=86400000".into());
+        }
+        Ok(())
+    }
+}
+
 /// Patch one datagram fault's probability or behavior.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1203,6 +1235,17 @@ pub struct DatagramFaultPatchV1 {
 }
 
 impl DatagramFaultPatchV1 {
+    /// Validate any supplied probability and replacement fault behavior.
+    pub fn validate(&self) -> Result<(), String> {
+        if let Some(probability) = self.probability {
+            Probability::new(probability).map_err(|error| error.to_string())?;
+        }
+        if let Some(kind) = &self.kind {
+            kind.clone().into_core()?;
+        }
+        Ok(())
+    }
+
     /// Convert to validated probability/kind parts.
     pub fn into_core_parts(self) -> Result<(Option<f64>, Option<DatagramFaultKind>), String> {
         let probability = self

@@ -38,14 +38,14 @@ struct StreamResource {
 /// policies. Stream-only: datagram actions fail explicitly.
 #[derive(Debug, Default)]
 pub struct StreamPolicyTarget {
-    resources: RwLock<HashMap<String, StreamResource>>,
+    resources: std::sync::Arc<RwLock<HashMap<String, StreamResource>>>,
     global: std::sync::Arc<AtomicU64>,
 }
 
 impl Clone for StreamPolicyTarget {
     fn clone(&self) -> Self {
         Self {
-            resources: RwLock::new(self.resources.read().expect("stream target lock").clone()),
+            resources: self.resources.clone(),
             global: self.global.clone(),
         }
     }

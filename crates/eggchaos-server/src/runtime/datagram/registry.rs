@@ -40,16 +40,19 @@ pub(crate) struct RuntimeInner {
 pub(crate) struct ManagedProxy {
     state: Arc<ProxyState>,
     listener: Option<ListenerOwner>,
+    cancel_start: bool,
 }
 
 pub(crate) struct ListenerOwner {
     pub(crate) bound: SocketAddr,
     pub(crate) cancel: CancellationToken,
     pub(crate) task: JoinHandle<()>,
+    pub(crate) drain_on_exit: Arc<std::sync::atomic::AtomicBool>,
 }
 
 pub(crate) struct ProxyState {
     pub(crate) spec: StdRwLock<DatagramProxySpec>,
+    pub(crate) capacity_mutation: Mutex<()>,
     pub(crate) policy_mutation: Mutex<()>,
     pub(crate) associations: StdRwLock<HashMap<SocketAddr, AssociationSlot>>,
     pub(crate) global_active: Arc<AtomicUsize>,
@@ -134,6 +137,7 @@ impl DatagramRuntime {
         let bound = socket.local_addr().map_err(DatagramRuntimeError::Bind)?;
         let state = Arc::new(ProxyState {
             spec: StdRwLock::new(spec.clone()),
+            capacity_mutation: Mutex::new(()),
             policy_mutation: Mutex::new(()),
             associations: StdRwLock::new(HashMap::new()),
             global_active: self.inner.active_associations.clone(),
@@ -165,14 +169,25 @@ impl DatagramRuntime {
                 ManagedProxy {
                     state: state.clone(),
                     listener: None,
+                    cancel_start: false,
                 },
             );
         }
         let owner = spawn_listener(socket, state.clone());
+        let mut running = true;
         {
             let mut proxies = self.inner.proxies.lock().await;
             if let Some(managed) = proxies.get_mut(&spec.name) {
-                managed.listener = Some(owner);
+                if managed.cancel_start {
+                    running = false;
+                    owner.drain_on_exit.store(false, Ordering::Release);
+                    owner.cancel.cancel();
+                    if let Err(error) = owner.task.await {
+                        tracing::warn!("datagram listener supervisor join failed: {error}");
+                    }
+                } else {
+                    managed.listener = Some(owner);
+                }
             } else {
                 // Proxy vanished between insert and spawn: stop the orphan.
                 owner.cancel.cancel();
@@ -182,7 +197,7 @@ impl DatagramRuntime {
                 return Err(DatagramRuntimeError::NotFound(spec.name));
             }
         }
-        Ok(proxy_view(&state, Some(bound), true).await)
+        Ok(proxy_view(&state, running.then_some(bound), running).await)
     }
 
     /// Stop a listener and its associations while retaining the definition.
@@ -192,6 +207,9 @@ impl DatagramRuntime {
             let managed = proxies
                 .get_mut(name)
                 .ok_or_else(|| DatagramRuntimeError::NotFound(name.into()))?;
+            if managed.listener.is_none() {
+                managed.cancel_start = true;
+            }
             (managed.listener.take(), managed.state.clone())
         };
         if let Some(owner) = owner {
@@ -212,9 +230,9 @@ impl DatagramRuntime {
         name: &str,
     ) -> Result<DatagramProxyView, DatagramRuntimeError> {
         let (state, listen) = {
-            let proxies = self.inner.proxies.lock().await;
+            let mut proxies = self.inner.proxies.lock().await;
             let managed = proxies
-                .get(name)
+                .get_mut(name)
                 .ok_or_else(|| DatagramRuntimeError::NotFound(name.into()))?;
             if managed.listener.is_some() {
                 return Ok(proxy_view(
@@ -228,8 +246,9 @@ impl DatagramRuntime {
                 .state
                 .spec
                 .read()
-                .expect("datagram proxy spec")
+                .unwrap_or_else(|p| p.into_inner())
                 .listen;
+            managed.cancel_start = false;
             (managed.state.clone(), listen)
         };
         let socket = Arc::new(
@@ -244,6 +263,7 @@ impl DatagramRuntime {
             .get_mut(name)
             .ok_or_else(|| DatagramRuntimeError::NotFound(name.into()))?;
         if managed.listener.is_some() {
+            owner.drain_on_exit.store(false, Ordering::Release);
             owner.cancel.cancel();
             if let Err(error) = owner.task.await {
                 tracing::warn!("datagram listener supervisor join failed: {error}");
@@ -254,6 +274,16 @@ impl DatagramRuntime {
                 true,
             )
             .await);
+        }
+        if managed.cancel_start {
+            owner.drain_on_exit.store(false, Ordering::Release);
+            owner.cancel.cancel();
+            if let Err(error) = owner.task.await {
+                tracing::warn!("datagram listener supervisor join failed: {error}");
+            }
+            return Err(DatagramRuntimeError::Conflict(
+                "datagram proxy was disabled while enabling".into(),
+            ));
         }
         managed.listener = Some(owner);
         Ok(proxy_view(&state, Some(bound), true).await)
@@ -330,11 +360,11 @@ impl DatagramRuntime {
                 .state
                 .spec
                 .read()
-                .expect("datagram proxy spec")
+                .unwrap_or_else(|p| p.into_inner())
                 .clone();
             (managed.state.clone(), managed.listener.is_some(), next)
         };
-        let old = state.spec.read().expect("datagram proxy spec").clone();
+        let old = state.spec.read().unwrap_or_else(|p| p.into_inner()).clone();
         if let Some(listen) = listen {
             next.listen = listen;
         }
@@ -395,14 +425,11 @@ impl DatagramRuntime {
             // the guard must not cross the below `drain_associations().await`.
             // Acquire the guard, validate the cap, write the spec, then drop.
             {
-                let _associations = state
-                    .associations
-                    .read()
-                    .expect("datagram association registry");
+                let _associations = state.associations.read().unwrap_or_else(|p| p.into_inner());
                 // Re-check under the write path: reject concurrent updates
                 // that changed the spec since the stale pre-validation clone
                 // instead of last-writer-wins overwriting them.
-                let current = state.spec.read().expect("datagram proxy spec").clone();
+                let current = state.spec.read().unwrap_or_else(|p| p.into_inner()).clone();
                 if current.listen != old.listen
                     || current.upstream != old.upstream
                     || current.max_associations != old.max_associations
@@ -417,7 +444,16 @@ impl DatagramRuntime {
                         "max_associations cannot be lower than the current active count".into(),
                     ));
                 }
-                *state.spec.write().expect("datagram proxy spec") = next;
+                let _capacity = state
+                    .capacity_mutation
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner());
+                if state.proxy_active.load(Ordering::Acquire) > next.max_associations {
+                    return Err(DatagramRuntimeError::Invalid(
+                        "max_associations cannot be lower than the current active count".into(),
+                    ));
+                }
+                *state.spec.write().unwrap_or_else(|p| p.into_inner()) = next;
             }
             if upstream_changed {
                 for association in drain_associations(&state, running).await {
@@ -425,7 +461,7 @@ impl DatagramRuntime {
                 }
             }
         } else {
-            let current = state.spec.read().expect("datagram proxy spec").clone();
+            let current = state.spec.read().unwrap_or_else(|p| p.into_inner()).clone();
             if current.listen != old.listen
                 || current.upstream != old.upstream
                 || current.max_associations != old.max_associations
@@ -435,12 +471,18 @@ impl DatagramRuntime {
                     "datagram proxy changed concurrently".into(),
                 ));
             }
-            if state.proxy_active.load(Ordering::Acquire) > next.max_associations {
-                return Err(DatagramRuntimeError::Invalid(
-                    "max_associations cannot be lower than the current active count".into(),
-                ));
+            {
+                let _capacity = state
+                    .capacity_mutation
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner());
+                if state.proxy_active.load(Ordering::Acquire) > next.max_associations {
+                    return Err(DatagramRuntimeError::Invalid(
+                        "max_associations cannot be lower than the current active count".into(),
+                    ));
+                }
+                *state.spec.write().unwrap_or_else(|p| p.into_inner()) = next;
             }
-            *state.spec.write().expect("datagram proxy spec") = next;
             for association in drain_associations(&state, false).await {
                 stop_association(&state, association, true).await;
             }
@@ -450,7 +492,15 @@ impl DatagramRuntime {
             let mut proxies = self.inner.proxies.lock().await;
             let managed = proxies
                 .get_mut(name)
-                .ok_or_else(|| DatagramRuntimeError::NotFound(name.into()))?;
+                .ok_or_else(|| DatagramRuntimeError::NotFound(name.into()));
+            let Some(managed) = managed.ok() else {
+                owner.drain_on_exit.store(false, Ordering::Release);
+                owner.cancel.cancel();
+                if let Err(error) = owner.task.await {
+                    tracing::warn!("datagram listener supervisor join failed: {error}");
+                }
+                return Err(DatagramRuntimeError::NotFound(name.into()));
+            };
             managed.listener = Some(owner);
         }
         let proxies = self.inner.proxies.lock().await;
@@ -473,7 +523,7 @@ impl DatagramRuntime {
     ) -> Option<(DatagramPlan, u64, u64)> {
         let proxies = self.inner.proxies.lock().await;
         let state = &proxies.get(name)?.state;
-        let spec = state.spec.read().expect("datagram proxy spec").clone();
+        let spec = state.spec.read().unwrap_or_else(|p| p.into_inner()).clone();
         let snapshot = match direction {
             Direction::Upstream => spec.upstream_policy.snapshot(),
             Direction::Downstream => spec.downstream_policy.snapshot(),
@@ -505,7 +555,7 @@ impl DatagramRuntime {
             .policy_mutation
             .lock()
             .expect("datagram policy mutation");
-        let spec = state.spec.read().expect("datagram proxy spec").clone();
+        let spec = state.spec.read().unwrap_or_else(|p| p.into_inner()).clone();
         let policy = match direction {
             Direction::Upstream => &spec.upstream_policy,
             Direction::Downstream => &spec.downstream_policy,
@@ -535,13 +585,13 @@ impl DatagramRuntime {
                 .state
                 .associations
                 .read()
-                .expect("datagram association registry");
+                .unwrap_or_else(|p| p.into_inner());
             for association in associations.values().filter_map(AssociationSlot::active) {
                 views.push(
                     association
                         .record
                         .lock()
-                        .expect("association record")
+                        .unwrap_or_else(|p| p.into_inner())
                         .snapshot(Instant::now()),
                 );
             }
@@ -556,7 +606,7 @@ impl DatagramRuntime {
             .inner
             .history
             .lock()
-            .expect("association history")
+            .unwrap_or_else(|p| p.into_inner())
             .iter()
             .cloned()
             .collect::<Vec<_>>();
@@ -573,7 +623,7 @@ impl DatagramRuntime {
                 .state
                 .associations
                 .read()
-                .expect("datagram association registry");
+                .unwrap_or_else(|p| p.into_inner());
             if let Some(association) = associations
                 .values()
                 .filter_map(AssociationSlot::active)
@@ -583,7 +633,7 @@ impl DatagramRuntime {
                     association
                         .record
                         .lock()
-                        .expect("association record")
+                        .unwrap_or_else(|p| p.into_inner())
                         .snapshot(Instant::now()),
                 );
             }
@@ -591,7 +641,7 @@ impl DatagramRuntime {
         self.inner
             .history
             .lock()
-            .expect("association history")
+            .unwrap_or_else(|p| p.into_inner())
             .iter()
             .find(|x| x.id == id)
             .cloned()
@@ -602,14 +652,20 @@ impl DatagramRuntime {
     /// stable id yet; a kill that races setup resolves against the published
     /// association on retry.
     pub async fn kill_association(&self, id: u64) -> bool {
-        let proxies = self.inner.proxies.lock().await;
-        for managed in proxies.values() {
+        let states: Vec<_> = self
+            .inner
+            .proxies
+            .lock()
+            .await
+            .values()
+            .map(|managed| managed.state.clone())
+            .collect();
+        for state in states {
             let found = {
-                let mut associations = managed
-                    .state
+                let mut associations = state
                     .associations
                     .write()
-                    .expect("datagram association registry");
+                    .unwrap_or_else(|p| p.into_inner());
                 let key = associations.iter().find_map(|(key, slot)| {
                     matches!(slot, AssociationSlot::Active(association) if association.id == id)
                         .then_some(*key)
@@ -617,7 +673,7 @@ impl DatagramRuntime {
                 key.and_then(|key| associations.remove(&key))
             };
             if let Some(AssociationSlot::Active(association)) = found {
-                stop_association(&managed.state, association, true).await;
+                stop_association(&state, association, true).await;
                 return true;
             }
         }
@@ -637,7 +693,7 @@ async fn proxy_view(
     bound: Option<SocketAddr>,
     running: bool,
 ) -> DatagramProxyView {
-    let spec = state.spec.read().expect("datagram proxy spec").clone();
+    let spec = state.spec.read().unwrap_or_else(|p| p.into_inner()).clone();
     DatagramProxyView {
         name: spec.name.clone(),
         listen: spec.listen,
@@ -656,7 +712,7 @@ async fn proxy_view(
         active_associations: state
             .associations
             .read()
-            .expect("datagram association registry")
+            .unwrap_or_else(|p| p.into_inner())
             .values()
             .filter(|slot| matches!(slot, AssociationSlot::Active(_)))
             .count(),

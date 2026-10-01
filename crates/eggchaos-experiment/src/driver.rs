@@ -106,20 +106,7 @@ pub async fn prepare_initial<T: PolicyTarget>(
             }
             _ => {}
         }
-        let snapshot = target
-            .snapshot(&resource)
-            .await
-            .map_err(|error| match error {
-                TargetError::MissingResource(_) => match resource.transport {
-                    ScheduleTransport::Stream => {
-                        TargetError::missing(format!("stream proxy {} not found", resource.proxy))
-                    }
-                    ScheduleTransport::Datagram => {
-                        TargetError::missing(format!("datagram proxy {} not found", resource.proxy))
-                    }
-                },
-                other => other,
-            })?;
+        let snapshot = target.snapshot(&resource).await?;
         owned.insert(
             key,
             OwnedResource {
@@ -277,7 +264,9 @@ async fn apply_event<T: PolicyTarget, S: EventSink>(
                 .await
                 .map_err(|error| format!("set-plan publish failed: {error}"))?;
             update_owned(owned, &key, resource.clone(), receipt);
-            let (upstream, downstream) = directional_gens(target, &resource, receipt).await;
+            let (upstream, downstream) = directional_gens(target, &resource, receipt)
+                .await
+                .map_err(|error| format!("generation evidence failed: {error}"))?;
             sink.record(ScheduleEventResult {
                 compiled_index: event.compiled_index,
                 phase: event.phase,
@@ -332,7 +321,9 @@ async fn apply_event<T: PolicyTarget, S: EventSink>(
                 .await
                 .map_err(|error| format!("remove-fault publish failed: {error}"))?;
             update_owned(owned, &key, resource.clone(), receipt);
-            let (upstream, downstream) = directional_gens(target, &resource, receipt).await;
+            let (upstream, downstream) = directional_gens(target, &resource, receipt)
+                .await
+                .map_err(|error| format!("generation evidence failed: {error}"))?;
             sink.record(ScheduleEventResult {
                 compiled_index: event.compiled_index,
                 phase: event.phase,
@@ -475,7 +466,7 @@ async fn directional_gens<T: PolicyTarget>(
     target: &T,
     resource: &ScheduleResource,
     receipt: PublishReceipt,
-) -> (u64, u64) {
+) -> Result<(u64, u64), TargetError> {
     let sibling = ScheduleResource {
         proxy: resource.proxy.clone(),
         direction: match resource.direction {
@@ -484,11 +475,11 @@ async fn directional_gens<T: PolicyTarget>(
         },
         transport: resource.transport,
     };
-    let other = target.current_generation(&sibling).await.unwrap_or(0);
-    match resource.direction {
+    let other = target.current_generation(&sibling).await?;
+    Ok(match resource.direction {
         Direction::Upstream => (receipt.generation, other),
         Direction::Downstream => (other, receipt.generation),
-    }
+    })
 }
 
 fn update_owned(

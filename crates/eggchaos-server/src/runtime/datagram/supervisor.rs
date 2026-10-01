@@ -29,16 +29,24 @@ pub(crate) fn spawn_listener(socket: Arc<UdpSocket>, state: Arc<ProxyState>) -> 
     let bound = socket
         .local_addr()
         .expect("bound UDP socket has local address");
+    let drain_on_exit = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let task_drain_on_exit = drain_on_exit.clone();
     let task = tokio::spawn(async move {
-        listener_loop(socket, state, task_cancel).await;
+        listener_loop(socket, state, task_cancel, task_drain_on_exit).await;
     });
     ListenerOwner {
         bound,
         cancel,
         task,
+        drain_on_exit,
     }
 }
-async fn listener_loop(socket: Arc<UdpSocket>, state: Arc<ProxyState>, cancel: CancellationToken) {
+async fn listener_loop(
+    socket: Arc<UdpSocket>,
+    state: Arc<ProxyState>,
+    cancel: CancellationToken,
+    drain_on_exit: Arc<std::sync::atomic::AtomicBool>,
+) {
     let mut recv = vec![0u8; UDP_RECEIVE_BUFFER_BYTES];
     let mut reaper = interval(Duration::from_millis(10));
     reaper.set_missed_tick_behavior(MissedTickBehavior::Skip);
@@ -53,8 +61,10 @@ async fn listener_loop(socket: Arc<UdpSocket>, state: Arc<ProxyState>, cancel: C
             _ = reaper.tick() => reap_idle(&state).await,
         }
     }
-    for association in super::association::drain_associations(&state, false).await {
-        stop_association(&state, association, true).await;
+    if drain_on_exit.load(Ordering::Acquire) {
+        for association in super::association::drain_associations(&state, false).await {
+            stop_association(&state, association, true).await;
+        }
     }
 }
 
@@ -72,7 +82,7 @@ async fn receive_client_datagram(
     // obtainable under a brief read guard and never co-resident with
     // the awaiting `resolve_association` future.
     let max_datagram_bytes = {
-        let spec = state.spec.read().expect("datagram proxy spec");
+        let spec = state.spec.read().unwrap_or_else(|p| p.into_inner());
         spec.queue_limits.max_datagram_bytes
     };
     if payload.len() as u64 > max_datagram_bytes.get() {
@@ -83,11 +93,11 @@ async fn receive_client_datagram(
         if let Some(association) = state
             .associations
             .read()
-            .expect("datagram association registry")
+            .unwrap_or_else(|p| p.into_inner())
             .get(&client)
             .and_then(AssociationSlot::active)
         {
-            let mut record = association.record.lock().expect("association record");
+            let mut record = association.record.lock().unwrap_or_else(|p| p.into_inner());
             record.oversize_datagrams = record.oversize_datagrams.saturating_add(1);
             record.last_activity = Instant::now();
         }
@@ -111,7 +121,7 @@ async fn receive_client_datagram(
         }
     };
     let policy = {
-        let spec = state.spec.read().expect("datagram proxy spec");
+        let spec = state.spec.read().unwrap_or_else(|p| p.into_inner());
         spec.upstream_policy.snapshot()
     };
     let ingress_bytes = payload.len() as u64;
@@ -124,7 +134,7 @@ async fn receive_client_datagram(
             .counters
             .ingress_overflow
             .fetch_add(1, Ordering::Relaxed);
-        let mut record = association.record.lock().expect("association record");
+        let mut record = association.record.lock().unwrap_or_else(|p| p.into_inner());
         record.ingress_queue_overflow = record.ingress_queue_overflow.saturating_add(1);
         record.last_activity = Instant::now();
         return;
@@ -137,7 +147,7 @@ async fn receive_client_datagram(
     association.pending_ingress.fetch_add(1, Ordering::Relaxed);
     match association.sender.try_send(ingress) {
         Ok(()) => {
-            let mut record = association.record.lock().expect("association record");
+            let mut record = association.record.lock().unwrap_or_else(|p| p.into_inner());
             record.ingress_datagrams = record.ingress_datagrams.saturating_add(1);
             record.ingress_bytes = record.ingress_bytes.saturating_add(ingress_bytes);
             record.last_activity = Instant::now();
@@ -148,7 +158,7 @@ async fn receive_client_datagram(
                 .counters
                 .ingress_overflow
                 .fetch_add(1, Ordering::Relaxed);
-            let mut record = association.record.lock().expect("association record");
+            let mut record = association.record.lock().unwrap_or_else(|p| p.into_inner());
             record.ingress_queue_overflow = record.ingress_queue_overflow.saturating_add(1);
             record.last_activity = Instant::now();
         }
@@ -160,7 +170,7 @@ async fn receive_client_datagram(
                 .counters
                 .ingress_overflow
                 .fetch_add(1, Ordering::Relaxed);
-            let mut record = association.record.lock().expect("association record");
+            let mut record = association.record.lock().unwrap_or_else(|p| p.into_inner());
             record.ingress_queue_overflow = record.ingress_queue_overflow.saturating_add(1);
             record.administrative_discards = record.administrative_discards.saturating_add(1);
             record.last_activity = Instant::now();
@@ -172,19 +182,16 @@ async fn reap_idle(state: &Arc<ProxyState>) {
     let idle_timeout = state
         .spec
         .read()
-        .expect("datagram proxy spec")
+        .unwrap_or_else(|p| p.into_inner())
         .association_idle_timeout;
     let expired: Vec<(SocketAddr, Arc<Association>)> = {
-        let associations = state
-            .associations
-            .read()
-            .expect("datagram association registry");
+        let associations = state.associations.read().unwrap_or_else(|p| p.into_inner());
         associations
             .iter()
             .filter_map(|(client, slot)| {
                 let association = slot.active()?;
                 let (queues_empty, pending, idle) = {
-                    let record = association.record.lock().expect("association record");
+                    let record = association.record.lock().unwrap_or_else(|p| p.into_inner());
                     (
                         record.upstream_evidence.queued_datagrams == 0
                             && record.downstream_evidence.queued_datagrams == 0,
@@ -204,7 +211,7 @@ async fn reap_idle(state: &Arc<ProxyState>) {
             let mut associations = state
                 .associations
                 .write()
-                .expect("datagram association registry");
+                .unwrap_or_else(|p| p.into_inner());
             let ours = matches!(
                 associations.get(&client),
                 Some(AssociationSlot::Active(current)) if Arc::ptr_eq(current, &association)

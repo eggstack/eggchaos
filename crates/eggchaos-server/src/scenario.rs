@@ -386,6 +386,19 @@ pub async fn drive_scenario_run(
                                 .any(|existing| existing.id == fault.id)
                         });
                         if duplicate {
+                            if let Ok((_, own_generation, own_seed)) =
+                                state.get_datagram_plan(&proxy, direction).await
+                            {
+                                let _ = state
+                                    .publish_datagram_plan(
+                                        &proxy,
+                                        direction,
+                                        base.clone(),
+                                        own_seed,
+                                        Some(own_generation),
+                                    )
+                                    .await;
+                            }
                             fail_run(
                                 &state,
                                 run_id,

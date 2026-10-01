@@ -196,7 +196,11 @@ fn validate_phase_actions(phase: &SchedulePhaseV2) -> Result<(), ScheduleError> 
                 eggchaos_core::DatagramPlan::new(faults.clone())
                     .map_err(|error| ScheduleError::InvalidDatagramPlan(error.to_string()))?;
             }
-            _ => {}
+            ScenarioAction::RemoveFault { id, .. }
+            | ScenarioAction::RemoveDatagramFault { id, .. } => {
+                eggchaos_core::FaultId::new(id.clone())
+                    .map_err(|error| ScheduleError::InvalidStreamPlan(error.to_string()))?;
+            }
         }
     }
     Ok(())

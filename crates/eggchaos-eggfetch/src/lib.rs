@@ -256,7 +256,7 @@ impl RecordingObserver {
 
     /// Number of retained records (never exceeds capacity).
     pub fn len(&self) -> usize {
-        self.records.lock().expect("observer lock").len()
+        self.records.lock().unwrap_or_else(|p| p.into_inner()).len()
     }
 
     /// Whether no record is retained.
@@ -268,7 +268,7 @@ impl RecordingObserver {
     pub fn records(&self) -> Vec<ConnectionRecord> {
         self.records
             .lock()
-            .expect("observer lock")
+            .unwrap_or_else(|p| p.into_inner())
             .iter()
             .cloned()
             .collect()
@@ -280,7 +280,7 @@ impl ConnectionObserver for RecordingObserver {
         if self.capacity == 0 {
             return;
         }
-        let mut records = self.records.lock().expect("observer lock");
+        let mut records = self.records.lock().unwrap_or_else(|p| p.into_inner());
         while records.len() >= self.capacity {
             records.pop_front();
         }
@@ -348,8 +348,17 @@ impl Dialer for DirectDialer {
                     )
                 })?;
             let mut last_error = None;
+            let deadline = tokio::time::Instant::now() + timeout_duration;
             for address in addresses {
-                match timeout(timeout_duration, tokio::net::TcpStream::connect(address)).await {
+                let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+                if remaining.is_zero() {
+                    last_error = Some(io::Error::new(
+                        io::ErrorKind::TimedOut,
+                        "direct route connect timed out",
+                    ));
+                    break;
+                }
+                match timeout(remaining, tokio::net::TcpStream::connect(address)).await {
                     Ok(Ok(stream)) => return Ok(Box::new(stream) as DialStream),
                     Ok(Err(error)) => last_error = Some(error),
                     Err(_) => {

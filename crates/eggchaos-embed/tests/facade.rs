@@ -179,7 +179,10 @@ fn datagram_proxy_and_fault_crud_round_trip() {
     service.remove_datagram_fault("dns", "loss").unwrap();
     assert!(service.get_datagram_fault("dns", "loss").is_err());
     assert!(service.datagram_associations().unwrap().is_empty());
-    assert!(!service.kill_datagram_association(999).unwrap());
+    assert!(matches!(
+        service.kill_datagram_association(999),
+        Err(eggchaos_embed::EmbedError::NotFound(_))
+    ));
     service.delete_datagram_proxy("dns").unwrap();
     service.shutdown();
 }
@@ -210,7 +213,10 @@ fn scenario_v1_and_v2_lifecycle() {
     assert!(matches!(cancelled, eggchaos_embed::ScenarioRunView::V2(_)));
     assert!(service.connections().unwrap().is_empty());
     assert!(service.history().unwrap().is_empty());
-    assert!(!service.kill_connection(999).unwrap());
+    assert!(matches!(
+        service.kill_connection(999),
+        Err(eggchaos_embed::EmbedError::NotFound(_))
+    ));
     service.shutdown();
 }
 

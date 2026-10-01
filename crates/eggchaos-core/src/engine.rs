@@ -453,7 +453,7 @@ impl DirectionEngine {
         let mut remaining_limit = None;
         let mut blackhole: Option<BlackholeState> = None;
         let mut disconnect: Option<DisconnectState> = None;
-        let mut bandwidth_cfg = None;
+        let mut bandwidth_cfg: Option<(u64, u64)> = None;
         let mut slicer_active = false;
         let mut rngs = Vec::with_capacity(plan.faults().len());
         let mut stream_loss = Vec::with_capacity(plan.faults().len());
@@ -472,7 +472,10 @@ impl DirectionEngine {
                         .min(usize::try_from(c.max_buffer_bytes.get()).unwrap_or(usize::MAX));
                 }
                 FaultKind::LimitData(c) => {
-                    if remaining_limit.is_none() {
+                    if remaining_limit
+                        .as_ref()
+                        .is_none_or(|(limit, _)| c.bytes.get() < *limit)
+                    {
                         remaining_limit = Some((c.bytes.get(), fault.id.clone()));
                     }
                 }
@@ -504,9 +507,13 @@ impl DirectionEngine {
                 }
                 FaultKind::SlowClose(_) => {}
                 FaultKind::Bandwidth(c) => {
-                    if bandwidth_cfg.is_none() {
-                        bandwidth_cfg = Some((c.bytes_per_second.get(), c.burst_bytes.get()));
-                    }
+                    bandwidth_cfg = Some(match bandwidth_cfg {
+                        Some((rate, burst)) => (
+                            rate.min(c.bytes_per_second.get()),
+                            burst.min(c.burst_bytes.get()),
+                        ),
+                        None => (c.bytes_per_second.get(), c.burst_bytes.get()),
+                    });
                 }
                 FaultKind::Slice(_) => {
                     slicer_active = true;
@@ -555,19 +562,16 @@ impl DirectionEngine {
             });
             rngs.push((true, rng));
         }
-        // Slow-close delay snapshot (first active wins; plans rarely combine).
+        // Slow-close stages are sequential, so their delays compose by sum.
         let slow_close = plan
             .faults()
             .iter()
             .zip(&rngs)
-            .find_map(|(fault, (active, _))| {
-                if *active {
-                    if let FaultKind::SlowClose(c) = fault.kind {
-                        return Some(c.delay);
-                    }
-                }
-                None
-            });
+            .filter_map(|(fault, (active, _))| match (active, fault.kind) {
+                (true, FaultKind::SlowClose(config)) => Some(config.delay),
+                _ => None,
+            })
+            .reduce(Duration::saturating_add);
         let termination = term_handle.get();
         let evidence = EngineEvidence {
             rng_version: RngVersion::V1,
@@ -614,7 +618,7 @@ impl DirectionEngine {
             queue: VecDeque::new(),
             buffered: 0,
             high_water: 0,
-            max_buffer: 1,
+            max_buffer: 64 * 1024,
             rngs: Vec::new(),
             evidence,
             termination: None,
@@ -658,6 +662,7 @@ impl DirectionEngine {
                 crate::FaultKind::Latency(_)
                     | crate::FaultKind::Bandwidth(_)
                     | crate::FaultKind::Slice(_)
+                    | crate::FaultKind::LimitData(_)
                     | crate::FaultKind::Disconnect(_)
                     | crate::FaultKind::SlowClose(_)
             )
@@ -844,7 +849,7 @@ impl DirectionEngine {
         false
     }
 
-    fn refresh_sync_terminations(&mut self) {
+    pub(crate) fn refresh_sync_terminations(&mut self) {
         if self.termination.is_some() {
             return;
         }
@@ -901,10 +906,8 @@ impl DirectionEngine {
     }
 
     fn next_slice_size(&mut self, remaining: usize) -> usize {
-        // The plan order is stable, so drawing from the first active
-        // slicer's fault-local RNG yields a deterministic size sequence
-        // for a fixed seed. Size is symmetric in
-        // [average - variation, average + variation], lower-bounded at one.
+        // Every active slicer constrains the output size; the smallest
+        // deterministic draw applies all configured stages.
         let mut size = remaining.max(1) as u64;
         for (fault, (active, rng)) in self.plan.faults().iter().zip(&mut self.rngs) {
             if !*active {
@@ -913,13 +916,13 @@ impl DirectionEngine {
             if let FaultKind::Slice(c) = fault.kind {
                 let span = c.variation.saturating_mul(2).saturating_add(1);
                 let offset = rng.below(span);
-                size = c
+                let stage_size = c
                     .average_size
                     .get()
                     .saturating_sub(c.variation)
                     .saturating_add(offset)
                     .max(1);
-                break;
+                size = size.min(stage_size);
             }
         }
         size.min(remaining as u64).max(1) as usize
@@ -1021,15 +1024,13 @@ impl DirectionEngine {
                         let nanos = (c.delay.as_nanos() as i128 + jitter)
                             .max(0)
                             .min(u64::MAX as i128) as u64;
-                        // Independent per-segment deadline: segments accepted
-                        // together share similar deadlines and drain as a
-                        // burst instead of serializing one delay per write.
+                        // Delay stages are sequential, so each adds to the
+                        // preceding stage's release deadline.
                         // Nanos precision preserves sub-ms delays; evidence
                         // stays in whole milliseconds.
-                        release = release.max(
-                            now.checked_add(Duration::from_nanos(nanos))
-                                .unwrap_or(now + crate::MAX_STREAM_FAULT_DURATION),
-                        );
+                        release = release
+                            .checked_add(Duration::from_nanos(nanos))
+                            .unwrap_or(release + crate::MAX_STREAM_FAULT_DURATION);
                         self.evidence.injected_delay_ms = self
                             .evidence
                             .injected_delay_ms
@@ -1320,15 +1321,13 @@ impl DirectionEngine {
                         let nanos = (c.delay.as_nanos() as i128 + jitter)
                             .max(0)
                             .min(u64::MAX as i128) as u64;
-                        // Independent per-segment deadline: segments accepted
-                        // together share similar deadlines and drain as a
-                        // burst instead of serializing one delay per write.
+                        // Delay stages are sequential, so each adds to the
+                        // preceding stage's release deadline.
                         // Nanos precision preserves sub-ms delays; evidence
                         // stays in whole milliseconds.
-                        release = release.max(
-                            now.checked_add(Duration::from_nanos(nanos))
-                                .unwrap_or(now + crate::MAX_STREAM_FAULT_DURATION),
-                        );
+                        release = release
+                            .checked_add(Duration::from_nanos(nanos))
+                            .unwrap_or(release + crate::MAX_STREAM_FAULT_DURATION);
                         self.evidence.injected_delay_ms = self
                             .evidence
                             .injected_delay_ms
@@ -1584,6 +1583,13 @@ mod tests {
 
     fn plan(faults: Vec<crate::FaultSpec>) -> FaultPlan {
         FaultPlan::new(faults).unwrap()
+    }
+
+    #[test]
+    fn empty_engine_uses_the_default_buffer_capacity() {
+        let mut engine = DirectionEngine::empty();
+        assert_eq!(engine.bounded_accept_capacity(), 64 * 1024);
+        assert_eq!(engine.accept(b"hello"), 5);
     }
 
     fn latency_kind() -> FaultKind {

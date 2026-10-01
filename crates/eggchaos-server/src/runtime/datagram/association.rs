@@ -138,7 +138,16 @@ pub(crate) struct CapacityLease {
 }
 
 impl CapacityLease {
-    fn try_acquire(state: &ProxyState, proxy_limit: usize) -> Option<Arc<Self>> {
+    fn try_acquire(state: &ProxyState) -> Option<Arc<Self>> {
+        let _capacity = state
+            .capacity_mutation
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        let proxy_limit = state
+            .spec
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .max_associations;
         state
             .proxy_active
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
@@ -448,7 +457,7 @@ pub(crate) async fn resolve_association(
         if let Some(association) = state
             .associations
             .read()
-            .expect("datagram association registry")
+            .unwrap_or_else(|p| p.into_inner())
             .get(&client)
             .and_then(AssociationSlot::active)
         {
@@ -458,7 +467,7 @@ pub(crate) async fn resolve_association(
             let mut associations = state
                 .associations
                 .write()
-                .expect("datagram association registry");
+                .unwrap_or_else(|p| p.into_inner());
             match associations.get(&client) {
                 Some(AssociationSlot::Active(association)) => return Ok(association.clone()),
                 Some(AssociationSlot::Starting { reservation }) if reservation.is_terminal() => {
@@ -473,8 +482,8 @@ pub(crate) async fn resolve_association(
                     receiver: reservation.subscribe(),
                 },
                 None => {
-                    let spec = state.spec.read().expect("datagram proxy spec").clone();
-                    let capacity = CapacityLease::try_acquire(state, spec.max_associations)
+                    let spec = state.spec.read().unwrap_or_else(|p| p.into_inner()).clone();
+                    let capacity = CapacityLease::try_acquire(state)
                         .ok_or(DatagramRuntimeError::AssociationLimit)?;
                     let reservation = StartingReservation::new(
                         state.next_reservation.fetch_add(1, Ordering::Relaxed),
@@ -612,7 +621,7 @@ async fn publish_association(
         let mut associations = state
             .associations
             .write()
-            .expect("datagram association registry");
+            .unwrap_or_else(|p| p.into_inner());
         if same_reservation_slot(associations.get(&client), &reservation) {
             associations.insert(client, AssociationSlot::Active(association.clone()));
             reservation.transition(SetupOutcome::Published);
@@ -645,7 +654,7 @@ async fn abandon_starting(
     let mut associations = state
         .associations
         .write()
-        .expect("datagram association registry");
+        .unwrap_or_else(|p| p.into_inner());
     if same_reservation_slot(associations.get(&client), reservation) {
         associations.remove(&client);
     }
@@ -661,7 +670,7 @@ pub(crate) async fn drain_associations(
         let mut associations = state
             .associations
             .write()
-            .expect("datagram association registry");
+            .unwrap_or_else(|p| p.into_inner());
         let slots = associations
             .drain()
             .map(|(_, slot)| slot)
@@ -749,7 +758,7 @@ async fn association_loop(
                         | eggchaos_core::DatagramAdmission::Consumed => {}
                     }
                     evidence_dirty = true;
-                    let mut r = record.lock().expect("association record"); r.last_activity = Instant::now();
+                    let mut r = record.lock().unwrap_or_else(|p| p.into_inner()); r.last_activity = Instant::now();
                 }
                 None => break,
             },
@@ -758,7 +767,7 @@ async fn association_loop(
                     if size as u64 > spec.queue_limits.max_datagram_bytes.get() {
                         counters.oversize_datagrams.fetch_add(1, Ordering::Relaxed);
                         evidence_dirty = true;
-                        let mut r = record.lock().expect("association record"); r.oversize_datagrams = r.oversize_datagrams.saturating_add(1); r.last_activity = Instant::now();
+                        let mut r = record.lock().unwrap_or_else(|p| p.into_inner()); r.oversize_datagrams = r.oversize_datagrams.saturating_add(1); r.last_activity = Instant::now();
                     } else {
                         match downstream.admit(Instant::now(), Bytes::copy_from_slice(&recv[..size]), &spec.downstream_policy.snapshot()) {
                             eggchaos_core::DatagramAdmission::Immediate(ready) => {
@@ -770,10 +779,10 @@ async fn association_loop(
                             | eggchaos_core::DatagramAdmission::Consumed => {}
                         }
                         evidence_dirty = true;
-                        let mut r = record.lock().expect("association record"); r.last_activity = Instant::now();
+                        let mut r = record.lock().unwrap_or_else(|p| p.into_inner()); r.last_activity = Instant::now();
                     }
                 }
-                Err(_) => { evidence_dirty = true; let mut r = record.lock().expect("association record"); r.send_errors = r.send_errors.saturating_add(1); }
+                Err(_) => { evidence_dirty = true; let mut r = record.lock().unwrap_or_else(|p| p.into_inner()); r.send_errors = r.send_errors.saturating_add(1); }
             },
             _ = wait_deadline(next) => {},
         }
@@ -788,7 +797,7 @@ async fn association_loop(
         .discard_all()
         .saturating_add(downstream.discard_all()) as u64
         + ingress.len() as u64;
-    let mut r = record.lock().expect("association record");
+    let mut r = record.lock().unwrap_or_else(|p| p.into_inner());
     if association.administrative_cancel.load(Ordering::Relaxed) > 0 {
         r.administrative_discards = r.administrative_discards.saturating_add(discarded);
     }
@@ -840,7 +849,7 @@ async fn send_upstream(
     let mut send_errors = 0u64;
     for (index, DatagramScheduled { payload, .. }) in ready.iter().enumerate() {
         if context.cancel.is_cancelled() {
-            let mut r = context.record.lock().expect("association record");
+            let mut r = context.record.lock().unwrap_or_else(|p| p.into_inner());
             r.egress_datagrams = r.egress_datagrams.saturating_add(egress_datagrams);
             r.egress_bytes = r.egress_bytes.saturating_add(egress_bytes);
             r.send_errors = r.send_errors.saturating_add(send_errors);
@@ -861,7 +870,7 @@ async fn send_upstream(
         }
     }
     if egress_datagrams > 0 || send_errors > 0 {
-        let mut r = context.record.lock().expect("association record");
+        let mut r = context.record.lock().unwrap_or_else(|p| p.into_inner());
         r.egress_datagrams = r.egress_datagrams.saturating_add(egress_datagrams);
         r.egress_bytes = r.egress_bytes.saturating_add(egress_bytes);
         r.send_errors = r.send_errors.saturating_add(send_errors);
@@ -882,7 +891,7 @@ async fn send_downstream(
     let mut send_errors = 0u64;
     for (index, DatagramScheduled { payload, .. }) in ready.iter().enumerate() {
         if context.cancel.is_cancelled() {
-            let mut r = context.record.lock().expect("association record");
+            let mut r = context.record.lock().unwrap_or_else(|p| p.into_inner());
             r.egress_datagrams = r.egress_datagrams.saturating_add(egress_datagrams);
             r.egress_bytes = r.egress_bytes.saturating_add(egress_bytes);
             r.send_errors = r.send_errors.saturating_add(send_errors);
@@ -907,7 +916,7 @@ async fn send_downstream(
         }
     }
     if egress_datagrams > 0 || send_errors > 0 {
-        let mut r = context.record.lock().expect("association record");
+        let mut r = context.record.lock().unwrap_or_else(|p| p.into_inner());
         r.egress_datagrams = r.egress_datagrams.saturating_add(egress_datagrams);
         r.egress_bytes = r.egress_bytes.saturating_add(egress_bytes);
         r.send_errors = r.send_errors.saturating_add(send_errors);
@@ -921,7 +930,7 @@ fn update_evidence(
     upstream: &DatagramDirectionEngine,
     downstream: &DatagramDirectionEngine,
 ) {
-    let mut r = record.lock().expect("association record");
+    let mut r = record.lock().unwrap_or_else(|p| p.into_inner());
     r.upstream_evidence = upstream.evidence().clone();
     r.downstream_evidence = downstream.evidence().clone();
 }
@@ -944,9 +953,9 @@ pub(crate) async fn stop_association(
     let snapshot = association
         .record
         .lock()
-        .expect("association record")
+        .unwrap_or_else(|p| p.into_inner())
         .snapshot(Instant::now());
-    let mut history = state.history.lock().expect("association history");
+    let mut history = state.history.lock().unwrap_or_else(|p| p.into_inner());
     if state.limits.history > 0 {
         while history.len() >= state.limits.history {
             history.pop_front();

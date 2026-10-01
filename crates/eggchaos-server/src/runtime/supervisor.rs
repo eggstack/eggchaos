@@ -69,7 +69,11 @@ async fn accept_connection(
     }
     runtime.metrics.accepted.fetch_add(1, Ordering::Relaxed);
     {
-        let mut tables = runtime.metrics.tables.lock().expect("metrics lock");
+        let mut tables = runtime
+            .metrics
+            .tables
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
         tables.record_accept(&entry.spec.name);
     }
     let id = runtime.next_conn_id.fetch_add(1, Ordering::AcqRel);

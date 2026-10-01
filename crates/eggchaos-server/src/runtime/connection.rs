@@ -12,8 +12,11 @@ pub(super) async fn take_connection(
     Option<CancellationToken>,
     Option<ConnectionEvidence>,
 )> {
-    let snapshot = runtime.connections.write().await.remove(&id);
     let token = runtime.cancellations.write().await.remove(&id);
+    // Remove the cancellation handle before the visible snapshot. A kill
+    // racing close can no longer report success after readers see the ID
+    // disappear while its token is still registered.
+    let snapshot = runtime.connections.write().await.remove(&id);
     let evidence = runtime.evidence.write().await.remove(&id);
     snapshot.map(|snapshot| (snapshot, token, evidence))
 }
@@ -133,7 +136,11 @@ pub(super) fn aggregate_close_metrics(
         Ordering::Relaxed,
     );
     {
-        let mut tables = runtime.metrics.tables.lock().expect("metrics lock");
+        let mut tables = runtime
+            .metrics
+            .tables
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
         tables.record_complete(
             &snapshot.proxy,
             [

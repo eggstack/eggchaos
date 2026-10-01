@@ -334,6 +334,7 @@ impl EmbeddedService {
         proxy: &str,
         upsert: FaultUpsertV1,
     ) -> Result<(eggchaos_core::Direction, NativeFaultViewV1, u64), EmbedError> {
+        upsert.validate().map_err(EmbedError::Validation)?;
         self.block_on(async {
             let outcome = apply_stream_fault_upsert(&self.control, proxy, upsert)
                 .await
@@ -383,6 +384,7 @@ impl EmbeddedService {
         id: &str,
         patch: FaultPatchV1,
     ) -> Result<(eggchaos_core::Direction, NativeFaultViewV1, u64), EmbedError> {
+        patch.validate().map_err(EmbedError::Validation)?;
         self.block_on(async {
             let outcome = apply_stream_fault_patch(&self.control, proxy, id, patch)
                 .await
@@ -422,7 +424,13 @@ impl EmbeddedService {
 
     /// Terminate one active stream connection.
     pub fn kill_connection(&self, id: u64) -> Result<bool, EmbedError> {
-        self.block_on(async { Ok(kill_connection(&self.control, id).await) })
+        self.block_on(async {
+            if kill_connection(&self.control, id).await {
+                Ok(true)
+            } else {
+                Err(EmbedError::NotFound(format!("connection {id}")))
+            }
+        })
     }
 
     /// Snapshot bounded closed-connection history.
@@ -434,6 +442,7 @@ impl EmbeddedService {
 
     /// Apply a Scenario V1 document; returns the run record view.
     pub fn apply_scenario_v1(&self, scenario: ScenarioV1) -> Result<ScenarioRunV1, EmbedError> {
+        scenario.validate().map_err(EmbedError::Validation)?;
         self.block_on(async {
             apply_scenario_v1(&self.control, scenario)
                 .await
@@ -543,22 +552,7 @@ impl EmbeddedService {
         name: &str,
         patch: NativeDatagramProxyPatchV1,
     ) -> Result<(NativeDatagramProxyViewV1, u64), EmbedError> {
-        if patch
-            .max_associations
-            .is_some_and(|limit| limit == 0 || limit > 1_000_000)
-        {
-            return Err(EmbedError::Validation(
-                "max_associations must be in 1..=1000000".into(),
-            ));
-        }
-        if patch
-            .association_idle_timeout_ms
-            .is_some_and(|timeout| timeout == 0 || timeout > 86_400_000)
-        {
-            return Err(EmbedError::Validation(
-                "association_idle_timeout_ms must be in 1..=86400000".into(),
-            ));
-        }
+        patch.validate().map_err(EmbedError::Validation)?;
         self.block_on(async {
             let outcome = apply_datagram_proxy_patch(&self.control, name, patch)
                 .await
@@ -588,6 +582,11 @@ impl EmbeddedService {
         proxy: &str,
         upsert: DatagramFaultUpsertV1,
     ) -> Result<(eggchaos_core::Direction, DatagramFaultSpecV1, u64), EmbedError> {
+        upsert
+            .fault
+            .clone()
+            .into_core()
+            .map_err(EmbedError::Validation)?;
         self.block_on(async {
             let outcome = apply_datagram_fault_upsert(&self.control, proxy, upsert)
                 .await
@@ -643,6 +642,7 @@ impl EmbeddedService {
         id: &str,
         patch: DatagramFaultPatchV1,
     ) -> Result<(eggchaos_core::Direction, DatagramFaultSpecV1, u64), EmbedError> {
+        patch.validate().map_err(EmbedError::Validation)?;
         self.block_on(async {
             let outcome = apply_datagram_fault_patch(&self.control, proxy, id, patch)
                 .await
@@ -682,7 +682,13 @@ impl EmbeddedService {
 
     /// Terminate one datagram association.
     pub fn kill_datagram_association(&self, id: u64) -> Result<bool, EmbedError> {
-        self.block_on(async { Ok(kill_datagram_association(&self.control, id).await) })
+        self.block_on(async {
+            if kill_datagram_association(&self.control, id).await {
+                Ok(true)
+            } else {
+                Err(EmbedError::NotFound(format!("datagram association {id}")))
+            }
+        })
     }
 
     /// Render the shared native error envelope for an embed error.

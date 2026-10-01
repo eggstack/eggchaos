@@ -32,6 +32,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Check the native admin service health.
+    Health,
     /// Start a service from schema-v1 TOML.
     Serve {
         #[arg(long, default_value = "eggchaos.toml")]
@@ -167,7 +169,7 @@ enum FaultCommand {
         id: String,
         #[arg(long, default_value = "downstream")]
         direction: String,
-        #[arg(long, default_value_t = 1.0)]
+        #[arg(long, default_value_t = 1.0, allow_hyphen_values = true)]
         probability: f64,
         #[command(flatten)]
         params: FaultParams,
@@ -176,7 +178,7 @@ enum FaultCommand {
     Set {
         proxy: String,
         id: String,
-        #[arg(long)]
+        #[arg(long, allow_hyphen_values = true)]
         probability: Option<f64>,
         #[command(flatten)]
         params: FaultParams,
@@ -276,7 +278,7 @@ enum DatagramFaultCommand {
         id: String,
         #[arg(long, default_value = "downstream")]
         direction: String,
-        #[arg(long, default_value_t = 1.0)]
+        #[arg(long, default_value_t = 1.0, allow_hyphen_values = true)]
         probability: f64,
         #[arg(long)]
         kind: String,
@@ -298,7 +300,7 @@ enum DatagramFaultCommand {
     Set {
         proxy: String,
         id: String,
-        #[arg(long)]
+        #[arg(long, allow_hyphen_values = true)]
         probability: Option<f64>,
         #[arg(long)]
         kind: Option<String>,
@@ -401,6 +403,7 @@ async fn dispatch(
     json: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match command {
+        Command::Health => request(admin, admin_token, "GET", "/v1/health", None, json).await,
         Command::Serve { config } => serve(config).await,
         Command::Version => {
             print_value(
@@ -481,7 +484,7 @@ async fn dispatch(
                     admin,
                     admin_token,
                     "GET",
-                    &format!("/v1/proxies/{name}"),
+                    &format!("/v1/proxies/{}", encode_path_component(&name)),
                     None,
                     json,
                 )
@@ -563,7 +566,7 @@ async fn dispatch(
                     admin,
                     admin_token,
                     "PATCH",
-                    &format!("/v1/proxies/{name}"),
+                    &format!("/v1/proxies/{}", encode_path_component(&name)),
                     Some(patch.into()),
                     json,
                 )
@@ -574,7 +577,7 @@ async fn dispatch(
                     admin,
                     admin_token,
                     "DELETE",
-                    &format!("/v1/proxies/{name}"),
+                    &format!("/v1/proxies/{}", encode_path_component(&name)),
                     None,
                     json,
                 )
@@ -585,7 +588,7 @@ async fn dispatch(
                     admin,
                     admin_token,
                     "PATCH",
-                    &format!("/v1/proxies/{name}"),
+                    &format!("/v1/proxies/{}", encode_path_component(&name)),
                     Some(serde_json::json!({"enabled": true})),
                     json,
                 )
@@ -596,7 +599,7 @@ async fn dispatch(
                     admin,
                     admin_token,
                     "PATCH",
-                    &format!("/v1/proxies/{name}"),
+                    &format!("/v1/proxies/{}", encode_path_component(&name)),
                     Some(serde_json::json!({"enabled": false})),
                     json,
                 )
@@ -609,7 +612,7 @@ async fn dispatch(
                     admin,
                     admin_token,
                     "GET",
-                    &format!("/v1/proxies/{proxy}/faults"),
+                    &format!("/v1/proxies/{}/faults", encode_path_component(&proxy)),
                     None,
                     json,
                 )
@@ -620,7 +623,7 @@ async fn dispatch(
                     admin,
                     admin_token,
                     "GET",
-                    &format!("/v1/proxies/{proxy}/faults/{}", encode_path_component(&id)),
+                    &format!("/v1/proxies/{}/faults/{}", encode_path_component(&proxy), encode_path_component(&id)),
                     None,
                     json,
                 )
@@ -644,7 +647,7 @@ async fn dispatch(
                     admin,
                     admin_token,
                     "POST",
-                    &format!("/v1/proxies/{proxy}/faults"),
+                    &format!("/v1/proxies/{}/faults", encode_path_component(&proxy)),
                     Some(body),
                     json,
                 )
@@ -670,7 +673,7 @@ async fn dispatch(
                     admin,
                     admin_token,
                     "PATCH",
-                    &format!("/v1/proxies/{proxy}/faults/{}", encode_path_component(&id)),
+                    &format!("/v1/proxies/{}/faults/{}", encode_path_component(&proxy), encode_path_component(&id)),
                     Some(patch.into()),
                     json,
                 )
@@ -681,7 +684,7 @@ async fn dispatch(
                     admin,
                     admin_token,
                     "DELETE",
-                    &format!("/v1/proxies/{proxy}/faults/{}", encode_path_component(&id)),
+                    &format!("/v1/proxies/{}/faults/{}", encode_path_component(&proxy), encode_path_component(&id)),
                     None,
                     json,
                 )
@@ -718,7 +721,7 @@ async fn dispatch(
         Command::Datagram { command } => match command {
             DatagramCommand::Proxy { command } => match command {
                 DatagramProxyCommand::List => request(admin, admin_token, "GET", "/v1/datagram-proxies", None, json).await,
-                DatagramProxyCommand::Get { name } => request(admin, admin_token, "GET", &format!("/v1/datagram-proxies/{name}"), None, json).await,
+                DatagramProxyCommand::Get { name } => request(admin, admin_token, "GET", &format!("/v1/datagram-proxies/{}", encode_path_component(&name)), None, json).await,
                 DatagramProxyCommand::Add { name, listen, upstream, max_associations, association_idle_timeout_ms, max_queued_datagrams, max_queued_bytes, max_datagram_size, seed } => request(admin, admin_token, "POST", "/v1/datagram-proxies", Some(serde_json::json!({"name":name,"listen":listen,"upstream":upstream,"max_associations":max_associations,"association_idle_timeout_ms":association_idle_timeout_ms,"max_queued_datagrams":max_queued_datagrams,"max_queued_bytes":max_queued_bytes,"max_datagram_size":max_datagram_size,"seed":seed})), json).await,
                 DatagramProxyCommand::Set { name, listen, upstream, max_associations, association_idle_timeout_ms, enable, disable } => {
                     let mut patch = serde_json::Map::new();
@@ -729,15 +732,15 @@ async fn dispatch(
                     if enable { patch.insert("enabled".into(), true.into()); }
                     if disable { patch.insert("enabled".into(), false.into()); }
                     if patch.is_empty() { return Err("datagram proxy set requires at least one field".into()); }
-                    request(admin, admin_token, "PATCH", &format!("/v1/datagram-proxies/{name}"), Some(patch.into()), json).await
+                    request(admin, admin_token, "PATCH", &format!("/v1/datagram-proxies/{}", encode_path_component(&name)), Some(patch.into()), json).await
                 }
-                DatagramProxyCommand::Enable { name } => request(admin, admin_token, "PATCH", &format!("/v1/datagram-proxies/{name}"), Some(serde_json::json!({"enabled":true})), json).await,
-                DatagramProxyCommand::Disable { name } => request(admin, admin_token, "PATCH", &format!("/v1/datagram-proxies/{name}"), Some(serde_json::json!({"enabled":false})), json).await,
-                DatagramProxyCommand::Remove { name } => request(admin, admin_token, "DELETE", &format!("/v1/datagram-proxies/{name}"), None, json).await,
+                DatagramProxyCommand::Enable { name } => request(admin, admin_token, "PATCH", &format!("/v1/datagram-proxies/{}", encode_path_component(&name)), Some(serde_json::json!({"enabled":true})), json).await,
+                DatagramProxyCommand::Disable { name } => request(admin, admin_token, "PATCH", &format!("/v1/datagram-proxies/{}", encode_path_component(&name)), Some(serde_json::json!({"enabled":false})), json).await,
+                DatagramProxyCommand::Remove { name } => request(admin, admin_token, "DELETE", &format!("/v1/datagram-proxies/{}", encode_path_component(&name)), None, json).await,
             },
             DatagramCommand::Fault { command } => match command {
-                DatagramFaultCommand::List { proxy } => request(admin, admin_token, "GET", &format!("/v1/datagram-proxies/{proxy}/faults"), None, json).await,
-                DatagramFaultCommand::Get { proxy, id } => request(admin, admin_token, "GET", &format!("/v1/datagram-proxies/{proxy}/faults/{}", encode_path_component(&id)), None, json).await,
+                DatagramFaultCommand::List { proxy } => request(admin, admin_token, "GET", &format!("/v1/datagram-proxies/{}/faults", encode_path_component(&proxy)), None, json).await,
+                DatagramFaultCommand::Get { proxy, id } => request(admin, admin_token, "GET", &format!("/v1/datagram-proxies/{}/faults/{}", encode_path_component(&proxy), encode_path_component(&id)), None, json).await,
                 DatagramFaultCommand::Set {
                     proxy,
                     id,
@@ -770,9 +773,9 @@ async fn dispatch(
                         };
                         patch.insert("kind".into(), behavior);
                     }
-                    request(admin, admin_token, "PATCH", &format!("/v1/datagram-proxies/{proxy}/faults/{}", encode_path_component(&id)), Some(patch.into()), json).await
+                    request(admin, admin_token, "PATCH", &format!("/v1/datagram-proxies/{}/faults/{}", encode_path_component(&proxy), encode_path_component(&id)), Some(patch.into()), json).await
                 }
-                DatagramFaultCommand::Remove { proxy, id } => request(admin, admin_token, "DELETE", &format!("/v1/datagram-proxies/{proxy}/faults/{}", encode_path_component(&id)), None, json).await,
+                DatagramFaultCommand::Remove { proxy, id } => request(admin, admin_token, "DELETE", &format!("/v1/datagram-proxies/{}/faults/{}", encode_path_component(&proxy), encode_path_component(&id)), None, json).await,
                 DatagramFaultCommand::Add { proxy, id, direction, probability, kind, delay_ns, jitter_ns, additional_copies, hold_ns, bytes, bytes_per_second, burst_bytes } => {
                     check_direction(&direction)?;
                     let behavior = match kind.as_str() {
@@ -784,7 +787,7 @@ async fn dispatch(
                         "bandwidth" => serde_json::json!({"type":"bandwidth","bytes_per_second":required("bytes-per-second",bytes_per_second)?,"burst_bytes":required("burst-bytes",burst_bytes)?}),
                         _ => return Err("kind must be delay, loss, duplicate, reorder, payload-corrupt, or bandwidth".into()),
                     };
-                    request(admin, admin_token, "POST", &format!("/v1/datagram-proxies/{proxy}/faults"), Some(serde_json::json!({"direction":direction,"id":id,"probability":probability,"kind":behavior})), json).await
+                    request(admin, admin_token, "POST", &format!("/v1/datagram-proxies/{}/faults", encode_path_component(&proxy)), Some(serde_json::json!({"direction":direction,"id":id,"probability":probability,"kind":behavior})), json).await
                 }
             },
             DatagramCommand::Association { command } => match command {

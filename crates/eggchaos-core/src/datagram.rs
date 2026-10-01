@@ -519,7 +519,8 @@ impl DatagramDirectionEngine {
             }
             candidates = next;
         }
-        if candidates.iter().all(|(_, _, delay)| delay.is_zero())
+        if !candidates.is_empty()
+            && candidates.iter().all(|(_, _, delay)| delay.is_zero())
             && self.queue.is_empty()
             && candidates
                 .iter()
@@ -776,6 +777,19 @@ mod tests {
             derive_datagram_seed(42, "proxy", 7, Direction::Upstream, &id),
             8_567_709_853_283_824_039
         );
+    }
+
+    #[test]
+    fn all_loss_candidates_are_consumed() {
+        let plan = DatagramPlan::new(vec![spec("loss", DatagramFaultKind::Loss)]).unwrap();
+        let policy = policy(plan, 1);
+        let mut engine =
+            DatagramDirectionEngine::new(limits(), "proxy", 1, Direction::Upstream, RngVersion::V1)
+                .unwrap();
+        assert!(matches!(
+            engine.admit(Instant::now(), Bytes::from_static(b"drop"), &policy),
+            DatagramAdmission::Consumed
+        ));
     }
 
     #[test]

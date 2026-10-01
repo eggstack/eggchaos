@@ -147,7 +147,12 @@ impl PolicyTarget for ControlStateTarget {
                     )
                     .await
                 {
-                    Ok(generation) => Ok(PublishReceipt { generation }),
+                    Ok(_) => self
+                        .state
+                        .get_datagram_plan(&resource.proxy, resource.direction)
+                        .await
+                        .map(|(_, generation, _)| PublishReceipt { generation })
+                        .map_err(|error| TargetError::missing(error.to_string())),
                     Err(error) => Err(map_publish_error(self, resource, expected, error).await),
                 }
             }
@@ -242,10 +247,6 @@ pub(crate) async fn drive_schedule_v2_run(
                 .update_schedule_v2_run(run_id, |record| {
                     record.status = ScheduleRunStatus::Failed;
                     record.failure = Some(failure.clone());
-                })
-                .await;
-            state
-                .update_schedule_v2_run(run_id, |record| {
                     record.cleanup = Some(eggchaos_experiment::CleanupOutcome {
                         policy: cleanup_policy,
                         resources: Vec::new(),

@@ -159,8 +159,8 @@ impl ControlState {
             .publish_fault_plan(name, direction, plan, seed_namespace, expected_generation)
             .await
             .map_err(map_datagram_error)?;
-        self.next_generation();
-        Ok(generation)
+        let _policy_generation = generation;
+        Ok(self.next_generation())
     }
 
     /// Add a datagram fault to one direction.

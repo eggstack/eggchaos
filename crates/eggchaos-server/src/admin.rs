@@ -3,6 +3,7 @@ use std::{io, net::SocketAddr, sync::Arc};
 use eggserve_primitives::{Request, RequestBodyPolicy, Response, ResponseBody, StatusCode};
 use eggserve_server::{service_fn_with_policy, RuntimeConfig, Server, ServerHandle, ServiceError};
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 use tokio::net::TcpListener;
 
@@ -673,11 +674,12 @@ async fn route(method: &str, segments: &[&str], body: &[u8], state: &ControlStat
 }
 
 fn constant_time_equal(left: &[u8], right: &[u8]) -> bool {
-    let mut diff = left.len() ^ right.len();
-    for (a, b) in left.iter().zip(right.iter()) {
-        diff |= usize::from(*a ^ *b);
-    }
-    diff == 0
+    let left = Sha256::digest(left);
+    let right = Sha256::digest(right);
+    left.iter()
+        .zip(right.iter())
+        .fold(0u8, |diff, (a, b)| diff | (a ^ b))
+        == 0
 }
 
 /// Peek the `version` field of a scenario apply body without fully

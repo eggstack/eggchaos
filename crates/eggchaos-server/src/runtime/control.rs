@@ -26,7 +26,11 @@ impl ControlState {
     pub fn new(proxies: impl IntoIterator<Item = ProxySpec>) -> Self {
         let state = Self::default();
         {
-            let mut map = state.runtime.proxies.blocking_write();
+            let mut map = state
+                .runtime
+                .proxies
+                .try_write()
+                .expect("new control state is uncontended");
             for mut proxy in proxies {
                 if map.contains_key(&proxy.name) {
                     continue;
@@ -117,7 +121,12 @@ impl ControlState {
             }
         };
         {
-            let tables = self.runtime.metrics.tables.lock().expect("metrics lock");
+            let tables = self
+                .runtime
+                .metrics
+                .tables
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
             let mut proxies: Vec<_> = tables.proxies.iter().collect();
             proxies.sort_by_key(|(name, _)| *name);
             for (name, entry) in proxies {
@@ -201,6 +210,9 @@ impl ControlState {
                 queued.get(&(name.as_str(), "downstream")).copied().unwrap_or(0),
             ));
         }
+        drop(connections);
+        drop(evidence);
+        drop(map);
         let datagram_proxies = self.runtime.datagrams.proxies().await;
         let datagram_evidence = self.runtime.datagrams.all_associations().await;
         text.push_str("# HELP eggchaos_datagram_associations_active Active UDP client associations\n# TYPE eggchaos_datagram_associations_active gauge\n");
@@ -503,7 +515,7 @@ impl ControlState {
         };
         let done = self
             .spawn_supervisor(listener, name.clone(), cancel.clone())
-            .await;
+            .await?;
         entry.done = done;
         {
             let mut map = self.runtime.proxies.write().await;
@@ -551,6 +563,11 @@ impl ControlState {
     }
 
     async fn start_stored(&self, name: &str, spec: &ProxySpec) -> Result<SocketAddr, ControlError> {
+        if self.runtime.shutdown_initiated.load(Ordering::Acquire) {
+            return Err(ControlError::Invalid(
+                "control state is shutting down".into(),
+            ));
+        }
         let listener =
             TcpListener::bind(spec.listen)
                 .await
@@ -564,10 +581,15 @@ impl ControlState {
                 proxy: name.to_owned(),
                 reason: source.to_string(),
             })?;
+        if self.runtime.shutdown_initiated.load(Ordering::Acquire) {
+            return Err(ControlError::Invalid(
+                "control state is shutting down".into(),
+            ));
+        }
         let cancel = self.runtime.shutdown_token.child_token();
         let done = self
             .spawn_supervisor(listener, name.to_owned(), cancel.clone())
-            .await;
+            .await?;
         let mut map = self.runtime.proxies.write().await;
         let Some(entry) = map.get_mut(name) else {
             // Proxy vanished while binding: stop the orphan supervisor.
@@ -591,7 +613,12 @@ impl ControlState {
         listener: TcpListener,
         name: String,
         cancel: CancellationToken,
-    ) -> Arc<SupervisorDone> {
+    ) -> Result<Arc<SupervisorDone>, ControlError> {
+        let mut root = self.runtime.root.lock().await;
+        if self.runtime.shutdown_initiated.load(Ordering::Acquire) {
+            cancel.cancel();
+            return Err(ControlError::Invalid("service is shutting down".into()));
+        }
         let runtime = self.runtime.clone();
         let done = Arc::new(SupervisorDone::default());
         let task_done = done.clone();
@@ -599,8 +626,8 @@ impl ControlState {
         let handle = tokio::spawn(proxy_supervisor(
             listener, task_name, runtime, cancel, task_done,
         ));
-        self.runtime.root.lock().await.push((name, handle));
-        done
+        root.push((name, handle));
+        Ok(done)
     }
 
     /// Stop the listener, terminate its connections, await supervisor exit,
@@ -675,10 +702,12 @@ impl ControlState {
         name: &str,
         patch: ProxyPatch,
     ) -> Result<(ProxyView, u64), ControlError> {
+        let mut patch_generation = None;
         if let Some(enabled) = patch.enabled {
             // `set_enabled` already bumps the generation; when the patch
             // only flips enabled, return without a second bump.
             let generation = self.set_enabled(name, enabled).await?;
+            patch_generation = Some(generation);
             if patch.listen.is_none()
                 && patch.upstream.is_none()
                 && patch.max_connections.is_none()
@@ -763,7 +792,10 @@ impl ControlState {
                 ordinal,
             };
             let view = RuntimeInner::view_of(entry);
-            return Ok((view, self.next_generation()));
+            return Ok((
+                view,
+                patch_generation.unwrap_or_else(|| self.next_generation()),
+            ));
         }
         // Restart-class: pre-bind the replacement before touching the old
         // listener, so a bind failure keeps the old listener serving with
@@ -790,6 +822,11 @@ impl ControlState {
             let Some(entry) = map.get_mut(name) else {
                 return Err(ControlError::NotFound(name.to_owned()));
             };
+            if !entry.running {
+                return Err(ControlError::Conflict(format!(
+                    "proxy {name} is already being restarted"
+                )));
+            }
             entry.running = false;
             entry.bound_addr = None;
             let old_cancel =
@@ -802,7 +839,7 @@ impl ControlState {
         let cancel = self.runtime.shutdown_token.child_token();
         let done = self
             .spawn_supervisor(prebound, name.to_owned(), cancel.clone())
-            .await;
+            .await?;
         let mut map = self.runtime.proxies.write().await;
         let Some(entry) = map.get_mut(name) else {
             // Proxy vanished while restarting: stop the orphan.
@@ -821,7 +858,10 @@ impl ControlState {
         entry.cancel = cancel;
         entry.done = done;
         let view = RuntimeInner::view_of(entry);
-        Ok((view, self.next_generation()))
+        Ok((
+            view,
+            patch_generation.unwrap_or_else(|| self.next_generation()),
+        ))
     }
 
     fn build_fault_spec(upsert: &FaultUpsert) -> Result<FaultSpec, ControlError> {
@@ -1290,10 +1330,18 @@ impl ControlState {
     pub async fn reset(&self) -> Result<ResetReport, ControlError> {
         let mut failed_enables = Vec::new();
         let mut failed_datagram_enables = Vec::new();
+        let connection_tokens: Vec<_> = self
+            .runtime
+            .cancellations
+            .read()
+            .await
+            .values()
+            .cloned()
+            .collect();
         let to_start: Vec<String> = {
             let mut map = self.runtime.proxies.write().await;
             // Terminate active connections through level-triggered tokens.
-            for token in self.runtime.cancellations.read().await.values() {
+            for token in &connection_tokens {
                 token.cancel();
             }
             for entry in map.values_mut() {
@@ -1380,11 +1428,7 @@ impl ControlState {
                         )
                         .await;
                     if let Err(error) = result {
-                        let message = error.to_string().to_lowercase();
-                        if message.contains("conflict")
-                            || message.contains("generation")
-                            || message.contains("expected")
-                        {
+                        if matches!(&error, DatagramRuntimeError::Conflict(_)) {
                             if let Some((_, fresh, fresh_seed)) = self
                                 .runtime
                                 .datagrams

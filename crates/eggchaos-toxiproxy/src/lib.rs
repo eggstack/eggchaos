@@ -99,6 +99,9 @@ pub struct Proxy {
     /// Enabled state.
     #[serde(default = "default_true")]
     pub enabled: bool,
+    /// Optional logger object emitted by the oracle-compatible response.
+    #[serde(rename = "Logger", default)]
+    pub logger: Option<Value>,
     /// Toxics attached to the proxy.
     #[serde(default)]
     pub toxics: Vec<Toxic>,
@@ -636,29 +639,29 @@ pub fn translate_proxy_with_profile(
 /// `packet_loss`; under strict v2.12 any native `StreamLoss` is a
 /// documentation/configuration error and the response surfaces an
 /// `invalid toxic type` rather than silently aliasing.
-pub fn proxy_json(view: &ProxyView, profile: CompatProfile) -> Value {
+pub fn proxy_json(view: &ProxyView, profile: CompatProfile) -> Result<Value, CompatError> {
     let listen = view.bound_addr.unwrap_or(view.listen);
     let mut toxics = Vec::new();
     for fault in view.upstream_faults.faults() {
         match fault_to_toxic(Direction::Upstream, fault, profile.clone()) {
             Ok(value) => toxics.push(value),
-            Err(error) => toxics.push(json!({"error": error.message})),
+            Err(error) => return Err(error),
         }
     }
     for fault in view.downstream_faults.faults() {
         match fault_to_toxic(Direction::Downstream, fault, profile.clone()) {
             Ok(value) => toxics.push(value),
-            Err(error) => toxics.push(json!({"error": error.message})),
+            Err(error) => return Err(error),
         }
     }
-    json!({
+    Ok(json!({
         "name": view.name,
         "listen": listen.to_string(),
         "upstream": view.upstream.to_string(),
         "enabled": view.enabled,
         "Logger": {},
         "toxics": toxics,
-    })
+    }))
 }
 
 /// Native mutation authority facade for compatibility clients. Holds no proxy
@@ -695,23 +698,24 @@ impl ToxiproxyAdapter {
     }
 
     /// List oracle-shaped proxies keyed by name.
-    pub async fn list_json(&self) -> BTreeMap<String, Value> {
+    pub async fn list_json(&self) -> Result<BTreeMap<String, Value>, CompatError> {
         let profile = self.profile.clone();
         self.state
             .list()
             .await
             .into_iter()
-            .map(|view| (view.name.clone(), proxy_json(&view, profile.clone())))
+            .map(|view| Ok((view.name.clone(), proxy_json(&view, profile.clone())?)))
             .collect()
     }
 
     /// Get one oracle-shaped proxy.
-    pub async fn proxy_json(&self, name: &str) -> Option<Value> {
+    pub async fn proxy_json(&self, name: &str) -> Result<Option<Value>, CompatError> {
         let profile = self.profile.clone();
         self.state
             .get(name)
             .await
             .map(|view| proxy_json(&view, profile))
+            .transpose()
     }
 
     /// Resolve `name`/`listen`/`upstream` for create/populate entries.
@@ -757,7 +761,7 @@ impl ToxiproxyAdapter {
         let profile = self.profile.clone();
         if enabled {
             match self.state.create_proxy(spec).await {
-                Ok((view, _)) => Ok(proxy_json(&view, profile)),
+                Ok((view, _)) => proxy_json(&view, profile),
                 Err(ControlError::Conflict(_)) => Err(CompatError::proxy_exists()),
                 Err(ControlError::BindFailed { reason, .. }) => Err(CompatError::new(
                     500,
@@ -769,7 +773,7 @@ impl ToxiproxyAdapter {
             match self.state.import_definition(spec).await {
                 Ok(_) => self
                     .proxy_json(&name)
-                    .await
+                    .await?
                     .ok_or_else(CompatError::proxy_not_found),
                 Err(ControlError::Conflict(_)) => Err(CompatError::proxy_exists()),
                 Err(error) => Err(CompatError::new(400, error.to_string())),
@@ -778,7 +782,7 @@ impl ToxiproxyAdapter {
     }
 
     /// Update listen/upstream/enabled through native restart-class machinery.
-    /// Address parse failures report 500, matching the oracle's update path.
+    /// Address parse failures are client errors, consistent with create.
     pub async fn update(&self, name: &str, patch: ProxyUpdate) -> Result<Value, CompatError> {
         if self.state.get(name).await.is_none() {
             return Err(CompatError::proxy_not_found());
@@ -794,7 +798,7 @@ impl ToxiproxyAdapter {
                 .listen
                 .map(|listen| {
                     listen.parse::<std::net::SocketAddr>().map_err(
-                        |error: std::net::AddrParseError| CompatError::new(500, error.to_string()),
+                        |error: std::net::AddrParseError| CompatError::new(400, error.to_string()),
                     )
                 })
                 .transpose()?;
@@ -802,7 +806,7 @@ impl ToxiproxyAdapter {
                 .upstream
                 .map(|upstream| {
                     upstream.parse::<std::net::SocketAddr>().map_err(
-                        |error: std::net::AddrParseError| CompatError::new(500, error.to_string()),
+                        |error: std::net::AddrParseError| CompatError::new(400, error.to_string()),
                     )
                 })
                 .transpose()?;
@@ -821,7 +825,7 @@ impl ToxiproxyAdapter {
                 .map_err(Self::map_update_error)?;
         }
         self.proxy_json(name)
-            .await
+            .await?
             .ok_or_else(CompatError::proxy_not_found)
     }
 
@@ -878,9 +882,9 @@ impl ToxiproxyAdapter {
                 // place so enable/disable via populate is not lost.
                 if view.enabled != enabled {
                     let _ = self.state.set_enabled(&name, enabled).await;
-                    return self.proxy_json(&name).await;
+                    return self.proxy_json(&name).await.ok().flatten();
                 }
-                return Some(proxy_json(&view, self.profile.clone()));
+                return proxy_json(&view, self.profile.clone()).ok();
             }
             // Changed addresses: delete and recreate (toxics drop by
             // construction), matching observed oracle replace behavior.
@@ -890,12 +894,12 @@ impl ToxiproxyAdapter {
         spec.enabled = enabled;
         if enabled {
             match self.state.create_proxy(spec).await {
-                Ok((view, _)) => Some(proxy_json(&view, self.profile.clone())),
+                Ok((view, _)) => proxy_json(&view, self.profile.clone()).ok(),
                 Err(_) => None,
             }
         } else {
             match self.state.import_definition(spec).await {
-                Ok(_) => self.proxy_json(&name).await,
+                Ok(_) => self.proxy_json(&name).await.ok().flatten(),
                 Err(_) => None,
             }
         }
@@ -946,9 +950,8 @@ impl ToxiproxyAdapter {
     }
 
     /// List toxics from live native snapshots (upstream faults then
-    /// downstream faults; differential comparison sorts by name). Unmapped
-    /// native faults surface as embedded `{"error":...}` pseudo-toxics,
-    /// identical to [`proxy_json`], so both routes share one mapping.
+    /// downstream faults; differential comparison sorts by name). A native
+    /// fault with no compatibility mapping fails the listing.
     pub async fn list_toxics(&self, proxy: &str) -> Result<Vec<Value>, CompatError> {
         let Some((upstream, downstream)) = self.state.list_faults(proxy).await else {
             return Err(CompatError::proxy_not_found());
@@ -958,13 +961,13 @@ impl ToxiproxyAdapter {
         for fault in &upstream {
             match fault_to_toxic(Direction::Upstream, fault, profile.clone()) {
                 Ok(value) => toxics.push(value),
-                Err(error) => toxics.push(json!({"error": error.message})),
+                Err(error) => return Err(error),
             }
         }
         for fault in &downstream {
             match fault_to_toxic(Direction::Downstream, fault, profile.clone()) {
                 Ok(value) => toxics.push(value),
-                Err(error) => toxics.push(json!({"error": error.message})),
+                Err(error) => return Err(error),
             }
         }
         Ok(toxics)
@@ -1258,16 +1261,17 @@ async fn compatibility_request(
                 .body(eggserve_primitives::ResponseBody::Bytes(body))
                 .unwrap()
         }
-        ("GET", ["proxies"]) => json_value(
-            200,
-            &Value::Object(
-                adapter
-                    .list_json()
-                    .await
-                    .into_iter()
-                    .collect::<serde_json::Map<String, Value>>(),
+        ("GET", ["proxies"]) => match adapter.list_json().await {
+            Ok(proxies) => json_value(
+                200,
+                &Value::Object(
+                    proxies
+                        .into_iter()
+                        .collect::<serde_json::Map<String, Value>>(),
+                ),
             ),
-        ),
+            Err(error) => error_response(error),
+        },
         ("POST", ["proxies"]) => {
             let input: ProxyInput = match parse_json(&bytes) {
                 Ok(input) => input,
@@ -1305,8 +1309,9 @@ async fn compatibility_request(
             }
         }
         ("GET", ["proxies", name]) => match adapter.proxy_json(name).await {
-            Some(value) => json_value(200, &value),
-            None => error_response(CompatError::proxy_not_found()),
+            Ok(Some(value)) => json_value(200, &value),
+            Ok(None) => error_response(CompatError::proxy_not_found()),
+            Err(error) => error_response(error),
         },
         ("POST", ["proxies", name]) | ("PATCH", ["proxies", name]) => {
             let patch: ProxyUpdate = match parse_json(&bytes) {
@@ -1800,11 +1805,9 @@ mod tests {
             connect_timeout_ms: 0,
             seed: 0,
         };
-        let json = proxy_json(&native_view, CompatProfile::StrictV2_12);
-        let toxics = json["toxics"].as_array().unwrap();
-        assert_eq!(toxics.len(), 1);
-        assert!(toxics[0]["error"].is_string());
-        assert!(toxics[0]["type"].is_null());
+        let error = proxy_json(&native_view, CompatProfile::StrictV2_12).unwrap_err();
+        assert_eq!(error.status, 400);
+        assert!(error.message.contains("invalid toxic type"));
     }
 
     #[tokio::test]

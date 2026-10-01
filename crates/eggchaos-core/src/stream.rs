@@ -640,6 +640,7 @@ impl<T: AsyncWrite + Unpin> AsyncWrite for ChaosStream<T> {
             if let Poll::Ready(Err(error)) = this.engine.poll_flush(cx, &mut this.inner) {
                 return Poll::Ready(Err(error));
             }
+            this.engine.refresh_sync_terminations();
             // Honor the empty-bound contract from `accept` without
             // allocating a prefix copy. We still surface a Pending
             // result so the caller retries after the release timer
@@ -852,6 +853,7 @@ pub struct BidirectionalChaosStream<T> {
     upstream: DirectionEngine,
     downstream: DirectionEngine,
     output: VecDeque<u8>,
+    pending_downstream: VecDeque<u8>,
     upstream_policy: Option<LivePolicy>,
     downstream_policy: Option<LivePolicy>,
     observed_upstream: u64,
@@ -901,6 +903,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> BidirectionalChaosStream<T> {
                 TerminationHandle::new(),
             )?,
             output: VecDeque::new(),
+            pending_downstream: VecDeque::new(),
             upstream_policy: Some(upstream),
             downstream_policy: Some(downstream),
             observed_upstream,
@@ -1117,6 +1120,35 @@ impl<T: AsyncRead + AsyncWrite + Unpin> AsyncRead for BidirectionalChaosStream<T
                 }
                 return Poll::Ready(Ok(()));
             }
+            if !this.pending_downstream.is_empty() {
+                let mut pending = Vec::with_capacity(this.pending_downstream.len());
+                pending.extend(this.pending_downstream.drain(..));
+                let accepted = this.downstream.accept(&pending);
+                this.pending_downstream
+                    .extend(pending.into_iter().skip(accepted));
+                this.downstream_evidence.mirror_engine(&this.downstream);
+                if accepted == 0 {
+                    if this.downstream.queue_is_empty() {
+                        // A preserving engine that refuses input with no
+                        // queued bytes has exhausted a permanent limit.
+                        // The suffix was read from the transport, so discard
+                        // it and expose EOF instead of retrying forever.
+                        this.pending_downstream.clear();
+                        return Poll::Ready(Ok(()));
+                    }
+                    let flush = this
+                        .downstream
+                        .poll_flush(cx, &mut CaptureWriter(&mut this.output));
+                    if flush.is_pending() && this.output.is_empty() {
+                        return Poll::Pending;
+                    }
+                    if let Poll::Ready(Err(error)) = flush {
+                        return Poll::Ready(Err(error));
+                    }
+                    continue;
+                }
+                continue;
+            }
             if !this.downstream.queue_is_empty() {
                 // Drive queued bytes into the output buffer, then loop back
                 // to serve them before reading more from inner: inner may
@@ -1159,9 +1191,11 @@ impl<T: AsyncRead + AsyncWrite + Unpin> AsyncRead for BidirectionalChaosStream<T
                         }
                         Poll::Ready(Ok(())) => {
                             let accepted = this.downstream.accept(read.filled());
+                            this.pending_downstream
+                                .extend(read.filled()[accepted..].iter().copied());
                             this.downstream_evidence.mirror_engine(&this.downstream);
                             if accepted == 0 {
-                                return Poll::Ready(Ok(()));
+                                continue;
                             }
                             // Drive newly accepted bytes into output then loop.
                             match this
@@ -1212,6 +1246,8 @@ impl<T: AsyncRead + AsyncWrite + Unpin> AsyncRead for BidirectionalChaosStream<T
                 Poll::Ready(Ok(())) if read.filled().is_empty() => return Poll::Ready(Ok(())),
                 Poll::Ready(Ok(())) => {
                     let accepted = this.downstream.accept(read.filled());
+                    this.pending_downstream
+                        .extend(read.filled()[accepted..].iter().copied());
                     this.downstream_evidence.mirror_engine(&this.downstream);
                     if accepted == 0 {
                         return Poll::Pending;
@@ -2092,5 +2128,37 @@ mod bidirectional_read_tests {
         }))
         .await;
         assert!(shaped.iter().all(|b| *b == 7));
+    }
+
+    #[tokio::test]
+    async fn downstream_partial_accept_retains_unaccepted_suffix() {
+        let plan = crate::FaultPlan::new(vec![crate::FaultSpec {
+            id: crate::FaultId::new("tiny-buffer").unwrap(),
+            probability: crate::Probability::new(1.0).unwrap(),
+            kind: crate::FaultKind::Latency(crate::LatencyConfig {
+                delay: Duration::ZERO,
+                jitter: Duration::ZERO,
+                max_buffer_bytes: NonZeroU64::new(1).unwrap(),
+            }),
+        }])
+        .unwrap();
+        let (mut peer, right) = tokio::io::duplex(16 * 1024);
+        let mut wrapped = BidirectionalChaosStream::new_live(
+            right,
+            crate::LivePolicy::new(crate::FaultPlan::empty(), 0),
+            crate::LivePolicy::new(plan, 0),
+            "p",
+            2,
+        )
+        .unwrap();
+        let payload: Vec<u8> = (0..8192).map(|i| (i % 251) as u8).collect();
+        peer.write_all(&payload).await.unwrap();
+        drop(peer);
+        let mut received = vec![0; payload.len()];
+        tokio::time::timeout(Duration::from_secs(5), wrapped.read_exact(&mut received))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(received, payload);
     }
 }
