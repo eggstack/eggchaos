@@ -1,6 +1,6 @@
 # Eggchaos Long-Term Roadmap
 
-Status: M000-M057 are closed. M058 is ready for owner-controlled v0.2.0 release publication. M055 owns the 0.2.0 version baseline, M056 the release-contract implementation, and M057 its exact-head qualification authority.
+Status: M000-M057 are closed. M059 is ready as the release-blocking pre-v0.2.0 security/dependency/maintenance corrective; M058 publication is blocked until M059 closes. M055 owns the 0.2.0 version baseline, M056 the release-contract implementation, and M057 the historical exact-head qualification authority for the M056 DAG.
 
 ## 1. Mission
 
@@ -777,10 +777,17 @@ surfaces: each needs an explicit ownership/credential/artifact/consumer-smoke
 go decision. The alpha `eggchaos-native` PyO3 pilot is deferred by default
 until a release-grade wheel matrix exists.
 
-M058 does not authorize feature development, schema/API changes, dependency
-upgrades, tag mutation, or rewriting M055–M057 history. A production/workflow
-defect found during qualification stops publication and requires a new
-corrective candidate.
+M058 does not authorize feature development, schema/API changes, tag mutation,
+or rewriting M055–M057 history. It is currently blocked by M059, which owns
+the pre-publication security/dependency/maintenance corrective registered from
+audit baseline `0f8a8eb`: workspace-lint inheritance, first-party dependency
+and lockfile reconciliation within existing compatibility lines, immutable
+and least-privilege Actions, scheduled/dependency-review coverage, reproducible
+language CI, a narrower PyO3 unsafe boundary, Rust public-API regression
+checking, and exact-head release requalification. M059 must not change
+Eggchaos API/capability or deterministic/compatibility semantics. A clean
+M059 closure reactivates M058; a production defect found during M059 or M058
+qualification requires a focused corrective candidate.
 
 ## 12. Performance targets
 
@@ -840,10 +847,13 @@ None of these may weaken the fixed-target, protocol-neutral core boundary.
 ## Current planning state
 
 **Ready (next milestone):**
-- `M058` (ready; plan `058-v0-2-0-release-publication-and-distribution.md`)
+- `M059` (ready; plan `059-pre-v0-2-0-security-dependency-and-maintenance-hardening-corrective.md`)
+
+**Blocked (waiting on a predecessor closure):**
+- M058
 
 **Highest closed milestone:** `M057` (see registry for closure evidence).
 
-**Execution order:** `M058`
+**Execution order:** `M059`
 
 <!-- END eggchaos:planning-state -->
