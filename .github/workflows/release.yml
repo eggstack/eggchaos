@@ -84,6 +84,13 @@ jobs:
     # Release builds (notably Windows) must also fail loudly, never
     # occupy a runner indefinitely.
     timeout-minutes: 45
+    # M059: attestation/OIDC scopes live only on this job, never on the
+    # whole workflow. `contents: read` is restated because a job-level
+    # block replaces the workflow default.
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     # The aarch64 Linux cross build must use the cross linker installed
     # below; the host /usr/bin/ld cannot link aarch64 objects (observed:
     # "file in wrong format"). macOS x86_64 builds cross-compile from an
@@ -127,6 +134,7 @@ jobs:
         shell: bash
         run: cargo build --release --locked --package eggchaos-cli --target "${{ matrix.target }}"
       - name: Package and checksum artifact
+        id: package
         shell: bash
         run: |
           set -euo pipefail
@@ -140,6 +148,20 @@ jobs:
           else
             shasum -a 256 "$artifact" > "$artifact.sha256"
           fi
+          echo "artifact=$artifact" >> "$GITHUB_OUTPUT"
+      # M059: Sigstore provenance for the exact binary built above. The
+      # SHA-256 sidecar contract is unchanged and remains the primary
+      # checksum; attestation is additional provenance, never a
+      # substitute for checksum validation.
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ steps.package.outputs.artifact }}
+      # M059: hosted verification of one native-host binary through
+      # GitHub's attestation verification path.
+      - name: Verify attestation (native-host leg only)
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        shell: bash
+        run: gh attestation verify "${{ steps.package.outputs.artifact }}" --repo "${{ github.repository }}"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: eggchaos-${{ matrix.target }}
