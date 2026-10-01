@@ -115,6 +115,12 @@ jobs:
       # independent check. Python stdlib only, well under one second
       # on normal hardware.
       - run: python3 scripts/check_lint_inheritance.py --check
+      # M059: first-party lockfile-coherence guard against drift
+      # between the four committed Cargo lockfiles. Runs here (not in
+      # `check` itself) so removing the local check still trips this
+      # independent check. Python stdlib only, well under one second
+      # on normal hardware.
+      - run: python3 scripts/check_lock_coherence.py --check
       - run: ./scripts/check_openapi.sh
       - run: ./scripts/check_python_client.sh
       - run: ./scripts/check_typescript_client.sh

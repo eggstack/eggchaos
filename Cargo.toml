@@ -39,23 +39,18 @@ missing_panics_doc = "allow"
 bytes = "1"
 arc-swap = "1"
 clap = { version = "4", features = ["derive", "env"] }
-egress-relay = { package = "eggress-relay", version = "1.0.7" }
-eggfetch-core = { version = "0.2.0", default-features = false, features = ["native-http1", "high-level-url", "json", "tls-rustls", "tls-native-roots"] }
+egress-relay = { package = "eggress-relay", version = "1.0.11" }
+eggfetch-core = { version = "0.2.1", default-features = false, features = ["native-http1", "high-level-url", "json", "tls-rustls", "tls-native-roots"] }
 h2 = "0.4"
-eggserve-primitives = { version = "0.2.0" }
-eggserve-server = { version = "0.2.0" }
+eggserve-primitives = { version = "0.2.2" }
+eggserve-server = { version = "0.2.1" }
 http = "1"
-http-body-util = "0.1"
-hyper = { version = "1", features = ["client", "http1", "server"] }
-hyper-util = { version = "0.1", features = ["client-legacy", "http1", "server", "tokio"] }
-prometheus-client = "0.23"
 rcgen = "0.13"
 proptest = "1"
-rand = "0.9"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
-socket2 = "0.5"
+socket2 = "0.6"
 thiserror = "2"
 tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time", "test-util"] }
 tokio-util = "0.7"
@@ -63,7 +58,6 @@ toml = "0.9"
 tracing = "0.1"
 rustls = { version = "0.23", features = ["ring"] }
 tokio-rustls = "0.26"
-url = { version = "2", features = ["serde"] }
 
 [profile.release]
 lto = "thin"
