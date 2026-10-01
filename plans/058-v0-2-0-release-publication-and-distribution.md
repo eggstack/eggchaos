@@ -1,7 +1,7 @@
 # M058 — v0.2.0 Release Publication and Distribution
 
-Status: ready
-Depends on: M057 closed
+Status: blocked
+Depends on: M057 closed; M059 closure
 Role: owner-controlled release publication / distribution milestone
 Registration baseline: eb46b5fd416d2d76f5732301f739904fc8eb7d5e
 
@@ -10,6 +10,16 @@ Registration baseline: eb46b5fd416d2d76f5732301f739904fc8eb7d5e
 Publish Eggchaos `v0.2.0` from one frozen, fully qualified commit while
 preserving the release-state, workflow-gating, and exact-head evidence
 discipline established by M055–M057.
+
+M059 is a release-blocking corrective interlock registered after the M057
+qualification candidate and before any v0.2.0 publication. M057 remains the
+historical hosted qualification authority for the M056 release-contract DAG,
+but it is not sufficient evidence for a release candidate after M059 changes
+dependency graphs and workflow security. M058 must remain blocked until M059
+closes; once reactivated, this plan must consume the exact M059-qualified
+dependency/workflow state, including any artifact-attestation requirement
+recorded by M059 closure. M059 does not change M058's required release scope
+or authorize publication itself.
 
 M058 is the first milestone in this line that is authorized to perform
 irreversible release actions. It owns:
