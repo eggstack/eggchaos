@@ -1258,7 +1258,7 @@ impl DatagramFaultPatchV1 {
 }
 
 /// Stable v1 representation of per-direction datagram evidence.
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct NativeDatagramEvidenceV1 {
     pub admitted_datagrams: u64,
     pub admitted_bytes: u64,
@@ -1310,7 +1310,7 @@ impl From<eggchaos_core::DatagramEvidence> for NativeDatagramEvidenceV1 {
 }
 
 /// Explicit datagram proxy view DTO.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NativeDatagramProxyViewV1 {
     pub name: String,
     pub listen: SocketAddr,
@@ -1335,7 +1335,7 @@ pub struct NativeDatagramProxyViewV1 {
 // Assembled by `eggchaos-server` from its runtime datagram proxy view.
 
 /// Explicit datagram association evidence DTO. Payloads are never captured.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NativeDatagramAssociationViewV1 {
     pub id: u64,
     pub proxy: String,
