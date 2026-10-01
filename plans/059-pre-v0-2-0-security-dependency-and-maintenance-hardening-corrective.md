@@ -19,6 +19,8 @@ The audit originally found two native-admin authentication issues: an empty conf
 
 At `0f8a8ebc8b8f734951624be32362ee512b9e3d5e`:
 
+- the M057 qualified candidate `818e5674f2efaf96ec8effda81cef1dfa7a48614` is eight commits behind the activation baseline, with post-M057 production changes across core/server/protocol/CLI/embed/Toxiproxy/Eggfetch in addition to documentation and release planning; those changes have not yet received M057-equivalent exact-head release qualification;
+- at least one post-M057 commit changes public Rust helper signatures in `eggchaos-toxiproxy` (for example compatibility JSON helpers now return `Result`), so the pre-release API check must detect and classify drift from M057 rather than using the already-changed activation HEAD as its sole baseline;
 - all eight normal workspace crates still omit `[lints] workspace = true` even though the root defines `[workspace.lints.rust]` and `[workspace.lints.clippy]`;
 - therefore the intended workspace lint policy is not inherited by package manifests. Cargo documents that workspace lints are opt-in at the package level and exposes `missing_lints_inheritance` because assuming implicit inheritance is a common error;
 - the root lock resolves first-party runtime dependencies older than sibling-repository baselines:
@@ -317,11 +319,12 @@ No Python-visible class, method, exception hierarchy, abi3 floor, or lifecycle b
 
 Use `cargo-semver-checks` (current researched tool release at registration: 0.50.0) from a dedicated Linux qualification job running on a current stable toolchain, not the project's 1.89 MSRV compiler.
 
-The comparison baseline for this corrective is the exact activation revision:
+Use two complementary baselines:
 
-`0f8a8ebc8b8f734951624be32362ee512b9e3d5e`.
+1. **Qualified compatibility baseline:** `818e5674f2efaf96ec8effda81cef1dfa7a48614` (M057). The final M059 candidate must be compared to this revision so public-surface drift introduced by the eight post-M057 commits is not grandfathered merely because it predates M059 registration.
+2. **Activation snapshot:** `0f8a8ebc8b8f734951624be32362ee512b9e3d5e`. Preserve all public API/capability present here unless restoring an M057-compatible signature requires an additive compatibility wrapper or alias.
 
-Run the check with a patch-level/no-breaking-change policy for every public library crate:
+Run the check with a no-breaking-change policy for every public library crate:
 
 - `eggchaos-core`;
 - `eggchaos-experiment`;
@@ -337,7 +340,15 @@ Use all supported features unless the tool demonstrates a false result caused so
 
 The API gate is additive evidence. It does not authorize changing package versions or declaring a breaking release.
 
-After `v0.2.0` is published, a future plan may move the baseline from the activation SHA to the immutable `v0.2.0` tag.
+First run the M057-to-activation comparison as a diagnostic census. For every reported breaking change, classify it as:
+
+- an unintended API regression that must be restored compatibly before M059 can close;
+- a false positive caused by tooling/feature topology, with a narrow reproducible explanation; or
+- a change that cannot be restored without contradicting a correctness/security invariant, which triggers the stop condition and requires a separate explicit compatibility decision.
+
+Do not suppress a real break globally. Prefer additive compatibility wrappers/re-exports while routing internal behavior through corrected implementations.
+
+After `v0.2.0` is published, a future plan may move the qualified compatibility baseline to the immutable `v0.2.0` tag.
 
 ### WP7 — Add security reporting and release artifact provenance
 
@@ -472,7 +483,7 @@ M059 may close only when:
 16. Python CI tool versions are exact and centrally maintained;
 17. ordinary Python-native implementation code is compiler-enforced unsafe-free outside the minimum PyO3 macro boundary;
 18. the handwritten-unsafe audit remains green;
-19. Rust public-API comparison is green against `0f8a8ebc8b8f734951624be32362ee512b9e3d5e`;
+19. Rust public-API comparison is green against M057 candidate `818e5674f2efaf96ec8effda81cef1dfa7a48614`, every M057-to-activation finding is classified, and the final candidate does not regress either the qualified M057 surface or additive API/capability present at activation `0f8a8eb`;
 20. `SECURITY.md` exists and names a real private reporting mechanism without invented contact data;
 21. release artifact attestations are generated/verified when supported, or the unsupported capability is explicitly recorded without weakening checksum requirements;
 22. OpenAPI/SDK/native binding drift checks are green;
@@ -521,7 +532,7 @@ Record at minimum:
 - Dependabot ecosystem/directory matrix;
 - Python/npm deterministic-install evidence;
 - PyO3 unsafe-boundary before/after map plus handwritten-unsafe audit;
-- cargo-semver-checks version, baseline SHA, package matrix, and results;
+- cargo-semver-checks version, M057 qualified baseline SHA, activation snapshot SHA, per-package M057-to-activation finding census/disposition, and final-candidate results;
 - malicious-crate incident lockfile census result;
 - `SECURITY.md` reporting path;
 - artifact-attestation support/disposition and verification output;
