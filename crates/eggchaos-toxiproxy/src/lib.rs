@@ -878,12 +878,10 @@ impl ToxiproxyAdapter {
         let enabled = input.enabled.unwrap_or(true);
         if let Some(view) = self.state.get(&name).await {
             if view.listen == listen && view.upstream == upstream {
-                // Keep-path preserves toxics; apply an enabled flip in
-                // place so enable/disable via populate is not lost.
-                if view.enabled != enabled {
-                    let _ = self.state.set_enabled(&name, enabled).await;
-                    return self.proxy_json(&name).await.ok().flatten();
-                }
+                // Keep-path preserves the existing proxy verbatim
+                // (toxics and enabled state), matching the observed
+                // v2.12.0 oracle which ignores the populate entry when
+                // name/listen/upstream already exist.
                 return proxy_json(&view, self.profile.clone()).ok();
             }
             // Changed addresses: delete and recreate (toxics drop by
