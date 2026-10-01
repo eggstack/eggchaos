@@ -52,7 +52,8 @@ done
 if [ -z "$ADMIN" ]; then
   echo "server did not report an admin address"; cat "$WORK/server.log"; exit 1
 fi
-(cd bindings/python-native && python3 -m maturin build ${NATIVE_TARGET:-} --out "$WORK/wheels")
+# M059: --locked honors the committed python-native Cargo.lock explicitly.
+(cd bindings/python-native && python3 -m maturin build --locked ${NATIVE_TARGET:-} --out "$WORK/wheels")
 WHEEL="$(ls "$WORK"/wheels/*.whl | head -1)"
 pip install --quiet --target "$WORK/pylibs" --no-deps "$WHEEL"
 export PYTHONPATH="$WORK/pylibs"

@@ -11,7 +11,19 @@ echo "--- unsafe audit (no handwritten unsafe blocks/fns/impls permitted) ---"
 if grep -rnE "unsafe[[:space:]]*(\{|\(|fn|impl|trait|extern)" bindings/python-native/src; then
   echo "handwritten unsafe in binding sources"; exit 1;
 fi
-grep -n "allow(unsafe_code)" bindings/python-native/src/lib.rs
+# M059: narrowest compiler-enforceable PyO3 boundary. No crate-root
+# inner allowance may exist; the macro-facing module allows exactly its
+# generated FFI glue while the crate root and every ordinary
+# implementation module deny unsafe.
+if grep -n '#!\[allow(unsafe_code)\]' bindings/python-native/src/lib.rs; then
+  echo "crate-root allow(unsafe_code) forbidden; keep the boundary scoped"; exit 1;
+fi
+grep -n '#!\[allow(unsafe_code)\]' bindings/python-native/src/bridge.rs \
+  || { echo "macro layer must scope its generated-glue allowance"; exit 1; }
+grep -n "deny(unsafe_code)" bindings/python-native/src/lib.rs \
+  || { echo "crate root must deny unsafe_code"; exit 1; }
+grep -n "deny(unsafe_code)" bindings/python-native/src/convert.rs \
+  || { echo "safe helper module must deny unsafe_code"; exit 1; }
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT INT TERM
 # Host-aware target selection: derive from OS + architecture. Only Darwin
@@ -31,7 +43,9 @@ esac
 if [ -n "${EGGCHAOS_NATIVE_TARGET:-}" ]; then
   NATIVE_TARGET="--target $EGGCHAOS_NATIVE_TARGET"
 fi
-(cd bindings/python-native && python3 -m maturin build $NATIVE_TARGET --out "$WORK/wheels")
+# M059: --locked honors the committed python-native Cargo.lock
+# explicitly: lock drift fails instead of silently re-resolving.
+(cd bindings/python-native && python3 -m maturin build --locked $NATIVE_TARGET --out "$WORK/wheels")
 WHEEL="$(ls "$WORK"/wheels/*.whl | head -1)"
 python3 -c "import zipfile,sys; names = zipfile.ZipFile('$WHEEL').namelist(); assert any(n.endswith('.abi3.so') for n in names), names; print('abi3 wheel ok')"
 pip install --quiet --target "$WORK/pylibs" --no-deps "$WHEEL"

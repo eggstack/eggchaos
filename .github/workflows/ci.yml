@@ -107,7 +107,9 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ matrix.node-version }}
-      - run: pip install build pytest pyyaml
+      # M059: exact-version CI tooling. The constraint file owns the
+      # tested graph; Dependabot proposes updates.
+      - run: pip install -r .github/python-ci/requirements.txt
       - run: sh scripts/tests/test_cleanup_traps.sh
       - run: sh scripts/tests/test_fetch_toxiproxy_post_v2_12_contract.sh
       # M048 WP6: structural guard against accidental CI de-integration of
@@ -173,7 +175,9 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python-version }}
-      - run: pip install maturin==1.9.5 pytest build
+      # M059: exact-version CI tooling (maturin held at its qualified
+      # 1.9.5; see .github/python-ci/requirements.txt).
+      - run: pip install -r .github/python-ci/requirements.txt
       - run: cargo install cargo-audit --locked --version 0.22.2
       - run: ./scripts/check_python_native.sh
       - run: ./scripts/qualify_python_native.sh
