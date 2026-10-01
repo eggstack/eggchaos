@@ -21,10 +21,18 @@
 # It needs only Python stdlib and well under a second. The bare
 # --check is additionally wired into the `language-clients` CI job so
 # removing the local check still trips an independent check.
+#
+# M059 ownership: the workspace lint-inheritance guard
+# (test_lint_inheritance.sh: fixture + --check + wiring assertion) is
+# wired here for the same reason. It needs only Python stdlib and well
+# under a second. The bare --check is additionally wired into the
+# `language-clients` CI job so removing the local check still trips
+# an independent check.
 set -eu
 sh scripts/tests/test_bench_provenance.sh
 sh scripts/tests/test_planning_state.sh
 sh scripts/tests/test_version_coherence.sh
+sh scripts/tests/test_lint_inheritance.sh
 sh scripts/tests/test_release_tag_version.sh
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
