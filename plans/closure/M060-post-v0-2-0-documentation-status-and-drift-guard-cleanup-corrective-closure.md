@@ -7,9 +7,10 @@
   `36935298484` 7/7)
 - M059 pre-publication hardening authority: `1409d0fa11dddfeff3f680ef453bf830e1339606` (`1409d0f`,
   hosted CI `36922662654` 15/15 + release dispatch `36922672946` 7/7)
-- Exact closure candidate: `<HEAD>` (work commit `e897cc4767f0bb2c10feaae46232ab2e52666d90`;
-  M060 closes on a follow-up commit that updates `plans/registry.md`
-  and writes this record)
+- Work commit: `e897cc4767f0bb2c10feaae46232ab2e52666d90` (`e897cc4`,
+  "M060 WP1-WP6: reconcile post-v0.2.0 docs, status, narrow drift guard")
+- Exact closure candidate: `1d3bb825cb43872891b0fcedb81d905218dfaffd` (`1d3bb82`,
+  "M060 WP2-WP3 + closure: registry row + closure record")
 - Headline verdict: **closed**. All 20 acceptance criteria evidenced on
   the exact candidate. No production, package, dependency, public-contract,
   or release-workflow behavior changed. M058/M059 closure records untouched.
