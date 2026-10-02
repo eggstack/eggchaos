@@ -1,15 +1,32 @@
 # Verification and qualification
 
 Part of [Eggchaos architecture overview](overview.md) (item 9). Evidence-first
-review handoff for how eggchaos proves correctness at HEAD (M000–M057 closed;
-exact implementation candidate `818e567`, hosted run `36490497114` 14/14 +
-dispatch `36630812771`). Canonical contracts live in
-`plans/reference/verification-matrix.md` and
-`qualification/toxiproxy-v2-12/oracle-baseline-v2.12.0.md`; canonical status
-lives in `plans/registry.md` and `plans/closure/` (latest:
-`plans/closure/M057-m056-closure-evidence-reconciliation-and-exact-head-requalification-closure.md`).
-Do not assert by inspection:
-if a gate was not run, record it as incomplete (see §8).
+review handoff for how eggchaos proves correctness at HEAD. Authority layers
+are:
+
+- **Published release authority:** M058 `b6a277d` (annotated `v0.2.0`,
+  tag CI `15/15` + tag release `7/7`, eight crates.io publishes,
+  GitHub Release `eggchaos v0.2.0`).
+- **Pre-publication hardening authority:** M059 `1409d0f`
+  (security/dependency/API/provenance corrective, hosted CI `15/15`
+  + release dispatch `7/7`).
+- **Historical exact-head release-contract authority:** M057 `818e567`
+  (hosted run `36490497114` 14/14 + dispatch `36630812771`, the
+  additive final qualification for the M056 release-contract DAG).
+- **Historical v0.1.0 pre-tag authority:** M019 `ca527db`.
+- **Post-v2.12 ADR 017 authority:** M041 `724b967` (latest repository
+  level for stream-loss/metrics/closure corrective, hosted run
+  `36219464594` 13/13).
+- **Performance-provenance hosted qualification:** M048 `ab61ac7`
+  (Tier A `check` / Tier B dedicated Linux job /
+  `test_ci_provenance_integration.sh` structural guard).
+
+Canonical contracts live in `plans/reference/verification-matrix.md`
+and `qualification/toxiproxy-v2-12/oracle-baseline-v2.12.0.md`;
+canonical status lives in `plans/registry.md` and `plans/closure/`
+(latest `M060-…-closure.md`; M058/M059/M057/M041/M048 evidence is
+preserved as historical authority layers). Do not assert by
+inspection: if a gate was not run, record it as incomplete (see §8).
 
 > Count notes at current HEAD: `fuzz/` holds 9 targets; `benchmarks/`
 > stream harness holds 16+1 cases + microprobes; `qualification/performance/`

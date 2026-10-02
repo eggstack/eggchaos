@@ -94,7 +94,7 @@ The historical pre-tag sequence through M015 is complete. M016 has now closed cl
 
 `M016 -> M017 -> M018 -> M019`
 
-M015 qualified `cd88b22` and remains valid historical evidence. M016–M019 changed/requalified release-relevant code, so `cd88b22` is not the final candidate. M019 closed at `ca527db`; the owner may proceed with tagging, crates.io publication, and GitHub release creation as separate actions.
+M015 qualified `cd88b22` and remains valid historical evidence. M016–M019 changed/requalified release-relevant code, so `cd88b22` is not the final candidate. M019 closed at `ca527db` as the final pre-tag release-candidate authority. The v0.1.0 tag, crates.io publication, and GitHub release creation were carried out as separate owner actions (tag target `81994dbc…`, published 2026-09-24); that lineage is immutable history, not a future step.
 
 A post-release UDP/datagram tranche is registered and complete under ADR 003:
 
@@ -189,7 +189,7 @@ Release-workflow qualification order: `M055 (closed) -> M056 (closed implementat
 
 Current performance execution order: `M042 (closed) -> M043 (closed) -> M044 (closed) -> M045 (closed) -> M046 (closed historical provenance) -> M047 (closed artifact-provenance hardening) -> M048 (closed hosted qualification/CI integration)`. M048 adds hosted enforcement for M047 without reopening optimization conclusions.
 
-Historical pre-tag execution order: `M016 (closed) -> M017 (closed) -> M018 (closed) -> M019 (closed)`. The owner may proceed with the v0.1.0 tag, crates.io publication, and GitHub release as separate release actions.
+Historical pre-tag execution order: `M016 (closed) -> M017 (closed) -> M018 (closed) -> M019 (closed)`. The v0.1.0 tag, crates.io publication, and GitHub release were carried out as separate owner actions on `2026-09-24` against tag target `81994dbc…`; they are preserved as immutable history.
 
 Completed post-release feature execution order: `M020 (closed) -> M021 (closed) -> M022 (closed) -> M023 (closed)`.
 

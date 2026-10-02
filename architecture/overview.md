@@ -202,7 +202,7 @@ overview first, then go component by component.
 - `docs/configuration.md`, `docs/control-plane.md`, `docs/eggfetch.md`,
   `docs/toxiproxy.md` — per-surface contracts.
 - `plans/roadmap.md`, `plans/registry.md` — sequencing, invariants, milestone
-   closure (M000–M057 closed; M059 ready as the pre-v0.2.0 hardening/requalification corrective; M058 publication blocked on M059; M057 remains historical hosted qualification authority for the M056 release-contract DAG; M056 owns the release-contract implementation; M055 owns the unreleased 0.2.0 baseline; M019 final v0.1.0 pre-tag qualification authority).
+   closure (M000–M059 closed; M058 closed the published `v0.2.0` on `b6a277d`; M059 closed the pre-publication hardening corrective on `1409d0f`; M057 remains the historical hosted qualification authority for the M056 release-contract DAG; M056 owns the release-contract implementation; M055 owns the historical 0.2.0 development-version baseline; M019 is the final v0.1.0 pre-tag qualification authority).
 - `plans/adrs/` — durable boundaries (001 stream engine, 002 determinism,
   003 datagrams, 004 schedules, 005 integration, 006 cross-language,
   007 stream-loss).

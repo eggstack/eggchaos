@@ -1,9 +1,13 @@
 # M059 — Pre-v0.2.0 Security, Dependency, and Maintenance Hardening Corrective
 
-Status: ready
+Status: closed
 Depends on: M057 closed; M058 publication not started
 Role: release-blocking, compatibility-preserving security/dependency/maintenance corrective
 Activation baseline: `0f8a8ebc8b8f734951624be32362ee512b9e3d5e`
+Closure: closed on exact candidate `1409d0fa11dddfeff3f680ef453bf830e1339606`
+(evidence in `plans/closure/M059-pre-v0-2-0-security-dependency-and-maintenance-hardening-corrective-closure.md`;
+hosted CI `36922662654` 15/15 + release dispatch `36922672946` 7/7; M058
+reactivated to `ready` on the exact M059 candidate).
 
 ## Objective
 

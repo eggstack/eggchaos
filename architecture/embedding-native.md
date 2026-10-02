@@ -3,14 +3,24 @@
 Back to [architecture overview](overview.md) (§8, workspace-map rows
 `eggchaos-embed` and `eggchaos-native`).
 
-Evidence-first deep dive for the in-process embedding surface. Authority is
-code at HEAD `eb46b5f` (M000–M057 closed; M057 `818e567`; M034/M035 origin,
-plus M051 `operations.rs` delegation and M052/M050 path moves);
-`docs/control-plane.md:210-217` and `bindings/python-native/README.md` are
-summaries, not the spec. All paths below are relative to the workspace root.
-Per-`embed lib.rs:line` citations below predate M051 and are approximate:
-every mutating method now delegates to `eggchaos_server::operations`, and
-datagram authority lives in `runtime/control_datagram.rs`.
+Evidence-first deep dive for the in-process embedding surface.
+Authority layers are:
+
+- M057 (`818e567`) is the historical hosted qualification authority
+  for the M056 release-contract DAG (see `M057-…-closure.md`).
+- M034/M035 are the ADR 006 implementation + corrective authority for
+  the embed facade and PyO3 binding.
+- M051 owns `operations.rs` typed delegation (`eggchaos-server`); M052
+  owns the `runtime/control_datagram.rs` textual split; M050 owns the
+  per-family `ScenarioRegistry` consolidation. None of them is the
+  post-`v0.2.0` release authority — M058 on `b6a277d` is.
+
+`docs/control-plane.md:210-217` and `bindings/python-native/README.md`
+are summaries, not the spec. All paths below are relative to the
+workspace root. Per-`embed lib.rs:line` citations predate M051 and
+are approximate: every mutating method now delegates to
+`eggchaos_server::operations`, and datagram authority lives in
+`runtime/control_datagram.rs`.
 
 Sources: `crates/eggchaos-embed/src/lib.rs`,
 `crates/eggchaos-embed/Cargo.toml`,

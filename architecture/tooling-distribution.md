@@ -21,8 +21,10 @@ authority; later tranches do not rewrite it. M041 closed at
 the narrow stream-loss metrics/tooling/closure corrective. M048 closed
 at `ab61ac7809b9260e44a827567065e1479445f2f7` (hosted run `36331806587`,
 14/14 jobs) and is the hosted qualification/CI-ownership authority for
-the M047 provenance tooling. M055 closed at `b0ecbf1` and owns the
-unreleased 0.2.0 baseline; M056 closed at `b6f0095` and owns the
+the M047 provenance tooling. M055 closed at `b0ecbf1` and remains the historical
+0.2.0 development-version baseline authority (it owned the unreleased
+`0.2.0` baseline at the time; that baseline is now the published
+`v0.2.0` lineage); M056 closed at `b6f0095` and owns the
 `release-contract` DAG implementation; M057 closed at `818e567` (hosted run
 `36490497114` 14/14 + dispatch `36630812771` green) and is the final hosted
 qualification authority for that DAG; M059 closed at `1409d0f` as the
@@ -63,14 +65,14 @@ than re-implementing their steps.
 | `scripts/check_release_tag_version.sh` | M055 release-only guard: always runs manifest coherence, then on tag-triggered runs (`GITHUB_REF_TYPE=tag`) strips the leading `v` and requires the tag version to equal the workspace version; mismatch fails before expensive qualification/artifact builds. Non-tag (dispatch) runs skip only the tag comparison. No tag creation or publication. | Sole authority of the M056 `release-contract` prerequisite job in `release.yml`; `scripts/tests/test_release_tag_version.sh` pins match/mismatch/dispatch behavior plus the workflow gate contract (one `release-contract:` job, root-of-DAG, both downstream `needs:` declared, no second invocation, negative tests for every bypass mode). |
 | `scripts/sync_sdk_contract.py` | Derives SDK artifacts from `api/openapi/eggchaos-v1.yaml`: `bindings/_contract/operations.json` + `bindings/python-client/eggchaos_client/_generated.py` + `bindings/typescript-client/src/generated.ts` (deterministic sorted output; 36 operations + stream/datagram/scenario tag unions). Prints `{"sync":"pass","operations":36,...}`. | Before SDK checks; `check_python_client.sh` / `check_typescript_client.sh` rerun it and assert `git diff --exit-code` on all three generated artifacts. |
 | `scripts/check_python_client.sh` | Regeneration drift (`sync_sdk_contract.py` + `git diff --exit-code` on operations snapshot + both generated tables) + Python unit tests (no server: `test_models.py`, `test_contract.py`, `test_cross_language.py`) + `Client`/`AsyncClient` import proof. | Python SDK changes. |
-| `scripts/check_typescript_client.sh` | Same regeneration drift gate + `npm install` if needed + `tsc --noEmit` + `tsc` build + `node --test` contract/cross-language tests (no server). | TypeScript SDK changes. |
+| `scripts/check_typescript_client.sh` | Same regeneration drift gate + unconditional lockfile install `npm ci --ignore-scripts --no-audit --no-fund` (M059 WP5; lifecycle scripts disabled) + `tsc --noEmit` + `tsc` build + `node --test` contract/cross-language tests (no server). | TypeScript SDK changes. |
 | `scripts/qualify_language_clients.sh` | Loopback servers (plain + auth-token configs): equivalent Python `pytest` (sync/async) and TS `npm test` flows with `EGGCHAOS_ADMIN_URL`/`EGGCHAOS_AUTH_URL`/`EGGCHAOS_BASE_URL`, then `python -m build` sdist/wheel and `npm pack` artifact builds. Uses status-preserving child cleanup (captured qualification status, guarded `wait` reaping, temp removal) so expected SIGTERM reaping never leaks exit 143. | Cross-language qualification. |
 | `scripts/tests/test_cleanup_traps.sh` | Regression for the qualification cleanup pattern: static trap-shape checks on both server-spawning qualification scripts plus pass/fail fixtures proving exit preservation, child reaping, and temp cleanup. | Binding-qualification hygiene; runs in the `language-clients` CI job. |
 | `scripts/tests/test_fetch_toxiproxy_post_v2_12_contract.sh` | M041 regression freezing the fetcher stdout contract: pattern checks (qualifier uses `--path-only`; fetcher emits `requested_toolchain`/`oracle_path`, documents `default (no flag)`, defaults to `mode="--path-only"`), `--help` (exit 0, usage on stderr) and `--bogus` (exit 2) arg parsing, plus end-to-end default/`--path-only`/`--json` single-line/executable/JSON-field/stderr-clean checks when a cached oracle exists (otherwise `partial:pattern-and-args-only`). | Fetcher-contract hygiene; runs in the `language-clients` CI job. |
 | `scripts/tests/test_bench_provenance.sh` | M047 WP6 regression: disposable-repo Git-state matrix for `scripts/bench_provenance.py` (clean, tracked-unstaged, staged, untracked source, ignored/generated-only, excluded output artifact, detached HEAD, subdirectory, missing-Git failure, fingerprint determinism/sensitivity, no Git mutation, no absolute paths) plus single-authority wiring (both benchmark wrappers delegate; no direct HEAD stamping). M048 wires this into the `check` job for `ubuntu-latest` + `macos-latest` and into `scripts/check.sh`. | Benchmark-provenance changes; cheap Tier A gate runs in CI. |
 | `scripts/tests/test_bench_provenance_artifacts.sh` | M047 WP7 regression: shortened wrapper runs asserting shared provenance in stream/probe/datagram JSON (identical case/probe object, `candidate_sha == head_sha`), authoritative-iff-clean consistency, no path/secret leaks, legacy fields intact, datagram budget acceptance, unavailable bypass provenance, and `EGGCHAOS_BENCH_REQUIRE_CLEAN=1` guard behavior. M048 wires this into the dedicated `performance-provenance` Linux CI job (timeout 12 min, ubuntu-latest only) so the schema/wrapper qualification is hosted but never multiplied across the OS or language matrices. | Benchmark-provenance changes; Tier B release-mode artifact qualification in CI. |
 | `scripts/tests/test_ci_provenance_integration.sh` | M048 WP6 structural guard: cheap `grep` checks against `.github/workflows/ci.yml` verifying both provenance tests are still referenced, that Tier A is guarded with a `runner.os` condition (Windows intentionally has no POSIX-shell coverage), that Tier B lives in a dedicated job outside the `check` matrix, and that the dedicated job is `ubuntu-latest` with its own `timeout-minutes`. No YAML parser dependency. Runs in the `language-clients` CI matrix. | Proves CI-integration against accidental de-integration. |
-| `scripts/check_python_native.sh` | `eggchaos-embed` + binding-crate tests, unsafe-boundary audit (`grep` forbids handwritten `unsafe` blocks/fns/impls; asserts `allow(unsafe_code)` in `lib.rs`), binding-crate audit (`cargo audit --file bindings/python-native/Cargo.lock`), abi3 wheel build via `maturin build`, abi3 `.so` zip check, per-wheel import smoke + server-independent Python tests. Target selection is host-aware (OS + architecture; Apple targets only on Darwin; `EGGCHAOS_NATIVE_TARGET` override for intentional cross builds). | Native binding changes. |
+| `scripts/check_python_native.sh` | `eggchaos-embed` + binding-crate tests, unsafe-boundary audit (`grep` forbids handwritten `unsafe` blocks/fns/impls in `src/`; asserts the crate root `deny(unsafe_code)` plus an item-scoped `allow(unsafe_code)` only on the PyO3 macro-facing bridge module `bindings/python-native/src/bridge.rs`; safe modules `bindings/python-native/src/convert.rs` and `lib.rs` carry `deny(unsafe_code)` per M059 WP5), binding-crate audit (`cargo audit --file bindings/python-native/Cargo.lock`), abi3 wheel build via `maturin build`, abi3 `.so` zip check, per-wheel import smoke + server-independent Python tests. Target selection is host-aware (OS + architecture; Apple targets only on Darwin; `EGGCHAOS_NATIVE_TARGET` override for intentional cross builds). | Native binding changes. |
 | `scripts/qualify_python_native.sh` | Remote/native conformance + control-overhead measurements against a loopback daemon. Same host-aware target selection and status-preserving server cleanup as above. | Binding qualification. |
 | `scripts/build_python_native_artifacts.sh` | Host-native abi3 wheel + sdist + per-artifact import smoke (no publication). Apple cross-arch wheels are only produced on a Darwin host with the target installed; cross-built wheels are never import-smoked without a matching interpreter (selects the wheel matching `platform.machine()` for the smoke). | Wheel builds. |
 | `scripts/release-smoke.sh` | Full pre-publish gate: fmt + clippy (`-D warnings`) + workspace tests + doc + `cargo build --workspace --release` + `cargo audit --deny warnings` + `cargo deny check advisories licenses bans sources` + `cargo package -p eggchaos-core --allow-dirty` + `cargo package --list --allow-dirty` for all workspace crates (core, experiment, protocol, server, eggfetch, toxiproxy, embed, cli) + `cargo build --release --locked --package eggchaos-cli` + `./scripts/release-artifact-smoke.sh` + an embedded Python `cargo metadata --locked` order-publishability proof asserting every intra-workspace path dependency requires exactly `^{workspace_version}` from the registry, documenting order `core -> experiment/eggfetch -> protocol -> server/toxiproxy/cli -> embed`. | Before any tag; first job step of the release `qualify` lane. |
@@ -334,9 +336,10 @@ candidate (see §3).
   run `36630812771` green with `release-contract` first, then
   `qualify` + five-target `artifacts` fan-out; see
   `plans/closure/M057-m056-closure-evidence-reconciliation-and-exact-head-requalification-closure.md`).
-  M056 remains the implementation authority; M058 (ready,
-  owner-controlled v0.2.0 publication) may act only after an exact
-  candidate passes the full pre-tag gates.
+  M056 remains the implementation authority; M058 subsequently
+  performed the irreversible `v0.2.0` publication on `b6a277d`
+  after M059 closed the pre-publication hardening corrective on
+  `1409d0f`.
 - If any fix lands after candidate selection, select a new candidate and
   rerun every affected gate. Planning-only closure-note commits may
   follow only if explicitly distinguished from the qualified code
@@ -405,7 +408,7 @@ Canonical surface is `plans/` (`AGENTS.md`, `plans/README.md`):
 | Path | Authority |
 | --- | --- |
 | `plans/roadmap.md` | Long-term architecture, sequencing, invariants, non-goals, release gates. Status line names M019 final v0.1.0 pre-tag authority, M041 latest ADR 007 corrective authority, M048 hosted qualification/CI-ownership authority, M055 0.2.0 baseline, M056 release-contract implementation, M057 final hosted qualification authority for that DAG, M059 pre-publication hardening corrective, and M058 closed v0.2.0 publication. |
-| `plans/registry.md` | Compact source of truth for milestone status, dependencies, activation, closure. Update it in the same change that activates/blocks/closes/supersedes a milestone. M041 row is `closed` at `724b967da04579282dd8bfc7a81dc4fe55d034a2` with hosted run `36219464594` (13/13); M048 row is `closed` at `ab61ac7809b9260e44a827567065e1479445f2f7` with hosted run `36331806587` (14/14); M055 row is `closed` at `b0ecbf1` (0.2.0 baseline, no tag/publication); M056 row is `closed` at `b6f0095` (release-contract DAG implementation, hosted-CI gap recorded); M057 row is `closed` at `818e567` (hosted run `36490497114` 14/14 + dispatch `36630812771` green, final hosted authority for that DAG); M058 is `ready`. |
+| `plans/registry.md` | Compact source of truth for milestone status, dependencies, activation, closure. Update it in the same change that activates/blocks/closes/supersedes a milestone. M041 row is `closed` at `724b967da04579282dd8bfc7a81dc4fe55d034a2` with hosted run `36219464594` (13/13); M048 row is `closed` at `ab61ac7809b9260e44a827567065e1479445f2f7` with hosted run `36331806587` (14/14); M055 row is `closed` at `b0ecbf1` (historical 0.2.0 development baseline); M056 row is `closed` at `b6f0095` (release-contract DAG implementation, hosted-CI gap recorded); M057 row is `closed` at `818e567` (hosted run `36490497114` 14/14 + dispatch `36630812771` green, final hosted authority for that DAG); M058 row is `closed` at `b6a277d` (`v0.2.0` publication); M059 row is `closed` at `1409d0f` (pre-publication hardening). |
 | `plans/000-architecture-and-scope-baseline.md` | Investigated baseline and boundaries. |
 | `plans/001-*.md` … `plans/048-*.md` | Executable handoffs; filename prefix is the milestone sequence number and must not be reused. |
 | `plans/adrs/` | Durable decisions (`001-stream-fault-engine-boundary.md`, `002-determinism-and-live-mutation.md`, `003-datagram-impairment-boundary-and-semantics.md`, `004-deterministic-scenario-schedules-and-replay-identity.md`, `005-cross-project-integration-boundary-and-experiment-identity.md`, `006-cross-language-control-contracts-and-native-binding-boundary.md`, `007-post-v2-12-toxiproxy-stream-loss-compatibility.md`); implementation must not silently change them. |
@@ -469,9 +472,13 @@ closure; neither may claim unsupported behavior.
    M019 at `ca527db` is the final v0.1.0 pre-tag authority, M041 at `724b967`
    the latest ADR 007 corrective authority, M048 at `ab61ac7`
    the hosted qualification/CI-ownership authority for the M047
-   provenance contract, M055 at `b0ecbf1` the unreleased 0.2.0
-   baseline, M056 the release-contract implementation, and M057 at
-   `818e567` the final hosted qualification authority for that DAG).
+   provenance contract, M055 at `b0ecbf1` the historical 0.2.0
+   development-version baseline (it owned the *unreleased* 0.2.0
+   baseline at the time; that baseline is now the published `v0.2.0`
+   lineage), M056 the release-contract implementation, M057 at
+   `818e567` the final hosted qualification authority for that DAG,
+   M059 at `1409d0f` the pre-publication hardening authority, and
+   M058 at `b6a277d` the published `v0.2.0` authority).
    The 14/14 hosted matrix must remain green (3 `check` + 1
    `performance-provenance` + 8 `language-clients` + 2
    `python-native`, per M057's recorded hosted run `36490497114`).

@@ -146,6 +146,15 @@ jobs:
       # independent check. Python stdlib only, well under one second
       # on normal hardware.
       - run: python3 scripts/check_action_pins.py --check
+      # M060: release-state / current-doc drift guard. Derives the
+      # published-release / pre-publication-hardening milestone
+      # closure from `plans/registry.md` and asserts that a small
+      # named set of live documents records that state and does not
+      # reintroduce the pre-publication / "do not tag" / stale
+      # tooling prose. Runs here (not in `check` itself) so removing
+      # the local check still trips this independent check. Python
+      # stdlib only, well under one second on normal hardware.
+      - run: python3 scripts/check_release_state_docs.py --check
       - run: ./scripts/check_openapi.sh
       - run: ./scripts/check_python_client.sh
       - run: ./scripts/check_typescript_client.sh
