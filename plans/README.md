@@ -163,7 +163,9 @@ M056 is closed as the narrow release-workflow contract-gate corrective. It intro
 
 M057 is closed as the qualification-only successor for the M056 closure-evidence gap. It preserved the M056 workflow implementation and closure record, obtained hosted CI on exact candidate `818e567` (run `36490497114`, 14/14) plus a green release `workflow_dispatch` run `36630812771` on the same SHA, and is the final hosted qualification authority for the shared release-contract DAG. M057 activates no successor.
 
-M059 is ready as the release-blocking pre-`v0.2.0` security/dependency/maintenance corrective registered from audit baseline `0f8a8eb`. It activates workspace lint inheritance, reconciles first-party dependency/lock graphs, hardens Actions and dependency monitoring, narrows the PyO3 unsafe boundary, adds Rust public-API regression qualification, and requires a new exact-head hosted/release qualification. M058 remains the owner-controlled `v0.2.0` publication milestone but is blocked until M059 closes; its eight-crate/tag/five-binary/checksum/public-install scope and separately gated language-package decisions are unchanged. `eggchaos-native` remains deferred by default unless a release-grade wheel matrix is proven.
+M059 is closed on exact hardening candidate `1409d0f`; M058 subsequently closed the `v0.2.0` publication on frozen candidate `b6a277d` with all eight Rust crates, the annotated tag, five binary/checksum artifacts, Sigstore attestations, and fresh-install verification. Language registries were explicitly deferred, including the alpha `eggchaos-native` pilot.
+
+M060 is ready as a bounded post-release documentation/status and drift-guard cleanup corrective. It reconciles stale pre-publication prose and source-backed tooling descriptions and adds a narrow current-documentation release-state guard; production/runtime/package/release behavior is out of scope.
 
 ## Status rules
 
@@ -239,8 +241,11 @@ pinned snapshot oracle rather than moving `main`.
 
 ## Current planning state
 
+**Ready (next milestone):**
+- `M060` (ready; plan `060-post-v0-2-0-documentation-status-and-drift-guard-cleanup-corrective.md`)
+
 **Highest closed milestone:** `M059` (see registry for closure evidence).
 
-**Execution order:** no active or ready milestones.
+**Execution order:** `M060`
 
 <!-- END eggchaos:planning-state -->
