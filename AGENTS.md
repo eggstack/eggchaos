@@ -69,7 +69,7 @@ Qualification (release workflow): `release-smoke.sh` (fmt/clippy/test/doc/audit/
 
 ## Planning state
 
-M000–M057 are closed. M059 is ready as the release-blocking pre-`v0.2.0` security/dependency/maintenance corrective; M058 remains the owner-controlled publication milestone but is blocked until M059 closes. Required release scope remains all eight Rust crates plus annotated `v0.2.0`, the five-target GitHub binary/checksum release, and fresh public-install verification. Language-registry publication is separately gated per package; `eggchaos-native` is deferred by default absent a release-grade wheel matrix. M055 remains the version-baseline authority, M056 the release-contract implementation authority, and M057 the historical exact-head qualification authority for that DAG. Do not tag or publish until M059 closes and M058 is reactivated.
+M000–M059 are closed, including M058 publication of `v0.2.0` and M059 pre-publication hardening. M060 is ready as the bounded post-release documentation/status and drift-guard cleanup corrective. It must not change production behavior, package/dependency state, public contracts, release artifacts, or release-workflow behavior beyond the explicitly planned cheap documentation guard. Language-registry publication remains separately gated per package; `eggchaos-native` is deferred by the v0.2.0 release decision.
 
 If the owner asks for new work: `plans/roadmap.md` is the architecture authority, `plans/reference/` holds parity/verification contracts (not status), ADRs live in `plans/adrs/`. Any new numbered plan needs objective, baseline/deps, scope + non-goals, affected crates, ordered work packages, invariants/failure semantics, test commands, acceptance criteria, stop conditions, closure evidence, and follow-on rules — and must update `plans/registry.md` in the same change. `plans/registry.md` is the sole hand-maintained milestone-status authority (vocabulary: `active`, `blocked`, `closed`, `ready`); the `Current planning state` blocks in AGENTS.md / `plans/README.md` / `plans/roadmap.md` / `architecture/overview.md` are generated projections, never independent authorities. After any registry edit: 1. add/update the numbered plan; 2. update `registry.md`; 3. run `python3 scripts/check_planning_state.py --write`; 4. run `sh scripts/tests/test_planning_state.sh`. Never mark `closed` from source inspection; closure requires running the plan's tests on the exact candidate plus external/differential evidence where declared.
 
@@ -87,8 +87,11 @@ Prefer deterministic Tokio-time tests; wall-clock assertions need justified tole
 
 ## Current planning state
 
+**Ready (next milestone):**
+- `M060` (ready; plan `060-post-v0-2-0-documentation-status-and-drift-guard-cleanup-corrective.md`)
+
 **Highest closed milestone:** `M059` (see registry for closure evidence).
 
-**Execution order:** no active or ready milestones.
+**Execution order:** `M060`
 
 <!-- END eggchaos:planning-state -->
