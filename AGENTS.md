@@ -69,7 +69,7 @@ Qualification (release workflow): `release-smoke.sh` (fmt/clippy/test/doc/audit/
 
 ## Planning state
 
-M000–M059 are closed, including M058 publication of `v0.2.0` and M059 pre-publication hardening. M060 is ready as the bounded post-release documentation/status and drift-guard cleanup corrective. It must not change production behavior, package/dependency state, public contracts, release artifacts, or release-workflow behavior beyond the explicitly planned cheap documentation guard. Language-registry publication remains separately gated per package; `eggchaos-native` is deferred by the v0.2.0 release decision.
+M000–M060 are closed, including M058 publication of `v0.2.0`, M059 pre-publication hardening, and M060 post-release documentation/status and drift-guard cleanup corrective. No active or ready milestone is registered. Any post-release work (patch release, new feature tranche, language-registry publication, EggServe compatibility-line migration) requires a fresh evidence-backed plan. Language-registry publication remains separately gated per package; `eggchaos-native` is deferred by the v0.2.0 release decision.
 
 If the owner asks for new work: `plans/roadmap.md` is the architecture authority, `plans/reference/` holds parity/verification contracts (not status), ADRs live in `plans/adrs/`. Any new numbered plan needs objective, baseline/deps, scope + non-goals, affected crates, ordered work packages, invariants/failure semantics, test commands, acceptance criteria, stop conditions, closure evidence, and follow-on rules — and must update `plans/registry.md` in the same change. `plans/registry.md` is the sole hand-maintained milestone-status authority (vocabulary: `active`, `blocked`, `closed`, `ready`); the `Current planning state` blocks in AGENTS.md / `plans/README.md` / `plans/roadmap.md` / `architecture/overview.md` are generated projections, never independent authorities. After any registry edit: 1. add/update the numbered plan; 2. update `registry.md`; 3. run `python3 scripts/check_planning_state.py --write`; 4. run `sh scripts/tests/test_planning_state.sh`. Never mark `closed` from source inspection; closure requires running the plan's tests on the exact candidate plus external/differential evidence where declared.
 
@@ -87,11 +87,8 @@ Prefer deterministic Tokio-time tests; wall-clock assertions need justified tole
 
 ## Current planning state
 
-**Ready (next milestone):**
-- `M060` (ready; plan `060-post-v0-2-0-documentation-status-and-drift-guard-cleanup-corrective.md`)
+**Highest closed milestone:** `M060` (see registry for closure evidence).
 
-**Highest closed milestone:** `M059` (see registry for closure evidence).
-
-**Execution order:** `M060`
+**Execution order:** no active or ready milestones.
 
 <!-- END eggchaos:planning-state -->

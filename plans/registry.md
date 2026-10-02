@@ -1,6 +1,6 @@
 # Eggchaos Plan Registry
 
-Last reconciled: 2026-10-02 (M000–M059 closed; M058 closed — v0.2.0 published; M060 post-release documentation/status cleanup ready)
+Last reconciled: 2026-10-02 (M000–M060 closed; M058 closed — v0.2.0 published; M059 closed — pre-publication hardening; M060 post-release documentation/status and drift-guard cleanup corrective closed)
 
 This file is the compact source of truth for active milestone state. Detailed scope lives in the numbered plans. Historical closure evidence belongs in `plans/closure/`.
 
@@ -66,7 +66,7 @@ This file is the compact source of truth for active milestone state. Detailed sc
 | M057 | `057-m056-closure-evidence-reconciliation-and-exact-head-requalification.md` | **closed** | M056 | Closed on exact qualification candidate `818e5674f2efaf96ec8effda81cef1dfa7a48614`; evidence in `plans/closure/M057-m056-closure-evidence-reconciliation-and-exact-head-requalification-closure.md`. Hosted run `36490497114` is green 14/14 on the exact candidate (3 `check` + 1 `performance-provenance` + 8 `language-clients` + 2 `python-native`); release `workflow_dispatch` run `36630812771` is green on the same SHA (`release-contract` first, then `qualify` + five-target `artifacts` fan-out). Release workflow/guards verified M056-equivalent (no workflow/guard/manifest/production change between `b6f0095` and the candidate). M057 is the final hosted qualification authority for the shared release-contract DAG; M056 remains the implementation authority and its closure record (including the original hosted-CI gap) is preserved verbatim. M057 activates no successor. |
 | M058 | `058-v0-2-0-release-publication-and-distribution.md` | **closed** | M057, M059 | Closed: frozen candidate `b6a277d`, pre-tag CI `36931770121` 15/15 + dispatch `36931798010` 7/7, annotated tag `v0.2.0` (`15746dc…` peeling to `b6a277d`), tag CI `36935298504` 15/15 + tag release `36935298484` 7/7, all eight Rust crates at `0.2.0` on crates.io, GitHub Release with five binaries + SHA-256 sidecars, fresh-install verification green. All language registries deferred by explicit owner decision. Evidence in `plans/closure/M058-v0-2-0-release-publication-and-distribution-closure.md`. |
 | M059 | `059-pre-v0-2-0-security-dependency-and-maintenance-hardening-corrective.md` | **closed** | M057 + pre-publication audit at `0f8a8eb` | Closed on exact candidate `1409d0f`; evidence in `plans/closure/M059-pre-v0-2-0-security-dependency-and-maintenance-hardening-corrective-closure.md`. Workspace lints active, first-party graphs reconciled (relay 1.0.11 / eggfetch-core 0.2.1 / primitives 0.2.2 / server 0.2.1, socket2 0.6), actions SHA-pinned with least-privilege permissions, scheduled/review/Dependabot monitoring live, PyO3 boundary narrowed, Rust API gate green (cargo-semver-checks 0.50.0), Sigstore attestation + hosted verification green, full local + hosted exact-head qualification green. No tag/publication; M055–M057 records untouched. |
-| M060 | `060-post-v0-2-0-documentation-status-and-drift-guard-cleanup-corrective.md` | **ready** | M058, M059 | Post-v0.2.0 documentation/governance cleanup registered from `c5a151d`: reconcile stale M058/M059/release/security/tooling authority prose and add a narrow current-doc release-state drift guard. Production/runtime/package/release behavior frozen. |
+| M060 | `060-post-v0-2-0-documentation-status-and-drift-guard-cleanup-corrective.md` | **closed** | M058, M059 | Closed on exact candidate `<HEAD>`; evidence in `plans/closure/M060-post-v0-2-0-documentation-status-and-drift-guard-cleanup-corrective-closure.md`. M059 plan header closed; `SECURITY.md` support table and `docs/release-notes-v0.2.0.md` reflect the published `v0.2.0`; architecture deep-dives carry the M058 (published) / M059 (pre-publication hardening) / M057 (historical hosted qualification) authority layers and the narrowed PyO3 unsafe boundary; `architecture/tooling-distribution.md` documents `npm ci --ignore-scripts --no-audit --no-fund` and the historicalized 0.2.0 baseline; `.github/workflows/release.yml` retains only the comment-level cleanup; `plans/registry.md` narrative reconciled. New stdlib-only `scripts/check_release_state_docs.py` + `scripts/tests/test_release_state_docs.sh` (six named deliberate-drift negative tests + registry-state + duplicate-detection wiring) wired into `scripts/check.sh` and the `language-clients` CI job. `git diff b6a277d..HEAD` proves no Rust source, Cargo manifest, lockfile, OpenAPI, generated SDK contract, release artifact, package version, or MSRV change. M058/M059/M058 closure records untouched. M060 activates no automatic successor. |
 
 A post-M048 repository audit registered a bounded correctness/maintenance corrective chain:
 
@@ -80,7 +80,7 @@ M056 closed the post-M055 release-workflow orchestration gap where `qualify` was
 
 M059 is closed on exact candidate `1409d0f` (full local gate + hosted CI `36922662654` 15/15 + release dispatch `36922672946` 7/7, Sigstore attestation verified hosted). M058 is closed as the v0.2.0 publication milestone (tag `v0.2.0` on `b6a277d`, eight crates.io publishes, GitHub Release, fresh-install verification). Python/npm package publication was deferred per package by explicit owner decision, with the alpha `eggchaos-native` binding deferred by default.
 
-M060 is ready as the post-v0.2.0 documentation/status and drift-guard cleanup corrective. It is documentation/governance work only: current-state prose must be reconciled to the published v0.2.0 lineage and the M059/M058 closures, with no production, package, dependency, public-contract, or release-workflow behavior change.
+M060 is closed as the post-v0.2.0 documentation/status and drift-guard cleanup corrective. It reconciled hand-written current-state prose to the published v0.2.0 lineage and the M059/M058 closures, corrected `SECURITY.md` and `docs/release-notes-v0.2.0.md`, reconciled architecture deep-dives, added a bounded stdlib-only `scripts/check_release_state_docs.py` guard with six named deliberate-drift negative tests, and produced no production, package, dependency, public-contract, or release-workflow behavior change.
 
 ## Execution state
 
@@ -177,15 +177,15 @@ The completed UDP/datagram tranche is listed below; the remaining items are post
 
 ## Dependency-ready view
 
-Completed work: M000–M059 are closed (M008 closed as historical work alongside the main chain). M058 is closed as the v0.2.0 publication.
+Completed work: M000–M060 are closed (M008 closed as historical work alongside the main chain). M058 is closed as the v0.2.0 publication; M059 is closed as the pre-publication hardening corrective; M060 is closed as the post-release documentation/status and drift-guard cleanup corrective.
 
 Active: none.
 
-Ready: M060.
+Ready: none.
 
 Blocked: none.
 
-Release-workflow qualification order: `M055 (closed) -> M056 (closed implementation) -> M057 (closed historical hosted qualification authority for the M056 DAG) -> M059 (closed security/dependency/maintenance corrective, exact candidate 1409d0f) -> M058 (closed publication, tag v0.2.0 on b6a277d)`. `v0.2.0` is the current published release.
+Release-workflow qualification order: `M055 (closed) -> M056 (closed implementation) -> M057 (closed historical hosted qualification authority for the M056 DAG) -> M059 (closed security/dependency/maintenance corrective, exact candidate 1409d0f) -> M058 (closed publication, tag v0.2.0 on b6a277d) -> M060 (closed post-release documentation/status and drift-guard cleanup corrective)`. `v0.2.0` is the current published release.
 
 Current performance execution order: `M042 (closed) -> M043 (closed) -> M044 (closed) -> M045 (closed) -> M046 (closed historical provenance) -> M047 (closed artifact-provenance hardening) -> M048 (closed hosted qualification/CI integration)`. M048 adds hosted enforcement for M047 without reopening optimization conclusions.
 

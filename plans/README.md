@@ -165,7 +165,7 @@ M057 is closed as the qualification-only successor for the M056 closure-evidence
 
 M059 is closed on exact hardening candidate `1409d0f`; M058 subsequently closed the `v0.2.0` publication on frozen candidate `b6a277d` with all eight Rust crates, the annotated tag, five binary/checksum artifacts, Sigstore attestations, and fresh-install verification. Language registries were explicitly deferred, including the alpha `eggchaos-native` pilot.
 
-M060 is ready as a bounded post-release documentation/status and drift-guard cleanup corrective. It reconciles stale pre-publication prose and source-backed tooling descriptions and adds a narrow current-documentation release-state guard; production/runtime/package/release behavior is out of scope.
+M060 is closed as a bounded post-release documentation/status and drift-guard cleanup corrective. It reconciled stale pre-publication prose and source-backed tooling descriptions, corrected `SECURITY.md` and `docs/release-notes-v0.2.0.md` to reflect the published `v0.2.0`, reconciled architecture deep-dives (M058 published / M059 pre-publication hardening / M057 historical hosted qualification authority layers, the narrowed PyO3 unsafe boundary, the unconditional `npm ci --ignore-scripts --no-audit --no-fund` install path), and added a stdlib-only `scripts/check_release_state_docs.py` guard with six named deliberate-drift negative tests wired into `scripts/check.sh` and the `language-clients` CI job; production/runtime/package/release behavior is out of scope and unchanged.
 
 ## Status rules
 
@@ -241,11 +241,8 @@ pinned snapshot oracle rather than moving `main`.
 
 ## Current planning state
 
-**Ready (next milestone):**
-- `M060` (ready; plan `060-post-v0-2-0-documentation-status-and-drift-guard-cleanup-corrective.md`)
+**Highest closed milestone:** `M060` (see registry for closure evidence).
 
-**Highest closed milestone:** `M059` (see registry for closure evidence).
-
-**Execution order:** `M060`
+**Execution order:** no active or ready milestones.
 
 <!-- END eggchaos:planning-state -->
