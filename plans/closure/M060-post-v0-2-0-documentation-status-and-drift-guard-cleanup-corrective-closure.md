@@ -9,8 +9,9 @@
   hosted CI `36922662654` 15/15 + release dispatch `36922672946` 7/7)
 - Work commit: `e897cc4767f0bb2c10feaae46232ab2e52666d90` (`e897cc4`,
   "M060 WP1-WP6: reconcile post-v0.2.0 docs, status, narrow drift guard")
-- Exact closure candidate: `1d3bb825cb43872891b0fcedb81d905218dfaffd` (`1d3bb82`,
+- Registry-row / closure-record commit: `1d3bb825cb43872891b0fcedb81d905218dfaffd` (`1d3bb82`,
   "M060 WP2-WP3 + closure: registry row + closure record")
+- Exact closure candidate: `e897cc4767f0bb2c10feaae46232ab2e52666d90` (`e897cc4`)
 - Headline verdict: **closed**. All 20 acceptance criteria evidenced on
   the exact candidate. No production, package, dependency, public-contract,
   or release-workflow behavior changed. M058/M059 closure records untouched.
