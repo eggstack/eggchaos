@@ -1,6 +1,6 @@
 # Eggchaos Long-Term Roadmap
 
-Status: M000-M060 are closed. M058 closed the v0.2.0 publication (tag `v0.2.0` on `b6a277d`, eight crates.io publishes, GitHub Release with five binaries + checksums, fresh-install verification green). M055 owns the historical 0.2.0 development-version baseline, M056 the release-contract implementation, M057 the historical exact-head qualification authority for the M056 DAG, and M059 the pre-publication hardening corrective. M060 is closed as the post-release documentation/status and drift-guard cleanup corrective; it carried no production or release-surface change. No active or ready milestone is registered; any post-release work requires a fresh evidence-backed plan.
+Status: M000-M060 are closed. M058 closed the v0.2.0 publication (tag `v0.2.0` on `b6a277d`, eight crates.io publishes, GitHub Release with five binaries + checksums, fresh-install verification green). M055 owns the historical 0.2.0 development-version baseline, M056 the release-contract implementation, M057 the historical exact-head qualification authority for the M056 DAG, and M059 the pre-publication hardening corrective. M060 remains the historical post-release documentation/status cleanup closure. M061 is ready as the additive M060 closure-evidence/plan-status consistency corrective; production and release surfaces remain frozen.
 
 ## 1. Mission
 
@@ -846,8 +846,11 @@ None of these may weaken the fixed-target, protocol-neutral core boundary.
 
 ## Current planning state
 
+**Ready (next milestone):**
+- `M061` (ready; plan `061-m060-closure-evidence-and-plan-status-consistency-corrective.md`)
+
 **Highest closed milestone:** `M060` (see registry for closure evidence).
 
-**Execution order:** no active or ready milestones.
+**Execution order:** `M061`
 
 <!-- END eggchaos:planning-state -->
