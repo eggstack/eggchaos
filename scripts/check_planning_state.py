@@ -14,6 +14,9 @@ for milestone state. This script:
   and ordered, that statuses come from the documented vocabulary,
   and that dependencies reference known milestones or explicit
   external/historical prerequisites;
+- validates (M061) that every registered numbered plan's own
+  top-level `Status:` header agrees with its registry row, so the
+  two cannot silently diverge again;
 - generates a deterministic current-state block
   (`<!-- BEGIN eggchaos:planning-state -->` ... `<!-- END -->`) for
   the four documents that have one;
@@ -67,6 +70,11 @@ TARGETS: List[Tuple[Path, str]] = [
 # implementation work in flight. The vocabulary is intentionally
 # narrow so drift is obvious.
 VALID_STATUSES = {"closed", "ready", "blocked", "active"}
+
+# Top-level plan metadata key carrying the milestone status. Only a
+# line that starts at column 0 inside the plan header block counts;
+# see `plan_header_lines` for why the search is bounded.
+PLAN_STATUS_PREFIX = "Status:"
 
 # Begin / end markers delimiting the generated block in each target.
 BEGIN_MARKER = "<!-- BEGIN eggchaos:planning-state -->"
@@ -143,6 +151,77 @@ def parse_registry(text: str) -> List[Row]:
     return rows
 
 
+# --- Plan-header status metadata (M061) -----------------------------------
+
+
+def plan_header_lines(text: str) -> List[str]:
+    """Return a plan file's top-level header block.
+
+    The header block is everything before the first level-2 markdown
+    heading. Plan metadata (`Status:`, `Depends on:`, `Role:`, ...)
+    lives there and body prose does not. Bounding the search this way
+    keeps a body sentence that happens to begin with `Status:` from
+    being mistaken for plan metadata.
+    """
+    lines: List[str] = []
+    for line in text.splitlines():
+        if line.startswith("## "):
+            break
+        lines.append(line)
+    return lines
+
+
+def parse_plan_status(text: str) -> Tuple[Optional[str], Optional[str], str]:
+    """Return `(status token, problem kind, problem detail)` for a plan.
+
+    The leading token carries the status; anything after it is an
+    explanatory suffix and is ignored, so all of these parse as
+    `closed`:
+
+        Status: closed
+        Status: closed (candidate `ca46801`; evidence in `...`)
+        Status: **closed**
+
+    Missing, duplicated, empty, and out-of-vocabulary declarations are
+    reported as problems rather than silently skipped, so a plan can
+    never opt out of the agreement check by removing or mangling its
+    own metadata.
+
+    Authority rule: `plans/registry.md` is canonical. This function
+    only *reads* plan metadata to prove it follows the registry; the
+    registry status is never inferred from a plan file.
+    """
+    declarations = [
+        line.strip()
+        for line in plan_header_lines(text)
+        if line.strip().startswith(PLAN_STATUS_PREFIX)
+    ]
+    if not declarations:
+        return (
+            None,
+            "missing",
+            f"no top-level `{PLAN_STATUS_PREFIX}` declaration in the plan header",
+        )
+    if len(declarations) > 1:
+        return (
+            None,
+            "duplicate",
+            f"{len(declarations)} top-level `{PLAN_STATUS_PREFIX}` declarations "
+            f"({'; '.join(declarations)})",
+        )
+    rest = _strip_inline_code(declarations[0][len(PLAN_STATUS_PREFIX) :])
+    words = rest.split()
+    token = words[0] if words else ""
+    if token not in VALID_STATUSES:
+        return (
+            None,
+            "unparseable",
+            f"{declarations[0]!r} does not lead with a status token "
+            f"from {sorted(VALID_STATUSES)}",
+        )
+    return token, None, ""
+
+
 # --- Validation -----------------------------------------------------------
 
 
@@ -193,6 +272,42 @@ def validate(rows: List[Row], plans_dir: Optional[Path] = None) -> List[Registry
                 RegistryError(
                     "missing-plan",
                     f"{row.milestone} references missing file {row.plan}",
+                )
+            )
+            continue
+
+        # Registry ↔ plan-header status agreement (M061). The registry
+        # stays canonical; the plan header is checked metadata.
+        token, kind, detail = parse_plan_status(
+            plan_path.read_text(encoding="utf-8")
+        )
+        if kind == "missing":
+            errors.append(
+                RegistryError(
+                    "plan-status-missing",
+                    f"{row.milestone} plan {row.plan} {detail}",
+                )
+            )
+        elif kind == "duplicate":
+            errors.append(
+                RegistryError(
+                    "plan-status-duplicate",
+                    f"{row.milestone} plan {row.plan} has {detail}",
+                )
+            )
+        elif kind == "unparseable":
+            errors.append(
+                RegistryError(
+                    "plan-status-unparseable",
+                    f"{row.milestone} plan {row.plan} {detail}",
+                )
+            )
+        elif token != row.status:
+            errors.append(
+                RegistryError(
+                    "plan-status-mismatch",
+                    f"{row.milestone} registry status {row.status!r} disagrees with "
+                    f"plan header {token!r} in {row.plan}",
                 )
             )
 
@@ -409,13 +524,22 @@ def _fixture_table() -> str:
     )
 
 
+def _fixture_plan(header: str) -> str:
+    """Render a synthetic plan whose header block carries `header`."""
+    return f"# fixture plan\n\n{header}\n\n## Objective\n\nfixture body.\n"
+
+
 def _run_fixture() -> bool:
     import tempfile
 
+    def write_plan(plans: Path, name: str, header: str) -> None:
+        (plans / name).write_text(_fixture_plan(header), encoding="utf-8")
+
     with tempfile.TemporaryDirectory() as tmpdir:
         plans = Path(tmpdir)
-        for name in ("000-foo.md", "001-bar.md", "002-baz.md"):
-            (plans / name).write_text("# placeholder\n", encoding="utf-8")
+        write_plan(plans, "000-foo.md", "Status: closed")
+        write_plan(plans, "001-bar.md", "Status: closed")
+        write_plan(plans, "002-baz.md", "Status: ready")
         rows = parse_registry(_fixture_table())
         if len(rows) != 3:
             print(
@@ -473,7 +597,7 @@ def _run_fixture() -> bool:
             )
             return False
         # Tamper: numbered plan file with no registry row.
-        (plans / "003-qux.md").write_text("# placeholder\n", encoding="utf-8")
+        write_plan(plans, "003-qux.md", "Status: closed")
         bad = validate(parse_registry(_fixture_table()), plans_dir=plans)
         if not any(
             e.kind == "unregistered-plan" and "003-qux.md" in e.detail for e in bad
@@ -484,6 +608,112 @@ def _run_fixture() -> bool:
             )
             return False
         (plans / "003-qux.md").unlink()
+
+        # --- Registry <-> plan-header status agreement (M061) ---
+        #
+        # The registry is canonical; the plan header is checked
+        # metadata. Each case below drives one plan file's own
+        # `Status:` line and asserts the named failure kind.
+
+        def status_errors(name: str, header: str) -> List[RegistryError]:
+            write_plan(plans, name, header)
+            return validate(parse_registry(_fixture_table()), plans_dir=plans)
+
+        # (a) Matching statuses are accepted, including the
+        #     explanatory-suffix syntax already used by real plans
+        #     (M024/M025/M058 carry a parenthesised suffix).
+        suffix_errors = status_errors(
+            "001-bar.md",
+            "Status: closed (candidate `deadbee`; evidence in "
+            "`plans/closure/M001-closure.md`)",
+        )
+        if suffix_errors:
+            print(
+                "FAIL: fixture expected an explanatory status suffix to be accepted, "
+                f"got {suffix_errors}",
+                file=sys.stderr,
+            )
+            return False
+        emphasised = status_errors("002-baz.md", "Status: **ready**")
+        if emphasised:
+            print(
+                "FAIL: fixture expected an emphasised status token to be accepted, "
+                f"got {emphasised}",
+                file=sys.stderr,
+            )
+            return False
+
+        # (b) Registry `closed` + plan `ready` fails.
+        bad = status_errors("001-bar.md", "Status: ready")
+        if not any(e.kind == "plan-status-mismatch" and "M001" in e.detail for e in bad):
+            print(
+                "FAIL: fixture expected a plan-status-mismatch for M001 "
+                "(registry closed / plan ready)",
+                file=sys.stderr,
+            )
+            return False
+
+        # (c) Registry `ready` + plan `closed` fails.
+        bad = status_errors("002-baz.md", "Status: closed")
+        if not any(e.kind == "plan-status-mismatch" and "M002" in e.detail for e in bad):
+            print(
+                "FAIL: fixture expected a plan-status-mismatch for M002 "
+                "(registry ready / plan closed)",
+                file=sys.stderr,
+            )
+            return False
+
+        # (d) A missing `Status:` fails closed rather than being skipped.
+        bad = status_errors("002-baz.md", "Depends on: M001")
+        if not any(e.kind == "plan-status-missing" and "002-baz.md" in e.detail for e in bad):
+            print(
+                "FAIL: fixture expected a plan-status-missing for 002-baz.md",
+                file=sys.stderr,
+            )
+            return False
+
+        # (e) Duplicate top-level `Status:` declarations fail.
+        bad = status_errors(
+            "002-baz.md", "Status: ready\nStatus: closed\nRole: fixture"
+        )
+        if not any(e.kind == "plan-status-duplicate" and "002-baz.md" in e.detail for e in bad):
+            print(
+                "FAIL: fixture expected a plan-status-duplicate for 002-baz.md",
+                file=sys.stderr,
+            )
+            return False
+
+        # (f) An out-of-vocabulary status token fails as unparseable.
+        bad = status_errors("002-baz.md", "Status: ~~frozen~~")
+        if not any(
+            e.kind == "plan-status-unparseable" and "002-baz.md" in e.detail for e in bad
+        ):
+            print(
+                "FAIL: fixture expected a plan-status-unparseable for 002-baz.md",
+                file=sys.stderr,
+            )
+            return False
+
+        # (g) A `Status:` line in the plan body is not plan metadata, so
+        #     a body sentence can neither satisfy nor duplicate the
+        #     header declaration.
+        (plans / "002-baz.md").write_text(
+            "# fixture plan\n\nDepends on: M001\n\n## Objective\n\n"
+            "Status: closed is what a stale body note might say.\n",
+            encoding="utf-8",
+        )
+        bad = validate(parse_registry(_fixture_table()), plans_dir=plans)
+        if not any(e.kind == "plan-status-missing" for e in bad):
+            print(
+                "FAIL: fixture expected a body-only `Status:` line to read as missing",
+                file=sys.stderr,
+            )
+            return False
+
+        # Restore the clean fixture state for the determinism/block checks.
+        write_plan(plans, "000-foo.md", "Status: closed")
+        write_plan(plans, "001-bar.md", "Status: closed")
+        write_plan(plans, "002-baz.md", "Status: ready")
         # Determinism: the generated block must be byte-identical
         # across repeated renders of the same rows.
         block_a = generate_block(parse_registry(_fixture_table()))

@@ -173,6 +173,8 @@ M061 is ready as an additive closure-evidence/plan-status consistency corrective
 
 The registry uses the following states: `active`, `blocked`, `closed`, and `ready`. `plans/registry.md` is the sole hand-maintained status authority; the `Current planning state` blocks in AGENTS.md, `plans/README.md`, `plans/roadmap.md`, and `architecture/overview.md` are generated projections rewritten by `python3 scripts/check_planning_state.py --write` and checked by `sh scripts/tests/test_planning_state.sh`.
 
+Each numbered plan's own top-level `Status:` header is likewise a checked projection, not an authority. Since M061 the guard requires it to equal its registry row (a parenthesised explanatory suffix after a valid token is accepted) and fails closed with `plan-status-missing`, `plan-status-duplicate`, `plan-status-unparseable`, or `plan-status-mismatch`. Change the registry first, then the plan header; never the reverse.
+
 Only `ready` work should be handed to an implementation agent unless the purpose of the handoff is explicitly diagnostic. A blocked plan must remain blocked until its named prerequisites are evidenced.
 
 Implementation does not close a milestone. Closure requires the plan's acceptance criteria plus reproducible evidence. Create a closure record under `plans/closure/` and update `registry.md`.

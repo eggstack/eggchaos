@@ -1,6 +1,6 @@
 # M060 — Post-v0.2.0 Documentation, Release-State, and Drift-Guard Cleanup Corrective
 
-Status: ready
+Status: closed (header reconciled to the registry status by M061; as written at registration: `ready`; evidence in `plans/closure/M060-post-v0-2-0-documentation-status-and-drift-guard-cleanup-corrective-closure.md`; the hosted exact-head CI gap on `e897cc4` is reconciled by M061 (`plans/061-m060-closure-evidence-and-plan-status-consistency-corrective.md` and its closure record))
 Depends on: M058 closed; M059 closed
 Role: post-release documentation/governance corrective; production behavior frozen
 Registration baseline: `c5a151df069f93faf421c0ded9728d1dc3a347ee`

@@ -1,6 +1,6 @@
 # M035 — Cross-Language Qualification and Closure Corrective
 
-Status: ready  
+Status: closed (header reconciled to the registry status by M061; as written at registration: `ready`; evidence in `plans/closure/M035-cross-language-qualification-and-closure-corrective-closure.md`)
 Depends on: M034 (closed)  
 Role: post-ADR-006 corrective qualification and planning closure
 

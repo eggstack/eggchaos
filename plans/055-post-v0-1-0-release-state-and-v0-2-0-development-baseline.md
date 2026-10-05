@@ -1,6 +1,6 @@
 # M055 — Post-v0.1.0 Release-State Reconciliation and v0.2.0 Development Baseline
 
-Status: ready
+Status: closed (header reconciled to the registry status by M061; as written at registration: `ready`; evidence in `plans/closure/M055-post-v0-1-0-release-state-and-v0-2-0-development-baseline-closure.md`)
 Depends on: M054 closed
 Role: release-state/version-coherence corrective and next-release development baseline
 Registration baseline: ea12798e44d468dac1bd9e88ccde52f9dbaeac7e

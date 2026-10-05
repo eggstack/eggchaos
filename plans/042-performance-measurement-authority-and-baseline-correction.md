@@ -1,6 +1,6 @@
 # M042 — Performance Measurement Authority and Baseline Correction
 
-Status: ready
+Status: closed (header reconciled to the registry status by M061; as written at registration: `ready`; evidence in `plans/closure/M042-performance-measurement-authority-and-baseline-correction-closure.md`)
 
 Role: post-M041 performance prerequisite and benchmark-authority corrective
 

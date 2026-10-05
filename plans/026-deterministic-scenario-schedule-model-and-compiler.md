@@ -1,6 +1,6 @@
 # M026 — Deterministic Scenario Schedule Model and Compiler
 
-Status: ready
+Status: closed (header reconciled to the registry status by M061; as written at registration: `ready`; evidence in `plans/closure/M026-deterministic-scenario-schedule-model-and-compiler-closure.md`)
 Depends on: M025, ADR 004
 Role: post-release scenario-v2 semantic/compiler foundation
 
