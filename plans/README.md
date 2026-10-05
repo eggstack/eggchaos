@@ -167,7 +167,7 @@ M059 is closed on exact hardening candidate `1409d0f`; M058 subsequently closed 
 
 M060 is closed as a bounded post-release documentation/status and drift-guard cleanup corrective. It reconciled stale pre-publication prose and source-backed tooling descriptions, corrected `SECURITY.md` and `docs/release-notes-v0.2.0.md` to reflect the published `v0.2.0`, reconciled architecture deep-dives (M058 published / M059 pre-publication hardening / M057 historical hosted qualification authority layers, the narrowed PyO3 unsafe boundary, the unconditional `npm ci --ignore-scripts --no-audit --no-fund` install path), and added a stdlib-only `scripts/check_release_state_docs.py` guard with six named deliberate-drift negative tests wired into `scripts/check.sh` and the `language-clients` CI job; production/runtime/package/release behavior is out of scope and unchanged.
 
-M061 is ready as an additive closure-evidence/plan-status consistency corrective for M060. It does not reopen M060 implementation: it records that `e897cc4` had no hosted CI, prevents descendant runs from being misrepresented as exact-SHA evidence, makes registry↔numbered-plan status agreement mechanical in the M053 guard, and requires hosted CI on the exact M061 candidate.
+M061 is closed as the additive closure-evidence/plan-status consistency corrective for M060, on exact candidate `9791375` with hosted run `37366364200` green 15/15. It did not reopen M060 implementation: it records that `e897cc4` had no hosted CI, prevents descendant runs from being misrepresented as exact-SHA evidence, reconciles the 24 registered plan headers that had diverged from their registry row, makes registry↔numbered-plan status agreement mechanical in the M053 guard, and obtained hosted CI on the exact M061 candidate.
 
 ## Status rules
 
@@ -245,11 +245,8 @@ pinned snapshot oracle rather than moving `main`.
 
 ## Current planning state
 
-**Ready (next milestone):**
-- `M061` (ready; plan `061-m060-closure-evidence-and-plan-status-consistency-corrective.md`)
+**Highest closed milestone:** `M061` (see registry for closure evidence).
 
-**Highest closed milestone:** `M060` (see registry for closure evidence).
-
-**Execution order:** `M061`
+**Execution order:** no active or ready milestones.
 
 <!-- END eggchaos:planning-state -->

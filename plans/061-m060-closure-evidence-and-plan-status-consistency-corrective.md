@@ -1,6 +1,6 @@
 # M061 — M060 Closure-Evidence and Plan-Status Consistency Corrective
 
-Status: ready
+Status: closed (closed on exact candidate `97913754c125864dbbccb4a269e5ee51102c3de8`; hosted run `37366364200` green 15/15; evidence in `plans/closure/M061-m060-closure-evidence-and-plan-status-consistency-corrective-closure.md`; as written at registration: `ready`)
 Depends on: M060 historical closure; post-M060 documentation audit at `3ebee30cd33ea141a680acd5e6569a453fcdf124`
 Role: additive planning/evidence corrective; production and published release surfaces frozen
 Registration baseline: `3ebee30cd33ea141a680acd5e6569a453fcdf124`
