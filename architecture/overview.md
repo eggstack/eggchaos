@@ -1,214 +1,318 @@
 # Eggchaos architecture overview
 
-Bird's-eye view of the eggchaos workspace: a Rust-native, fixed-target chaos
-proxy with embeddable deterministic stream and whole-datagram fault engines.
-This document summarizes each discrete module/component in one place and is
-the index for systematic review — each section links to its deep dive in
-this directory. Read this file first, then go component by component.
+Bird's-eye view of the eggchaos workspace: a Rust-native, **fixed-target**
+chaos proxy with embeddable deterministic stream and whole-datagram fault
+engines. This file is both the summary of each discrete module/component and
+the index for systematic review — every component section links to its deep
+dive in this directory. Read this first, then go component by component.
 
-Published `v0.2.0` (annotated tag `15746dc…` peeling to `b6a277d`, GitHub Release `eggchaos v0.2.0`) is the current release; published `v0.1.0` is preserved as immutable history (tag target `81994dbc427365f1dfdaabfa39bdf077850e69ec`, published 2026-09-24). All eight Rust workspace crates are `0.2.0` on crates.io, while native `/v1`, config schema v1, RNG v1, and provenance schema v1 are unchanged. M019 (`ca527db`) remains the final v0.1.0 pre-tag qualification authority; M041 remains the ADR 007 corrective authority and M046/M047/M048 retain their performance-provenance authority roles. M056 closed the release-workflow orchestration corrective so both qualification and artifact builds are hard-gated by the same tag/package contract before expensive work starts. M057 closed as the additive exact-head qualification authority (candidate `818e567`, hosted run `36490497114` 14/14, dispatch run `36630812771` green) because M056 closed without hosted CI on its exact implementation SHA; M056 implementation ownership remains unchanged. M059 closed as the pre-publication security/dependency/maintenance corrective (candidate `1409d0f`, hosted CI `36922662654` 15/15, dispatch `36922672946` 7/7). M058 closed the v0.2.0 publication (candidate `b6a277d`, tag CI `36935298504` 15/15, tag release `36935298484` 7/7). M060 closed as the documentation/status and drift-guard cleanup corrective; production and release surfaces were frozen for that milestone.
-Canonical planning surface is `plans/` (see `AGENTS.md`); user-facing
-implementation boundaries live in `docs/architecture.md`,
-`docs/configuration.md`, `docs/control-plane.md`, `docs/toxiproxy.md`, and
-`docs/eggfetch.md`.
+> **Verification status.** Every numeric and structural claim below was
+> re-checked against the source at the current HEAD. Claims that could not be
+> confirmed were removed rather than softened. Deep dives are the review
+> handoffs; this file never restates their detail.
+
+## What the system is
+
+One sentence: **eggchaos injects deterministic, seeded, byte-level network
+impairment into a TCP/UDP relay that is always bound to a known target, and
+exposes exactly one control authority that every surface — HTTP, CLI, file
+config, Toxiproxy-compatible REST, in-process embedding, and remote SDKs —
+translates into.**
+
+Three properties shape every design decision:
+
+1. **Fixed-target, never a forward proxy.** Each proxy is configured with a
+   concrete `upstream`. There is no CONNECT/SOCKS routing, no
+   request-parsing, no open relay.
+2. **Deterministic given a seed.** Every probabilistic decision derives from
+   a versioned SplitMix64-v1 sub-seed computed from stable identity inputs
+   (see [Determinism](core-fault-engine.md#6-determinism)). Replay is
+   exact for policy and per-key decisions; it is not exact for live timing,
+   because connection keys depend on accept order.
+3. **Bounded everything.** Queues, connections, bodies, histories, metrics
+   cardinality, run records. Default overflow is backpressure, never silent
+   loss unless the fault documents discard.
+
+## Release status
+
+Published `v0.2.0` is the current release: annotated tag `v0.2.0`
+(`15746dc…` peeling to `b6a277d`) with all eight Rust workspace crates at
+`0.2.0` on crates.io. Published `v0.1.0` is preserved as immutable history.
+The native `/v1` contract, config schema v1, RNG v1, and provenance schema v1
+are unchanged by the release.
+
+The authority layers below matter when reading the deep dives, because several
+milestones remain the named authority for a specific concern even after later
+work supersedes them:
+
+- **M058 closed** the `v0.2.0` publication (frozen candidate `b6a277d`; tag CI
+  `36935298504` 15/15, tag release `36935298484` 7/7). It is the publication
+  authority.
+- **M059 closed** as the pre-publication security/dependency/maintenance
+  corrective (exact candidate `1409d0f`): workspace lints, first-party
+  dependency reconciliation, action SHA pinning, the Rust API gate, and
+  Sigstore attestation. It introduced the four M059 guards and the `api-gate`
+  job.
+- **M057 closed** as the additive exact-head hosted qualification authority for
+  the shared release-contract DAG (candidate `818e567`; hosted run `36490497114`
+  14/14, dispatch `36630812771`). M056 remains the *implementation* authority
+  for that DAG — it closed without hosted CI on its exact implementation SHA,
+  which is exactly why M057 exists.
+- **M060 closed** the post-release documentation/status and drift-guard cleanup
+  corrective (candidate `e897cc4`). It changed no Rust source, manifest,
+  lockfile, OpenAPI, generated contract, or package version; it added
+  `scripts/check_release_state_docs.py` to keep published status from drifting
+  back into pre-publication prose.
 
 ## Workspace map
 
-Dependency direction is inward (from `AGENTS.md`):
+Dependency direction is inward — outer surfaces depend on the protocol-neutral
+core, never the reverse.
 
 ```text
-eggchaos-cli -> eggchaos-server -> eggchaos-protocol -> eggchaos-experiment -> eggchaos-core
-eggchaos-toxiproxy -> server/core (adapter, no separate state store)
-eggchaos-eggfetch -> core (implements `eggfetch_core::Dialer`)
-eggchaos-embed -> server/protocol/experiment (safe coarse facade, owns lifecycle)
-eggchaos-native -> embed (PyO3 pilot, standalone maturin crate outside the workspace)
+eggchaos-cli ──────► eggchaos-server ──► eggchaos-protocol ──► eggchaos-experiment ──► eggchaos-core
+                                          ▲          ▲                                    ▲     ▲
+eggchaos-toxiproxy ───────────────────────┘          │                                    │     │
+eggchaos-embed ───────────────────────────────────────┘                                    │     │
+eggchaos-eggfetch ───────────────────────────────────────────────────────────────────────────┘     │
+eggchaos-native ──► eggchaos-embed (standalone maturin crate, outside the workspace)                      │
 ```
 
-| Crate / package | Path | Role | Deep dive |
+| Crate | Path | Scale | Role |
 | --- | --- | --- | --- |
-| `eggchaos-core` | `crates/eggchaos-core/` | Protocol-neutral deterministic fault substrate: typed stream `FaultPlan`, `DirectionEngine` state machines, `ChaosStream<T>` / `BidirectionalChaosStream` write-side adapters, `LivePolicy` publication, SplitMix64-v1 identity-scoped RNG, plus the sibling bounded whole-datagram scheduler. Knows nothing about HTTP, listeners, CLI, Toxiproxy, or Eggfetch. Empty stream plan delegates without allocating queue/timer. | [Core fault engine](core-fault-engine.md) |
-| `eggchaos-experiment` | `crates/eggchaos-experiment/` | Consumer-neutral Scenario V2 authority: schedule source language, deterministic compiler, canonical SHA-256 fingerprint, run_id-independent namespaces, shared expected-generation schedule driver, prepare/arm/start lifecycle with one monotonic epoch gate, in-process `StreamPolicyTarget`. Per-family 32-run admission lives in the server `ScenarioRegistry` (M050). Depends only on core. | [Scenarios and observability](scenario-observability.md) |
-| `eggchaos-protocol` | `crates/eggchaos-protocol/` | Stable native `/v1` wire DTOs + `NATIVE_OPERATIONS` inventory, drift-checked against `api/openapi/eggchaos-v1.yaml`. Kebab-case fault discriminators, integer-nanosecond durations, unknown-field rejection. Depends on core/experiment only. | [Protocol contract](protocol-contract.md) |
-| `eggchaos-server` | `crates/eggchaos-server/` | Fixed-target TCP and UDP runtimes (never a forward proxy), bounded connection/association registries, single `ControlState` / `DatagramRuntime` mutation authorities, typed `operations.rs` op layer (M051, delegates, no second store), V1/V2 `ScenarioRegistry` 32+32 per-family + global run-ID (M050), datagram `ControlState` methods in `runtime/control_datagram.rs` (M052 textual split, authority unchanged), native admin HTTP (`admin.rs` on `eggserve-server` + `eggserve-primitives`), schema-v1 TOML config (`config.rs`), deterministic scenario drivers (V1 + V2). `eggress-relay` owns TCP bidirectional copy + half-close. | [Server runtime](server-runtime.md), [Control plane, config, and CLI](control-plane-cli.md) |
-| `eggchaos-cli` | `crates/eggchaos-cli/` | `eggchaos` binary: `serve`, TCP `proxy`/`fault`/`connection`, UDP `datagram proxy`/`fault`/`association`, `scenario` (V1 + V2 incl. validate/compile), `version`, `reset`, `history`, `metrics`. Thin JSON client over native admin via `eggfetch-core`; every command emits one JSON doc with `--json` and exits nonzero on failure. Mutations dispatch through the shared `operations.rs` authority via HTTP. | [Control plane, config, and CLI](control-plane-cli.md) |
-| `eggchaos-toxiproxy` | `crates/eggchaos-toxiproxy/` | Toxiproxy v2.12 REST adapter over native `ControlState` (strict v2.12 default, frozen) plus the opt-in pinned post-v2.12 `packet_loss` snapshot profile. Holds no state; every view derives from snapshots, every mutation goes through native authority. | [Toxiproxy compatibility](toxiproxy-compat.md) |
-| `eggchaos-eggfetch` | `crates/eggchaos-eggfetch/` | Composable in-process `eggfetch-core::Dialer` adapter (`ChaosDialer<D>` over any caller-selected inner dialer, direct-TCP convenience included): live physical-stream fault policy, caller-controlled deterministic connection identity, bounded out-of-band transport evidence. Eggfetch keeps HTTP/TLS/SNI/pooling. Per-request chaos is out of scope. | [Eggfetch integration](eggfetch-integration.md) |
-| `eggchaos-embed` | `crates/eggchaos-embed/` | Safe coarse embedding facade over server/control/experiment authorities; owns lifecycle on a private Tokio runtime with blocking (never future-exposing) methods. Shared datagram mutation authority with HTTP admin (M035). | [Embedding and native bindings](embedding-native.md) |
-| `eggchaos-native` | `bindings/python-native/` | PyO3/maturin pilot over `eggchaos-embed` (abi3 wheel). Standalone crate outside the workspace; maturin owns its build. Host-aware qualification (Apple targets only on Darwin). No generic C ABI (requires a separate ADR). | [Embedding and native bindings](embedding-native.md) |
-| Remote SDKs | `bindings/python-client/`, `bindings/typescript-client/` | Stdlib-only Python (`Client` + `AsyncClient`) and zero-dep TypeScript (`EggchaosClient` over injectable `fetch`) control clients covering all `NATIVE_OPERATIONS`. Generated operation tables drift-checked against the OpenAPI contract. No FFI, no daemon lifecycle. | [Control plane, config, and CLI](control-plane-cli.md) |
+| `eggchaos-core` | `crates/eggchaos-core/` | 7 files, ~7.0k lines | Protocol-neutral deterministic fault substrate. Knows nothing about HTTP, listeners, CLI, Toxiproxy, or Eggfetch. |
+| `eggchaos-experiment` | `crates/eggchaos-experiment/` | 13 files, ~3.2k | Consumer-neutral Scenario V2 authority: source language, compiler, fingerprint, shared schedule driver. |
+| `eggchaos-protocol` | `crates/eggchaos-protocol/` | 5 files, ~2.9k | Stable native `/v1` wire DTOs + `NATIVE_OPERATIONS` (36 operations). |
+| `eggchaos-server` | `crates/eggchaos-server/` | 29 files, ~16.7k | Fixed-target TCP + UDP runtimes, the single control authority, admin HTTP, config, scenario drivers. |
+| `eggchaos-cli` | `crates/eggchaos-cli/` | 1 file, ~1.0k | Thin JSON client; 10 top-level commands. Never a second state path. |
+| `eggchaos-toxiproxy` | `crates/eggchaos-toxiproxy/` | 1 file, ~2.0k | Toxiproxy v2.12 REST adapter over native `ControlState`. Holds no state. |
+| `eggchaos-eggfetch` | `crates/eggchaos-eggfetch/` | 2 files, ~1.4k | Physical-stream `Dialer` adapter. Eggfetch keeps HTTP/TLS/SNI/pooling. |
+| `eggchaos-embed` | `crates/eggchaos-embed/` | 1 file, ~0.7k | Safe coarse embedding facade owning lifecycle on a private Tokio runtime. |
+| `eggchaos-native` | `bindings/python-native/` | standalone | PyO3/maturin pilot over `eggchaos-embed` (abi3 wheel). Outside the workspace. |
+
+Note the deliberate dependency edges: `eggchaos-eggfetch` depends on
+`eggchaos-core` only for its **runtime** deps (its `eggchaos-experiment` entry
+is a dev-dependency for integration tests), and `eggchaos-experiment` depends
+on `eggchaos-core` alone. That is what keeps the fault engine free of any
+consumer's concepts.
 
 Supporting members and tools:
 
-| Area | Path | Role | Deep dive |
-| --- | --- | --- | --- |
-| OpenAPI contract | `api/openapi/eggchaos-v1.yaml` | Mechanically drift-checked native contract (36 operations). Authority is the `eggchaos-protocol` crate. | [Protocol contract](protocol-contract.md) |
-| Benchmarks | `benchmarks/` (separate crate) | No-fault throughput/latency vs bare `eggress-relay` (TCP, 16+1 stream cases + microprobes) and topology-matched bare UDP relay (sequential RTT + windowed throughput + scale cases). Shared provenance schema v1 (M047), hosted Tier B (M048). | [Verification and qualification](verification-qualification.md) |
-| Fuzz | `fuzz/` (separate workspace) | 9 targets (`plan_json` + datagram/transition/DTO/config/scenario_v2) via `cargo-fuzz` (`--sanitizer none` under pinned 1.89). | [Verification and qualification](verification-qualification.md) |
-| Qualification | `qualification/` | Perf snapshots incl. M042–M047 provenance series, release TOML fixture, pinned v2.12 oracle baseline + Go/Python client smokes, post-v2.12 evidence. Exact-head authority M057 (`818e567`, hosted `36490497114` 14/14 + dispatch `36630812771`). | [Verification and qualification](verification-qualification.md) |
-| Scripts | `scripts/` | Canonical command surface: `check` (fmt/clippy/test/doc + M048 Tier A + M053 planning guard + version/release-contract guards), `benchmark(_datagram)`, `qualify_*`, `check_*` (OpenAPI 21/36, SDK drift), fetcher/qualifier pairs, `release-smoke`, `release-artifact-smoke`. | [Tooling and distribution](tooling-distribution.md) |
-| CI / release | `.github/workflows/` (`ci.yml`, `release.yml`) | 3-OS fmt/clippy/test/doc/audit/deny + language-client + python-native jobs; release qualify + 5-target artifact matrix. | [Tooling and distribution](tooling-distribution.md) |
-| Governance | `plans/` + `docs/` | `plans/roadmap.md` (architecture authority), `plans/registry.md` (status), `plans/adrs/`, `plans/reference/` (parity/verification contracts, not status), `plans/closure/` (evidence); `docs/` (user contracts). | [Tooling and distribution](tooling-distribution.md) |
+| Area | Path | Role |
+| --- | --- | --- |
+| OpenAPI contract | `api/openapi/eggchaos-v1.yaml` | Mechanically drift-checked contract: **21 paths / 36 operations**. Authority is the `eggchaos-protocol` crate. |
+| Remote SDKs | `bindings/python-client/`, `bindings/typescript-client/` | Stdlib-only Python (`Client` + `AsyncClient`) and zero-dep TypeScript (`EggchaosClient`) control clients over all 36 operations. No FFI, no daemon lifecycle. |
+| Generated tables | `bindings/_contract/operations.json` + two generated tables | Regenerated by `scripts/sync_sdk_contract.py`; drift-checked by `git diff --exit-code`. |
+| Benchmarks | `benchmarks/` (separate crate) | No-fault throughput/latency vs bare `eggress-relay` — 16 named stream cases (1 `bare_eggress_relay` baseline + 15 eggchaos cases, including 4 `stream-loss` cases) plus microprobes, and a topology-matched bare UDP relay. |
+| Fuzz | `fuzz/` (separate workspace) | **9 targets** via `cargo-fuzz` (`--sanitizer none` under the pinned toolchain). |
+| Qualification | `qualification/` | Perf snapshots + release TOML fixture + pinned v2.12 oracle baseline and post-v2.12 evidence. |
+| Scripts | `scripts/` | Canonical command surface — see [Tooling](#tooling-and-distribution) below. |
+| CI | `.github/workflows/ci.yml` | **5 jobs** — see below. |
+| ADRs | `plans/adrs/` | **7** durable boundaries (001 stream engine, 002 determinism, 003 datagrams, 004 schedules, 005 integration, 006 cross-language, 007 stream-loss). |
+| Governance | `plans/` + `docs/` | `plans/roadmap.md` (architecture authority), `plans/registry.md` (status), `plans/reference/` (parity/verification contracts, not status), `docs/` (user contracts). |
+
+## The fault vocabulary
+
+Both engines are seeded and bounded; they differ only in the unit of decision
+(stream byte-chunk vs whole datagram). This table is the fastest way to see
+the whole capability surface.
+
+**Stream faults — 8 variants** (`eggchaos-core/src/plan.rs:214`, wire form
+kebab-case via `#[serde(tag = "type", rename_all = "kebab-case", deny_unknown_fields)]`):
+
+| Kind | Effect |
+| --- | --- |
+| `latency` | Delay accepted segments. |
+| `bandwidth` | Rate-limit accepted segments. |
+| `blackhole` | Intentionally discard accepted bytes. |
+| `limit-data` | Stop forwarding after a byte boundary. |
+| `slow-close` | Delay shutdown. |
+| `slice` | Split writes into slices. |
+| `disconnect` | Request connection termination. |
+| `stream-loss` | Deterministically discard fixed-grain logical stream chunks (ADR 007). |
+
+> **Reviewer trap.** `FAULT_TYPE_NAMES` has **7** entries for those **8**
+> variants. That is intentional and test-locked
+> (`crates/eggchaos-core/tests/stream_loss.rs:145` asserts the length): the
+> metrics/evidence label table deliberately excludes `stream-loss`, which
+> carries its own `STREAM_LOSS_TYPE_NAME`. The array is a stable index for
+> counters and its order is part of the evidence contract — do not "fix" the
+> mismatch by appending an entry.
+
+**Datagram faults — 6 kinds** (`eggchaos-core/src/datagram.rs:74`, stable
+names at `:17`): `delay`, `loss`, `duplicate`, `reorder`, `payload-corrupt`,
+`bandwidth`. The whole-datagram scheduler decides
+`Immediate` vs `Queued` per message and is heap-drained by `take_ready`; it
+never exposes a byte-stream contract.
+
+Naming discipline: native userspace TCP byte-chunk dropping is `stream-loss`
+everywhere. Only the Toxiproxy compatibility presentation may say
+`packet_loss`. It is not IP/TCP packet loss and never reuses ADR 003
+datagram-loss semantics.
 
 ## How everything fits together
 
-1. Operator defines typed fault intent once in `eggchaos-core` (`plan.rs` for
-   streams, `datagram.rs` for whole datagrams): bounded IDs, finite
-   `Probability`, 8 stream `FaultKind`s (latency, bandwidth,
-   blackhole/timeout, limit-data, slow-close, slice, disconnect, plus
-   `stream-loss` per ADR 007) and 6 datagram kinds (delay, loss, duplication,
-   reorder, corruption, bandwidth).
-2. `LivePolicy` (`policy.rs`) publishes immutable
-   `(plan, generation, seed_namespace)` snapshots via `ArcSwap`. Manual
-   updates retain the namespace; Scenario V1 derives namespaces from
-   `(scenario seed, run id, event index)` and Scenario V2 from
-   `(scenario seed, execution key, schedule fingerprint, compiled event
-   index)` with no run_id input.
-3. Per-connection `DirectionEngine` (`engine.rs`) + `ChaosStream<T>`
-   (`stream.rs`) enforce the plan on Tokio byte streams. `poll_write`
-   success means the bounded queue owns the bytes; `poll_flush` is the
-   delivery barrier. Termination is a durable level-triggered
-   `TerminationHandle` (first request wins; survives generation swaps); the
-   runtime edge maps it to shutdown vs hard reset. The datagram sibling
-   (`DatagramDirectionEngine::admit` → `Immediate` / `Queued`, heap-drained
-   by `take_ready`) enforces whole-message decisions with no byte-stream
-   contract.
-4. Determinism comes from `rng.rs`: SplitMix64-v1 sub-seeds derived from
-   `(seed namespace, proxy identity, connection key, direction, fault id)`
-   (plus a domain-separated chunk stream for stream-loss and a separate
-   datagram domain). No process-global or scheduler-order RNG. Replay is
-   exact for policy/per-key decisions, not live timing (connection keys
-   depend on accept order).
-5. `eggchaos-server` embeds the engines in fixed-target listeners
-   (`runtime/` for TCP, `runtime/datagram/` for UDP): `ServiceBuilder` →
-   `EggchaosService` → `ServiceHandle` + `ControlState` (+ `DatagramRuntime`
-   for UDP). `eggress-relay` does the TCP byte relay; eggchaos wraps each
-   direction in a chaos stream. Admission limits, connection/association
-   registries, snapshots/evidence, metrics tables, `ResettableTcpStream`,
-   and barrier generation transitions (old-generation preserving bytes
-   drain before swap) live here.
-6. Wire shape is owned by `eggchaos-protocol` (DTOs + `NATIVE_OPERATIONS`,
-   drift-checked against `api/openapi/eggchaos-v1.yaml`): kebab-case
-   `kind.type`, integer-nanosecond durations, explicit required fields,
-   unknown-field rejection. The server (`native.rs`, `native_v2.rs`) only
-   adapts DTOs into `ControlState` calls plus compatibility re-exports.
-7. Control surfaces converge on one authority: `ControlState` (streams) and
-   `DatagramRuntime` (datagrams). Native admin HTTP (`admin.rs` on
-   `eggserve-server` + `eggserve-primitives`), file config (`config.rs`
-   schema-v1 TOML), CLI (`eggchaos-cli`), Toxiproxy adapter, scenario
-   drivers, remote SDKs, and `eggchaos-embed` are all translators into that
-   authority — never alternate stores.
-8. Scenarios drive generations over time: V1 (`scenario.rs`, `at_ms` events)
-   and V2 (`eggchaos-experiment` compiler/fingerprint + shared
-   epoch-anchored driver, `scenario_v2/` server wiring) publish through
+1. **Operator defines typed intent once** in `eggchaos-core` — `plan.rs` for
+   streams, `datagram.rs` for whole datagrams — with bounded IDs, finite
+   `Probability`, and validated configs.
+2. **`LivePolicy` publishes immutable snapshots** (`policy.rs`) via `ArcSwap`
+   as `(plan, generation, seed_namespace)`. Manual updates retain the
+   namespace; scenario runs derive theirs (below). A live swap never erases a
+   termination that is already due.
+3. **Per-connection `DirectionEngine` + `ChaosStream<T>`** (`engine.rs`,
+   `stream.rs`) enforce the plan on Tokio byte streams. `poll_write` success
+   means the bounded queue owns the bytes; `poll_flush` is the delivery
+   barrier — the engine drains its queue and *then* flushes the inner writer
+   (`engine.rs:1547`). Termination is a durable, level-triggered
+   `TerminationHandle` (`engine.rs:49`): publication survives a late waiter
+   and the first request wins, so a policy transition cannot erase it. An
+   empty plan delegates without allocating a queue or timer.
+4. **Determinism is a contract, not luck.** `rng.rs` derives SplitMix64-v1
+   sub-seeds from `(seed namespace, proxy identity, connection key, direction,
+   fault id)`, with a domain-separated chunk stream for `stream-loss` and a
+   separate datagram domain. There is no process-global and no
+   scheduler-order RNG.
+5. **The server embeds the engines in fixed-target listeners.** `runtime/`
+   owns TCP (`ServiceBuilder` → `EggchaosService` → `ServiceHandle` +
+   `ControlState`); `runtime/datagram/` owns UDP
+   (`DatagramRuntime` with per-client connected upstream associations).
+   `eggress-relay` owns the TCP bidirectional copy and half-close — eggchaos
+   wraps each direction rather than reimplementing the relay. `ControlState`
+   is defined at `runtime/mod.rs:425` and its behavior lives in
+   `runtime/control.rs`; it is the **single** mutation authority for streams,
+   with `DatagramRuntime` the single authority for datagrams. There is no
+   second state store — the typed `operations.rs` layer only delegates.
+6. **The wire shape is owned by `eggchaos-protocol`** — DTOs plus the
+   `NATIVE_OPERATIONS` inventory (36 operations / 21 paths), drift-checked
+   against the OpenAPI document. `./scripts/check_openapi.sh` currently
+   reports `{"openapi":"pass","paths":21,"operations":36}`. The server's
+   `native.rs` / `native_v2.rs` only adapt DTOs into `ControlState` calls.
+7. **Every control surface converges on one authority.** Native admin HTTP
+   (`admin.rs` on `eggserve-server` + `eggserve-primitives`), schema-v1 TOML
+   (`config.rs`), the CLI, the Toxiproxy adapter, the scenario drivers, the
+   remote SDKs, and `eggchaos-embed` are all *translators* into
+   `ControlState` / `DatagramRuntime` — never alternate stores.
+8. **Scenarios drive generations over time** and publish through
    expected-generation guards, so a concurrent manual move fails the run
-   instead of silently overwriting. The consumer-neutral `PolicyTarget` +
-   `EpochGate` let in-process harnesses share one monotonic start epoch
-   between schedule and caller workload.
-9. Observability is evidence-first: `StreamEvidence` / `EngineEvidence` /
-   `ConnectionEvidence` / `RngEvidence`, `ConnectionSnapshot` /
-   association views, `MetricsCounters`, bounded scenario run records. No
-   payload capture; histories, queues, tables, and label vocabularies are
-   bounded. `GET /metrics` is Prometheus text without a `/v1` prefix.
-10. Adapters extend reach without forking authority: `eggchaos-toxiproxy`
-    translates toxics↔faults with oracle-exact routes/errors (strict v2.12
-    frozen default; post-v2.12 `packet_loss` only under the pinned snapshot
-    profile); `eggchaos-eggfetch::ChaosDialer` decorates any Eggfetch
-    `Dialer` at the physical-stream seam; `eggchaos-embed` + remote SDKs +
-    `eggchaos-native` expose the same native operations in-process,
-    over HTTP, and in Python without new state stores.
+   instead of silently overwriting. Scenario V1 namespaces derive from
+   `(scenario seed, run id, event index)`; Scenario V2 derives from
+   `(scenario seed, execution key, schedule fingerprint, compiled event
+   index)` with **no run_id input** — which is what makes a fingerprint
+   reusable. The fingerprint is a domain-separated SHA-256 over canonical
+   encoded bytes (`fingerprint.rs`), explicitly excluding map iteration order
+   and timing. A single monotonic epoch gate orders prepare/arm/start so an
+   in-process harness can share one start epoch with its workload.
+   Admission is bounded per family (`SCENARIO_FAMILY_CAPACITY = 32` for V1
+   and V2 independently, `ControlState::MAX_SCENARIO_RUNS = 32`).
+9. **Observability is evidence-first** — `StreamEvidence` /
+   `EngineEvidence` / `ConnectionEvidence` / `RngEvidence`, connection
+   snapshots, association views, `MetricsCounters`, and bounded run records.
+   No payload capture. Histories, queues, tables, and label vocabularies are
+   all bounded. `GET /metrics` is Prometheus text with **no** `/v1` prefix.
+10. **Adapters extend reach without forking authority.**
+    `eggchaos-toxiproxy` translates toxics↔faults — 7 toxics in the frozen
+    strict v2.12 profile (`latency`, `bandwidth`, `timeout`, `limit_data`,
+    `slow_close`, `slicer`, `reset_peer`), plus `packet_loss` as an 8th that
+    the adapter emits **only** under the opt-in pinned post-v2.12 profile; in
+    strict mode a native `stream-loss` returns `invalid_type` rather than
+    silently becoming a different toxic. `ChaosDialer` decorates any Eggfetch
+    `Dialer` at the physical-stream seam; `eggchaos-embed` + the remote SDKs
+    + `eggchaos-native` expose the same operations in-process, over HTTP, and
+    in Python — all without new state stores.
+
+## Tooling and distribution
+
+`./scripts/check.sh` is the local gate: **eight** cheap stdlib/shell guards,
+then fmt → clippy → test → doc. The guards are `test_bench_provenance.sh`
+(M048 Tier A), `test_planning_state.sh` (M053), `test_version_coherence.sh`
+and `test_release_tag_version.sh` (M055/M056), `test_lint_inheritance.sh`,
+`test_lock_coherence.sh`, and `test_action_pins.sh` (M059), and
+`test_release_state_docs.sh` (M060). `cargo audit` and `cargo deny` live in
+CI and `release-smoke.sh`; release-benchmark Tier B stays CI-only. Each guard
+introduced after M055 is *also* wired independently into the `language-clients`
+CI job, so deleting the local wiring still trips CI.
+
+CI (`.github/workflows/ci.yml`) has **5 jobs**:
+
+| Job | Runner / timeout | Role |
+| --- | --- | --- |
+| `check` | ubuntu + macos + windows, 25 min, `RUST_TEST_THREADS: 4` | Main gate: guards, fmt, clippy, workspace tests, IPv6-loopback datagram test, doc, audit, deny. |
+| `performance-provenance` | ubuntu, 12 min | M048 Tier B release-benchmark provenance qualification, isolated from the OS/language matrices. |
+| `language-clients` | matrix, 25 min | Python/TypeScript SDK drift + cross-language qualification, plus independent wiring of the M053/M055/M059/M060 guards. |
+| `python-native` | matrix, 25 min | `eggchaos-embed` + `eggchaos-native` PyO3 checks and host-aware qualification. |
+| `api-gate` | ubuntu, 25 min, **stable** toolchain | M059 Rust public-API regression gate (`cargo-semver-checks`); deliberately not on the pinned MSRV, and requires full Git history because its baselines are git revisions. |
+
+Supply-chain discipline: every external `uses:` is a full 40-character commit
+SHA, every workflow declares explicit top-level `permissions:`, and every
+checkout sets `persist-credentials: false` — all three enforced by
+`scripts/check_action_pins.py`, not by convention.
 
 ## Project invariants (must not drift)
 
 - Core is protocol-neutral; HTTP semantics do not belong in the stream or
   datagram engines.
-- Proxy is fixed-target; not a general forward proxy / CONNECT/SOCKS router.
-- Native userspace TCP byte-chunk dropping is `stream-loss`; only the
-  Toxiproxy compatibility presentation may say `packet_loss`. It is not
-  IP/TCP packet loss and never reuses ADR 003 datagram-loss semantics.
-- `eggress-relay` remains TCP relay authority; `eggserve-server` /
+- The proxy is fixed-target; not a general forward proxy or CONNECT/SOCKS
+  router.
+- `stream-loss` is the native name; only the Toxiproxy presentation may say
+  `packet_loss`, and it never reuses ADR 003 datagram-loss semantics.
+- `eggress-relay` remains the TCP relay authority; `eggserve-server` /
   `eggserve-primitives` is the admin substrate; `eggfetch-core` (minimal
-  features) is the CLI/Dialer substrate; `eggress-outbound` is
-  optional/future only.
-- `reset_peer`/hard-reset is best-effort and platform-qualified (RST vs FIN
+  features) is the CLI/Dialer substrate; `eggress-outbound` is optional/future
+  only. Don't fork a primitive a published Eggstack crate already provides.
+- `reset_peer`/hard-reset is best-effort and platform-qualified (RST vs FIN is
   not asserted); ordinary `poll_shutdown` is never advertised as TCP RST.
-- Directions are `upstream` (client→target) and `downstream`
-  (target→client). Faults wrap destination writes; reads stay pass-through.
-- No `unsafe` without separate ADR + audit (`unsafe_code = "forbid"`).
-  No unbounded state. Seeded reproducibility. JSON-first CLI/control
-  contract. Loopback-by-default admin/compat listeners; non-loopback needs
-  explicit opt-in + bearer token (never echoed).
+- Directions are `upstream` (client→target) and `downstream` (target→client).
+  Faults wrap destination writes; reads stay pass-through.
+- No `unsafe` without a separate ADR + audit (`unsafe_code = "forbid"` at
+  workspace level). No unbounded state. Seeded reproducibility. JSON-first
+  CLI/control contract.
+- Admin binds loopback by default (`127.0.0.1:8475`). Non-loopback requires
+  explicit `public_admin` opt-in **and** a bearer token, compared in
+  constant time and never echoed (the `Debug` impl redacts it). A non-loopback
+  bind without both fails with a bounded JSON error.
 
 ## Deep-dive index
 
-Each file below is a focused review handoff for one discrete area. Read this
-overview first, then go component by component.
+Each file is a focused review handoff for one discrete area. All ten were
+re-verified against the current source.
 
-1. [Core fault engine](core-fault-engine.md) — `eggchaos-core`: `plan.rs`,
-   `engine.rs`, `stream.rs`, `policy.rs`, `rng.rs`, and `datagram.rs`;
-   stream write/flush contract, `stream-loss` (ADR 007) grain/correlation
-   rules, and the sibling bounded datagram scheduler with its six fault
-   semantics.
-2. [Fixed-target server runtime](server-runtime.md) — `eggchaos-server/runtime/`
-   (plus `runtime/datagram/`): TCP listeners and `eggress-relay` embedding,
-   the connection registry and `ControlState`, the typed `operations.rs`
-   delegation layer (M051), the per-family `ScenarioRegistry` (M050), the
-   `control_datagram.rs` split (M052), plus the independent bounded
-   UDP `DatagramRuntime` with per-client connected upstream associations
-   (M021/M024/M025 lifecycle).
-3. [Control plane, config, and CLI](control-plane-cli.md) — `admin.rs`,
-   `config.rs`, `native.rs` adapters, `operations.rs` authority (M051),
-   `eggchaos-cli/src/main.rs`: native `/v1` route inventory (36 ops / 21
-   paths), schema-v1 TOML, CLI command matrix, auth/loopback policy, JSON
-   contract, and the remote Python/TypeScript SDKs (M033).
-4. [Protocol contract](protocol-contract.md) — `eggchaos-protocol` +
-   `api/openapi/eggchaos-v1.yaml`: wire DTO ownership, `NATIVE_OPERATIONS`
-   inventory, drift-check discipline, units/discriminators/bounds (M032).
-5. [Scenarios and observability](scenario-observability.md) —
-   `eggchaos-experiment` + `scenario.rs` + `scenario_v2/` + evidence /
-   snapshot / metrics types: Scenario V1 driver, Scenario V2 compiler /
-   fingerprint / epoch-anchored driver / isolation / cleanup, generation
-   barriers, run records, connection inspection, Prometheus surface.
-6. [Toxiproxy v2.12 compatibility](toxiproxy-compat.md) —
-   `eggchaos-toxiproxy/src/lib.rs`: toxic↔fault translation, oracle-exact
-   routes / errors, strict-vs-snapshot profiles, parity divergences,
-   differential + client-smoke evidence (M036–M041).
-7. [Eggfetch in-process integration](eggfetch-integration.md) —
-   `eggchaos-eggfetch/src/lib.rs`: composable `ChaosDialer<D>`,
-   caller-controlled connection identity, live-policy publishing, ownership
-   split (dial vs HTTP/TLS), H1/`http2` profiles, regression map
-   (M029/M031).
-8. [Embedding and native bindings](embedding-native.md) — `eggchaos-embed`
-   coarse facade (lifecycle, blocking contract, shared datagram mutation
-   authority) and the `eggchaos-native` PyO3/maturin pilot plus its
-   host-aware qualification (M034/M035).
-9. [Verification and qualification](verification-qualification.md) — unit /
-   property / half-close / backpressure / JSON round-trip / differential /
-   cross-language / native-conformance tests, `fuzz/` (9 targets),
-   `benchmarks/` (16+1 stream cases + probes, scale/datagram budgets),
-   `qualification/` (M042–M047 provenance snapshots + M048 hosted wiring),
-   tolerance policy for wall-clock assertions, incomplete-evidence rule,
-   M057 exact-head authority (`818e567`, hosted `36490497114` 14/14 +
-   dispatch `36630812771`).
-10. [Tooling, release, and repo governance](tooling-distribution.md) —
-     `scripts/`, `.github/workflows/`, `dist/`, `deny.toml`, `plans/` +
-     `docs/` authority, `release-contract` DAG (M056 impl / M057 hosted),
-     publish order, planning/version dual-wiring guards (M048 Tier A/B,
-     M053 planning-state, M055 version-coherence + tag/version), status
-     vocabulary, closure-evidence discipline.
+| # | Deep dive | Covers |
+| --- | --- | --- |
+| 1 | [Core fault engine](core-fault-engine.md) | `eggchaos-core`: `plan.rs`, `engine.rs`, `stream.rs`, `policy.rs`, `rng.rs`, `datagram.rs` — write/flush contract, `stream-loss` grain/correlation rules (ADR 007), and the sibling datagram scheduler. |
+| 2 | [Fixed-target server runtime](server-runtime.md) | `eggchaos-server/runtime/` + `runtime/datagram/`: listeners, `eggress-relay` embedding, connection registry, `ControlState`, the `operations.rs` delegation layer, `ScenarioRegistry`, and the bounded UDP `DatagramRuntime`. |
+| 3 | [Control plane, config, and CLI](control-plane-cli.md) | `admin.rs`, `config.rs`, `native.rs` adapters, the 36-route/21-path inventory, schema-v1 TOML, the CLI command matrix, auth/loopback policy, and the remote Python/TypeScript SDKs. |
+| 4 | [Protocol contract](protocol-contract.md) | `eggchaos-protocol` + `api/openapi/eggchaos-v1.yaml`: wire DTO ownership, `NATIVE_OPERATIONS`, drift-check discipline, units/discriminators/bounds, and a live list of recorded discrepancies at HEAD. |
+| 5 | [Scenarios and observability](scenario-observability.md) | `eggchaos-experiment` + `scenario.rs` + `scenario_v2/`: V1 driver, V2 compiler/fingerprint/epoch-anchored driver, generation barriers, run records, and the Prometheus surface. |
+| 6 | [Toxiproxy v2.12 compatibility](toxiproxy-compat.md) | `eggchaos-toxiproxy/src/lib.rs`: toxic↔fault translation, oracle-exact routes/errors, strict-vs-snapshot profiles, parity divergences, differential + client-smoke evidence. |
+| 7 | [Eggfetch in-process integration](eggfetch-integration.md) | `eggchaos-eggfetch/src/lib.rs`: composable `ChaosDialer<D>`, caller-controlled connection identity, live-policy publishing, ownership split (dial vs HTTP/TLS). |
+| 8 | [Embedding and native bindings](embedding-native.md) | `eggchaos-embed` coarse facade (lifecycle, blocking contract, shared datagram authority) and the `eggchaos-native` PyO3/maturin pilot. |
+| 9 | [Verification and qualification](verification-qualification.md) | Test layers, `fuzz/` (9 targets), `benchmarks/`, `qualification/` snapshots, the Tokio-time and wall-clock tolerance policy, and the incomplete-evidence rule. |
+| 10 | [Tooling, release, and repo governance](tooling-distribution.md) | The full `scripts/` catalog, the 5-job CI matrix, the release `release-contract` DAG, publish order, and the planning/version dual-wiring guards. |
 
 ## Canonical references
 
 - `docs/architecture.md` — dependency direction + M009 fault-semantics baseline.
 - `docs/configuration.md`, `docs/control-plane.md`, `docs/eggfetch.md`,
-  `docs/toxiproxy.md` — per-surface contracts.
-- `plans/roadmap.md`, `plans/registry.md` — sequencing, invariants, milestone
-   closure (M000–M059 closed; M058 closed the published `v0.2.0` on `b6a277d`; M059 closed the pre-publication hardening corrective on `1409d0f`; M057 remains the historical hosted qualification authority for the M056 release-contract DAG; M056 owns the release-contract implementation; M055 owns the historical 0.2.0 development-version baseline; M019 is the final v0.1.0 pre-tag qualification authority).
-- `plans/adrs/` — durable boundaries (001 stream engine, 002 determinism,
-  003 datagrams, 004 schedules, 005 integration, 006 cross-language,
-  007 stream-loss).
-- `plans/reference/toxiproxy-parity.md`,
-  `plans/reference/verification-matrix.md` — parity + verification contracts.
-- `qualification/toxiproxy-v2-12/oracle-baseline-v2.12.0.md` — pinned oracle.
+  `docs/toxiproxy.md` — per-surface user contracts.
+- `plans/roadmap.md` (architecture authority), `plans/registry.md` (the sole
+  hand-maintained milestone-status authority), `plans/closure/` (evidence).
+- `plans/adrs/` — the 7 durable boundaries listed in the workspace map.
+- `plans/reference/toxiproxy-parity.md`, `plans/reference/verification-matrix.md`
+  — parity and verification contracts (contracts, not status).
+- `qualification/toxiproxy-v2-12/oracle-baseline-v2.12.0.md` — the pinned oracle.
+
+## Focused verification commands
+
+```sh
+./scripts/check.sh                    # full local gate (8 guards + fmt/clippy/test/doc)
+./scripts/check_openapi.sh            # protocol/OpenAPI drift — reports paths + operations
+cargo test -p eggchaos-core --all-features
+cargo test -p eggchaos-toxiproxy --all-features
+cargo test -p eggchaos-eggfetch --all-features   # add --features http2 for the H2 profile
+sh scripts/tests/test_bench_provenance.sh       # M047/M048 Tier A (cheap)
+python3 scripts/check_planning_state.py --check  # M053 planning-state drift (cheap)
+python3 scripts/check_version_coherence.py --check  # M055 version coherence (cheap)
+```
 
 <!-- BEGIN eggchaos:planning-state -->
 <!--

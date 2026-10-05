@@ -28,12 +28,13 @@ canonical status lives in `plans/registry.md` and `plans/closure/`
 preserved as historical authority layers). Do not assert by
 inspection: if a gate was not run, record it as incomplete (see §8).
 
-> Count notes at current HEAD: `fuzz/` holds 9 targets; `benchmarks/`
-> stream harness holds 16+1 cases + microprobes; `qualification/performance/`
-> retains the M042–M047 provenance series (schema v1, Tier A cheap /
-> Tier B release-benchmarks); OpenAPI drift gate stays 21 paths / 36 ops.
-> Per-test counts and `file:line` citations below predate the M049–M052
-> refactors and are approximate.
+> Count notes at current HEAD: `fuzz/` holds 9 targets; the `benchmarks/`
+> stream harness holds 16 named cases — 1 `bare_eggress_relay` baseline plus
+> 15 eggchaos cases (4 of them `stream_loss` variants) — plus microprobes;
+> `qualification/performance/` retains the M042–M047 provenance series
+> (schema v1, Tier A cheap / Tier B release-benchmarks); OpenAPI drift gate
+> stays 21 paths / 36 ops. Per-test counts and `file:line` citations below
+> predate the M049–M052 refactors and are approximate.
 
 ## 1. Test layers (what runs where)
 

@@ -392,19 +392,28 @@ substitute inspection for execution.
 
 ## 7. Discrepancies found at HEAD (not fixed; this file only records)
 
-1. Stale milestone ref in code comment: `stream.rs:206` says
-   `(ADR 007 / M037)` on `StreamLoss`, but no M037 exists — the
-   stream-loss chain is ADR 007 / M036–M041 (M041 latest corrective).
-   Comment should say ADR 007 (or M037-free wording).
-2. Golden corpus lags the 8th stream fault:
-   `tests/fixtures/stream_faults.json` holds 7 entries (no
-   `stream-loss`) and `golden.rs:22` asserts `len() == 7`, while
-   `FaultKindV1`, `contract_drift.rs`, the YAML
-   (`StreamFaultStreamLoss`), and `operations.json`
+1. **Resolved (was a false finding).** An earlier revision of this file
+   claimed `stream.rs:206` carried a stale `(ADR 007 / M037)` reference
+   because "no M037 exists". Both halves were wrong: the citation is at
+   `crates/eggchaos-protocol/src/stream.rs:222` (not 206), and M037 does
+   exist and is **closed** — `plans/037-stream-loss-native-contract-and-cross-language-propagation.md`,
+   "Propagate proven StreamLoss semantics through native v1/config/CLI/
+   Scenario/OpenAPI/Python/TypeScript/embed/Python-native surfaces"
+   (`plans/registry.md:46`). The comment is therefore accurate as
+   written; no source change is warranted. The stream-loss chain is
+   ADR 007 -> M036 -> M037 -> M038 -> M039 (M039 closure), with M041 as
+   the later corrective authority.
+2. **Still open at HEAD (re-confirmed).** Golden corpus lags the 8th
+   stream fault: `crates/eggchaos-protocol/tests/fixtures/stream_faults.json`
+   holds 7 entries (no `stream-loss`) and `golden.rs:22` asserts
+   `fixtures.len() == 7`, while `FaultKindV1`, `contract_drift.rs`, the
+   YAML (`StreamFaultStreamLoss`), and `operations.json`
    (`stream_fault_tags`, 8 entries) all cover `stream-loss`.
    Per-variant coverage exists in `stream.rs:1280-1361` and
    `contract_drift.rs:266-310`, but the golden file predates ADR 007
-   (accurate at M032 closure: "7/7") and was never extended.
+   (accurate at M032 closure: "7/7") and was never extended. This is a
+   coverage gap in the round-trip golden, not a contract divergence:
+   every other surface carries the 8th fault.
 3. Placeholder-name cosmetic drift: `routes.rs:168,173` and the YAML
    use `/v1/scenarios/{id}`, while `docs/control-plane.md` and
    `control-plane-cli.md` write `/v1/scenarios/{run_id}`. Runtime
@@ -417,7 +426,7 @@ substitute inspection for execution.
    kind}` shape the YAML requires, but `deny_unknown_fields` +
    `flatten` interact differently at the serde layer than a flat
    struct.
-5. Working tree was already dirty at write time (`git status` shows
-   `M architecture/{core-fault-engine,eggfetch-integration,overview,
-   scenario-observability,server-runtime,toxiproxy-compat}.md`);
-   this file was created without touching any of them.
+5. **Retired (was a process artifact, not architecture).** An earlier
+   revision recorded that the working tree was dirty at write time.
+   That is transient repository state, not a contract property, and it
+   is not meaningful to a reviewer. Removed.
