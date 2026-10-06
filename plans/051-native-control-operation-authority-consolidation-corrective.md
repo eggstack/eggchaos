@@ -1,6 +1,6 @@
 # M051 — Native Control Operation Authority Consolidation Corrective
 
-Status: blocked
+Status: closed (header reconciled to the registry status by M061; as written at registration: `blocked`; evidence in `plans/closure/M051-native-control-operation-authority-consolidation-corrective-closure.md`)
 Depends on: M050 closed
 Role: collapse duplicated HTTP/embed application-operation plumbing while preserving transport presentations
 Activation baseline: exact M050 closure candidate

@@ -1,6 +1,6 @@
 # M046 — Performance Evidence Provenance and Closure-Lineage Corrective
 
-Status: ready  
+Status: closed (header reconciled to the registry status by M061; as written at registration: `ready`; evidence in `plans/closure/M046-performance-evidence-provenance-and-closure-lineage-corrective-closure.md`)
 Depends on: M045 closed at `a27a67a0577e3a92a2189d5188a63bf8a0a94dc0` / closure commit `37acc6b2cd8c632a3f73aa354297e83c08522e90`  
 Role: narrow post-M045 evidence-provenance and closure-hygiene corrective  
 Baseline: `37acc6b2cd8c632a3f73aa354297e83c08522e90`

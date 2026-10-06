@@ -2,8 +2,8 @@ name: Release qualification
 
 # M059: least-privilege default. Artifact upload uses the ephemeral
 # runtime token, so `contents: read` is sufficient; no job pushes
-# commits or publishes packages (M058 owns publication and stays
-# blocked until M059 closes).
+# commits or publishes packages. Publication (M058) is a separate
+# owner-controlled action taken from a tagged candidate.
 permissions:
   contents: read
 
@@ -161,6 +161,8 @@ jobs:
       - name: Verify attestation (native-host leg only)
         if: matrix.target == 'x86_64-unknown-linux-gnu'
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: gh attestation verify "${{ steps.package.outputs.artifact }}" --repo "${{ github.repository }}"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

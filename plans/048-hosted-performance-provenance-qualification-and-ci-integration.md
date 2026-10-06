@@ -1,6 +1,6 @@
 # M048 — Hosted Performance-Provenance Qualification and CI Integration
 
-Status: ready  
+Status: closed (header reconciled to the registry status by M061; as written at registration: `ready`; evidence in `plans/closure/M048-hosted-performance-provenance-qualification-and-ci-integration-closure.md`)
 Depends on: M047 closed at `493fb032c9665494247dcfaad8f4c5dcd7e7b6d1` / closure commit `9b4a2eb548ae9dc40dbfb770236707f553f1d157`  
 Role: narrow hosted qualification and CI-integration successor to M047  
 Baseline: `9b4a2eb548ae9dc40dbfb770236707f553f1d157`

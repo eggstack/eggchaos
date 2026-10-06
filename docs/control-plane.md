@@ -72,7 +72,7 @@ compatibility); the machine-readable contract is
 
 ## CLI command inventory
 
-`eggchaos --admin <url> [--json] <command>`: `serve` (start from
+`eggchaos --admin <url> [--json] <command>`: `health`, `serve` (start from
 schema-v1 TOML), `version`, `reset`; `proxy list|get|add|set|remove|
 enable|disable`; `fault list|get|add|set|remove`;
 `connection list|get|kill`; `scenario apply|validate|compile|get|cancel`;
@@ -80,6 +80,13 @@ enable|disable`; `fault list|get|add|set|remove`;
 JSON routes emit one machine-readable document with `--json` and exit nonzero
 on failure. Metrics are Prometheus text in human mode and are wrapped as
 `{"body":"..."}` with `--json`.
+
+`fault set` requires `--probability` and/or `--kind` and rejects anything else
+(`fault set requires --probability and/or --kind`). Supplying `--kind` rebuilds
+the whole kind object from the supplied fault attributes rather than merging
+into the stored one, so omitted attributes fall back to their schema defaults —
+`--kind latency --delay-ms 400` alone also resets `jitter_ns` to 0. Repeat every
+attribute you want to keep.
 
 Proxy create requests accept `connect_timeout_ms` and `seed`; add faults via
 the fault routes rather than embedding them in proxy create. Proxy views

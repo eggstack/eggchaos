@@ -1,6 +1,6 @@
 # M049 — Core Deserialization and Plan-Invariant Hardening Corrective
 
-Status: ready
+Status: closed (header reconciled to the registry status by M061; as written at registration: `ready`; evidence in `plans/closure/M049-core-deserialization-and-plan-invariant-hardening-corrective-closure.md`)
 Depends on: M048 closed
 Role: first implementation milestone in the post-M048 maintenance/correctness tranche
 Registration baseline: 4febd52e60f8098e9adfffa876052831fb2be56a

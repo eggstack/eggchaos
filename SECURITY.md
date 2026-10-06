@@ -6,12 +6,15 @@ Security fixes are provided on the latest published release line.
 
 | Line    | Status                                              |
 | ------- | --------------------------------------------------- |
-| v0.1.x  | Supported until v0.2.0 is published                 |
-| v0.2.x  | Supported once published (pre-release on `main`)    |
+| v0.2.x  | Supported (current published release line; `v0.2.0` published 2026-10-02) |
+| v0.1.x  | Unsupported since `v0.2.0` publication               |
 | < v0.1  | Unsupported                                         |
 
-The `main` branch is pre-release development, not a supported line.
-If you deploy from `main`, track it as unreleased software.
+The `main` branch is post-release development after `v0.2.0`, not a
+supported release line itself. If you deploy from `main`, track it as
+unreleased software. Adopting a multi-line support policy for older
+release branches is not currently part of this repository's security
+posture.
 
 ## Reporting a vulnerability
 

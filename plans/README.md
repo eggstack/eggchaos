@@ -163,11 +163,17 @@ M056 is closed as the narrow release-workflow contract-gate corrective. It intro
 
 M057 is closed as the qualification-only successor for the M056 closure-evidence gap. It preserved the M056 workflow implementation and closure record, obtained hosted CI on exact candidate `818e567` (run `36490497114`, 14/14) plus a green release `workflow_dispatch` run `36630812771` on the same SHA, and is the final hosted qualification authority for the shared release-contract DAG. M057 activates no successor.
 
-M059 is ready as the release-blocking pre-`v0.2.0` security/dependency/maintenance corrective registered from audit baseline `0f8a8eb`. It activates workspace lint inheritance, reconciles first-party dependency/lock graphs, hardens Actions and dependency monitoring, narrows the PyO3 unsafe boundary, adds Rust public-API regression qualification, and requires a new exact-head hosted/release qualification. M058 remains the owner-controlled `v0.2.0` publication milestone but is blocked until M059 closes; its eight-crate/tag/five-binary/checksum/public-install scope and separately gated language-package decisions are unchanged. `eggchaos-native` remains deferred by default unless a release-grade wheel matrix is proven.
+M059 is closed on exact hardening candidate `1409d0f`; M058 subsequently closed the `v0.2.0` publication on frozen candidate `b6a277d` with all eight Rust crates, the annotated tag, five binary/checksum artifacts, Sigstore attestations, and fresh-install verification. Language registries were explicitly deferred, including the alpha `eggchaos-native` pilot.
+
+M060 is closed as a bounded post-release documentation/status and drift-guard cleanup corrective. It reconciled stale pre-publication prose and source-backed tooling descriptions, corrected `SECURITY.md` and `docs/release-notes-v0.2.0.md` to reflect the published `v0.2.0`, reconciled architecture deep-dives (M058 published / M059 pre-publication hardening / M057 historical hosted qualification authority layers, the narrowed PyO3 unsafe boundary, the unconditional `npm ci --ignore-scripts --no-audit --no-fund` install path), and added a stdlib-only `scripts/check_release_state_docs.py` guard with six named deliberate-drift negative tests wired into `scripts/check.sh` and the `language-clients` CI job; production/runtime/package/release behavior is out of scope and unchanged.
+
+M061 is closed as the additive closure-evidence/plan-status consistency corrective for M060, on exact candidate `9791375` with hosted run `37366364200` green 15/15. It did not reopen M060 implementation: it records that `e897cc4` had no hosted CI, prevents descendant runs from being misrepresented as exact-SHA evidence, reconciles the 24 registered plan headers that had diverged from their registry row, makes registry↔numbered-plan status agreement mechanical in the M053 guard, and obtained hosted CI on the exact M061 candidate.
 
 ## Status rules
 
 The registry uses the following states: `active`, `blocked`, `closed`, and `ready`. `plans/registry.md` is the sole hand-maintained status authority; the `Current planning state` blocks in AGENTS.md, `plans/README.md`, `plans/roadmap.md`, and `architecture/overview.md` are generated projections rewritten by `python3 scripts/check_planning_state.py --write` and checked by `sh scripts/tests/test_planning_state.sh`.
+
+Each numbered plan's own top-level `Status:` header is likewise a checked projection, not an authority. Since M061 the guard requires it to equal its registry row (a parenthesised explanatory suffix after a valid token is accepted) and fails closed with `plan-status-missing`, `plan-status-duplicate`, `plan-status-unparseable`, or `plan-status-mismatch`. Change the registry first, then the plan header; never the reverse.
 
 Only `ready` work should be handed to an implementation agent unless the purpose of the handoff is explicitly diagnostic. A blocked plan must remain blocked until its named prerequisites are evidenced.
 
@@ -239,14 +245,8 @@ pinned snapshot oracle rather than moving `main`.
 
 ## Current planning state
 
-**Ready (next milestone):**
-- `M059` (ready; plan `059-pre-v0-2-0-security-dependency-and-maintenance-hardening-corrective.md`)
+**Highest closed milestone:** `M061` (see registry for closure evidence).
 
-**Blocked (waiting on a predecessor closure):**
-- M058
-
-**Highest closed milestone:** `M057` (see registry for closure evidence).
-
-**Execution order:** `M059`
+**Execution order:** no active or ready milestones.
 
 <!-- END eggchaos:planning-state -->

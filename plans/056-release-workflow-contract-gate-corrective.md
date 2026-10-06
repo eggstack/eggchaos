@@ -1,6 +1,6 @@
 # M056 — Release Workflow Contract-Gate Corrective
 
-Status: ready
+Status: closed (header reconciled to the registry status by M061; as written at registration: `ready`; evidence in `plans/closure/M056-release-workflow-contract-gate-corrective-closure.md`)
 Depends on: M055 closed
 Role: release-orchestration correctness / qualification corrective
 Registration baseline: 0a15b59add45711666d9018e0e4493a90e2ffb56

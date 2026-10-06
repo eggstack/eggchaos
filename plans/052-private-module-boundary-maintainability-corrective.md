@@ -1,6 +1,6 @@
 # M052 — Private Module Boundary Maintainability Corrective
 
-Status: blocked
+Status: closed (header reconciled to the registry status by M061; as written at registration: `blocked`; evidence in `plans/closure/M052-private-module-boundary-maintainability-corrective-closure.md`)
 Depends on: M051 closed
 Role: low-semantic-risk decomposition of oversized control/translation modules
 Activation baseline: exact M051 closure candidate
