@@ -725,7 +725,7 @@ async fn eggfetch_owns_tls_and_http2_over_the_physical_chaos_stream() {
         .with_single_cert(
             vec![CertificateDer::from(certificate.cert.der().to_vec())],
             PrivateKeyDer::from(PrivatePkcs8KeyDer::from(
-                certificate.key_pair.serialize_der(),
+                certificate.signing_key.serialize_der(),
             )),
         )
         .unwrap();
