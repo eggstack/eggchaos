@@ -1,6 +1,6 @@
 # Eggchaos Long-Term Roadmap
 
-Status: M000-M060 are closed. M058 closed the v0.2.0 publication (tag `v0.2.0` on `b6a277d`, eight crates.io publishes, GitHub Release with five binaries + checksums, fresh-install verification green). M055 owns the historical 0.2.0 development-version baseline, M056 the release-contract implementation, M057 the historical exact-head qualification authority for the M056 DAG, and M059 the pre-publication hardening corrective. M060 remains the historical post-release documentation/status cleanup closure. M061 is ready as the additive M060 closure-evidence/plan-status consistency corrective; production and release surfaces remain frozen.
+Status: M000-M060 are closed. M058 closed the v0.2.0 publication (tag `v0.2.0` on `b6a277d`, eight crates.io publishes, GitHub Release with five binaries + checksums, fresh-install verification green). M055 owns the historical 0.2.0 development-version baseline, M056 the release-contract implementation, M057 the historical exact-head qualification authority for the M056 DAG, and M059 the pre-publication hardening corrective. M060 remains the historical post-release documentation/status cleanup closure, with its hosted exact-head evidence gap reconciled additively by M061. M061 is closed as the M060 closure-evidence/plan-status consistency corrective on exact candidate `9791375` (hosted run `37366364200`, 15/15); M000–M061 are now closed with no active, ready, or blocked milestone. Production and release surfaces remain frozen.
 
 ## 1. Mission
 
@@ -846,11 +846,8 @@ None of these may weaken the fixed-target, protocol-neutral core boundary.
 
 ## Current planning state
 
-**Ready (next milestone):**
-- `M061` (ready; plan `061-m060-closure-evidence-and-plan-status-consistency-corrective.md`)
+**Highest closed milestone:** `M061` (see registry for closure evidence).
 
-**Highest closed milestone:** `M060` (see registry for closure evidence).
-
-**Execution order:** `M061`
+**Execution order:** no active or ready milestones.
 
 <!-- END eggchaos:planning-state -->

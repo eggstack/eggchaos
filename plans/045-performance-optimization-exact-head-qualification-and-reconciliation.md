@@ -1,6 +1,6 @@
 # M045 — Performance Optimization Exact-Head Qualification and Reconciliation
 
-Status: blocked
+Status: closed (header reconciled to the registry status by M061; as written at registration: `blocked`; evidence in `plans/closure/M045-performance-optimization-exact-head-qualification-and-reconciliation-closure.md`)
 
 Role: combined exact-candidate qualification/closure gate for M042–M044
 

@@ -1,6 +1,6 @@
 # M039 — Post-v2.12 Stream-Loss Qualification and Closure
 
-Status: blocked  
+Status: closed (header reconciled to the registry status by M061; as written at registration: `blocked`; evidence in `plans/closure/M039-post-v2-12-stream-loss-qualification-and-closure-closure.md`)
 Depends on: M036, M037, M038  
 Role: exact-candidate qualification and tranche closure
 

@@ -1,6 +1,6 @@
 # M041 — Stream-Loss Metrics and Closure Hygiene Corrective
 
-Status: ready  
+Status: closed (header reconciled to the registry status by M061; as written at registration: `ready`; evidence in `plans/closure/M041-stream-loss-metrics-and-closure-hygiene-corrective-closure.md`)
 Depends on: M040 historical closure record + ADR 007  
 Role: narrow post-M040 operational correctness and closure hygiene corrective  
 Baseline: `b69dec32a23ac426d57ba3c0e0aeecb80649dbec`

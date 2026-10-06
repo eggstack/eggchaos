@@ -1,6 +1,6 @@
 # M050 — Scenario Run Lifecycle Authority Consolidation Corrective
 
-Status: blocked
+Status: closed (header reconciled to the registry status by M061; as written at registration: `blocked`; evidence in `plans/closure/M050-scenario-run-lifecycle-authority-consolidation-corrective-closure.md`)
 Depends on: M049 closed
 Role: scenario bookkeeping consolidation without Scenario V1/V2 semantic convergence
 Activation baseline: exact M049 closure candidate

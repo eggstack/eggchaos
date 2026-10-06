@@ -1,6 +1,6 @@
 # M038 — Pinned Post-v2.12 Toxiproxy packet_loss Profile
 
-Status: blocked  
+Status: closed (header reconciled to the registry status by M061; as written at registration: `blocked`; evidence in `plans/closure/M038-pinned-post-v2-12-toxiproxy-packet-loss-profile-closure.md`)
 Depends on: M037  
 Role: compatibility adapter + pinned upstream oracle
 

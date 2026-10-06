@@ -1,6 +1,6 @@
 # M043 — Stream Hot-Path Allocation, Policy, Timer, and Evidence Optimization
 
-Status: blocked
+Status: closed (header reconciled to the registry status by M061; as written at registration: `blocked`; evidence in `plans/closure/M043-stream-hot-path-allocation-policy-timer-and-evidence-optimization-closure.md`)
 
 Role: semantics-preserving TCP/stream hot-path optimization
 

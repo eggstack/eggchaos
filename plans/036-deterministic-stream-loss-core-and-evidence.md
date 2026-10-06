@@ -1,6 +1,6 @@
 # M036 — Deterministic Stream-Loss Core and Evidence
 
-Status: ready  
+Status: closed (header reconciled to the registry status by M061; as written at registration: `ready`; evidence in `plans/closure/M036-deterministic-stream-loss-core-and-evidence-closure.md`)
 Depends on: M035 (closed), ADR 007  
 Role: post-v2.12 stream-loss semantic foundation
 

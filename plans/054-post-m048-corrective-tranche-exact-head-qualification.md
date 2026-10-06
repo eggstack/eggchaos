@@ -1,6 +1,6 @@
 # M054 — Post-M048 Corrective Tranche Exact-Head Qualification
 
-Status: blocked
+Status: closed (header reconciled to the registry status by M061; as written at registration: `blocked`; evidence in `plans/closure/M054-post-m048-corrective-tranche-exact-head-qualification-closure.md`)
 Depends on: M049, M050, M051, M052, M053 closed
 Role: exact-head qualification and closure gate for the maintenance/correctness tranche
 Activation baseline: exact M053 closure candidate

@@ -1,10 +1,14 @@
 #!/usr/bin/env sh
 # M053 regression: planning-state drift guard.
+# M061 regression: registry <-> plan-header status agreement.
 #
 # Proves `scripts/check_planning_state.py` still enforces
 # `plans/registry.md` as the sole milestone-status authority:
-# - inline fixture passes (malformed rows, stale blocks, determinism);
-# - real-tree --check passes (all four generated blocks match);
+# - inline fixture passes (malformed rows, plan-header status
+#   mismatch / missing / duplicate / unparseable classes, stale
+#   blocks, determinism);
+# - real-tree --check passes (every registered plan header agrees
+#   with its registry row, and all four generated blocks match);
 # - deliberate drift fails (a temp copy with a corrupted block does
 #   not verify), without touching the real checkout;
 # - wiring is intact: `scripts/check.sh` invokes the guard and the
@@ -22,11 +26,13 @@ WORKFLOW="$REPO_ROOT/.github/workflows/ci.yml"
 CHECK_SH="$REPO_ROOT/scripts/check.sh"
 [ -f "$GUARD" ] || fail "missing guard: $GUARD"
 
-# 1. Inline fixture: malformed registry rows, unregistered plan files,
-#    unknown dependencies, determinism, stale/missing block detection.
+# 1. Inline fixture: malformed registry rows, plan-header status
+#    agreement classes, unregistered plan files, unknown
+#    dependencies, determinism, stale/missing block detection.
 python3 "$GUARD" --fixture || fail "fixture self-test failed"
 
-# 2. Real-tree check: registry parses clean and all four generated
+# 2. Real-tree check: registry parses clean, every registered plan
+#    header agrees with its registry row, and all four generated
 #    blocks match.
 python3 "$GUARD" --check || fail "real-tree --check failed"
 
@@ -59,6 +65,85 @@ with tempfile.TemporaryDirectory() as tmp:
     with contextlib.redirect_stderr(io.StringIO()):
         assert not cps.check_target(doc, expected), "stale block must fail"
 print("deliberate-drift negative test ok")
+PY
+
+# 3b. Plan-header status agreement against the real registry (M061).
+#     Copies the live plans directory into a temp tree so the real
+#     checkout is never modified, proves the live tree is already
+#     clean, and then drives one real plan's `Status:` line into
+#     each failure class to prove the guard fails closed.
+python3 - "$GUARD" <<'PY' || exit 1
+import re
+import shutil
+import sys
+import tempfile
+from pathlib import Path
+
+guard = Path(sys.argv[1]).resolve()
+sys.path.insert(0, str(guard.parent))
+import check_planning_state as cps
+
+rows = cps.parse_registry(cps.REGISTRY_PATH.read_text(encoding="utf-8"))
+assert rows, "registry must parse"
+
+with tempfile.TemporaryDirectory() as tmp:
+    plans = Path(tmp) / "plans"
+    plans.mkdir()
+    for p in cps.PLANS_DIR.iterdir():
+        if p.is_file():
+            shutil.copy2(p, plans / p.name)
+
+    # The live tree must already agree with the registry.
+    live = cps.validate(rows, plans_dir=plans)
+    assert not live, f"live tree plan-header drift: {live}"
+
+    # Drive one real plan header through each failure class.
+    target = next(r for r in rows if r.status == "closed" and r.plan.endswith(".md"))
+    victim = plans / target.plan
+    original = victim.read_text(encoding="utf-8")
+
+    def run():
+        return cps.validate(rows, plans_dir=plans)
+
+    def expect(kind, header, label):
+        patched = re.sub(r"^Status:.*$", header, original, count=1, flags=re.M)
+        assert patched != original, "status line not found in " + target.plan
+        victim.write_text(patched, encoding="utf-8")
+        try:
+            errs = run()
+        finally:
+            victim.write_text(original, encoding="utf-8")
+        hit = [e for e in errs if e.kind == kind and target.milestone in e.detail]
+        assert hit, f"{label}: expected {kind} for {target.milestone}, got {errs}"
+        assert not run(), f"{label}: guard must be clean once the header is restored"
+
+    # An explanatory suffix after a valid status token is accepted;
+    # real plans already use this form.
+    suffixed = re.sub(
+        r"^Status:.*$",
+        "Status: closed (evidence in `plans/closure/example-closure.md`)",
+        original,
+        count=1,
+        flags=re.M,
+    )
+    victim.write_text(suffixed, encoding="utf-8")
+    try:
+        errs = run()
+    finally:
+        victim.write_text(original, encoding="utf-8")
+    assert not errs, f"explanatory status suffix must be accepted, got {errs}"
+
+    expect("plan-status-mismatch", "Status: ready", "registry closed / plan ready")
+    expect("plan-status-mismatch", "Status: blocked", "registry closed / plan blocked")
+    expect("plan-status-missing", "Depends on: M000", "missing status header")
+    expect(
+        "plan-status-duplicate",
+        "Status: closed\nStatus: ready",
+        "duplicate status headers",
+    )
+    expect("plan-status-unparseable", "Status: ~~frozen~~", "unparseable status header")
+
+print("plan-header status agreement negative tests ok")
 PY
 
 # 4. Wiring: the cheap guard must live in scripts/check.sh (via this

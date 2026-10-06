@@ -58,7 +58,7 @@ work supersedes them:
   14/14, dispatch `36630812771`). M056 remains the *implementation* authority
   for that DAG — it closed without hosted CI on its exact implementation SHA,
   which is exactly why M057 exists.
-- **M061 is ready** as the additive M060 closure-evidence/plan-status consistency corrective. It changes planning/evidence guards only and must obtain exact-head hosted CI; production and release surfaces stay frozen.
+- **M061 is closed** as the M060 closure-evidence/plan-status consistency corrective, on exact candidate `9791375` with hosted run `37366364200` green 15/15. It changed planning/evidence guards only and reconciled the M060 hosted-CI lineage plus 24 divergent plan headers; production and release surfaces stayed frozen. M000–M061 are closed with no active, ready, or blocked milestone.
 - **M060 closed** the post-release documentation/status and drift-guard cleanup
   corrective (candidate `e897cc4`). It changed no Rust source, manifest,
   lockfile, OpenAPI, generated contract, or package version; it added
@@ -325,11 +325,8 @@ python3 scripts/check_version_coherence.py --check  # M055 version coherence (ch
 
 ## Current planning state
 
-**Ready (next milestone):**
-- `M061` (ready; plan `061-m060-closure-evidence-and-plan-status-consistency-corrective.md`)
+**Highest closed milestone:** `M061` (see registry for closure evidence).
 
-**Highest closed milestone:** `M060` (see registry for closure evidence).
-
-**Execution order:** `M061`
+**Execution order:** no active or ready milestones.
 
 <!-- END eggchaos:planning-state -->

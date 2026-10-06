@@ -332,6 +332,72 @@ gate per the plan; the exact run IDs and conclusion are
 appended below when the candidate lands and the hosted
 matrix reports back.
 
+## M061 reconciliation and erratum (additive; supersedes no prior statement)
+
+This section was added by M061
+(`plans/061-m060-closure-evidence-and-plan-status-consistency-corrective.md`,
+evidence in
+`plans/closure/M061-m060-closure-evidence-and-plan-status-consistency-corrective-closure.md`).
+It corrects one unfulfilled statement above and leaves every
+local qualification result above intact.
+
+### Erratum 1 — hosted CI on the exact candidate never ran
+
+The WP6 text above is preserved verbatim as written, including
+its promise that hosted CI is a hard gate "per the plan". That
+gate was **not** satisfied: GitHub Actions has **no workflow run
+for `e897cc4767f0bb2c10feaae46232ab2e52666d90`**. The
+placeholder `<HEAD>` was never replaced with a run ID, so the
+WP6 hosted-evidence paragraph was closed with an unfilled
+obligation rather than with a passing run.
+
+This is a closure-hygiene and evidence defect. It is **not** a
+claim that M060's implementation or local evidence was false,
+and M060's 20 acceptance criteria other than the hosted gate
+stand as recorded above.
+
+### Evidence lineage (corrected classification)
+
+| SHA | Role | Hosted CI |
+| --- | --- | --- |
+| `e897cc4767f0bb2c10feaae46232ab2e52666d90` | M060 implementation / local-qualification candidate | **None. No Actions run exists for this SHA.** |
+| `1d3bb825cb43872891b0fcedb81d905218dfaffd` | M060 registry-row + closure-record commit (descendant of the candidate) | None on this SHA either |
+| `474220662ed1daff406b6b2639884580768ea9c3` | Later planning/closure descendant | Run `37028684309`, `success`, 15/15 jobs |
+| `3ebee30cd33ea141a680acd5e6569a453fcdf124` | Post-M060 documentation audit; M061 registration baseline | Run `37266737795`, `success`, 15/15 jobs |
+| M061 exact candidate | Additive exact-head hosted reconciliation authority | Recorded in the M061 closure record |
+
+Runs `37028684309` and `37266737795` are **descendant
+evidence only**. Neither executed on `e897cc4`, and neither may
+be described as qualifying it. Exact-head hosted evidence for
+the planning/evidence corrective is supplied by M061 on the M061
+candidate; M061 does not rewrite Git history and does not
+reopen M060's implementation tranche.
+
+Both descendant runs do include the eight `language-clients`
+legs that execute the bare planning-state guard independently,
+plus the three `check` legs, `api-gate`,
+`performance-provenance`, and two `python-native` legs (15 jobs
+total) — but on their own SHAs.
+
+### Erratum 2 — plan-header status divergence was systemic, not M060-only
+
+M060's drift census (item 3 above) fixed
+`plans/059-…-corrective.md`'s `Status: ready` header as an
+isolated finding. M061's audit found the same divergence class
+across **24** registered numbered plans, all with registry
+status `closed` and a plan header still reading `ready` or
+`blocked`: M026, M035–M039, M041–M057, and M060. Each of these
+plans had a closure record written without ever updating the
+plan's own header.
+
+M061 reconciled all 24 headers to their registry status using the
+established M024/M025/M058 single-line suffix form, recording the
+as-written status so the correction is transparent rather than a
+silent retroactive relabel. No plan body was rewritten. M061 also
+extended `scripts/check_planning_state.py` so the registry
+remains canonical and a plan header can no longer silently
+diverge from it.
+
 ## Invariants preserved
 
 - Published `v0.2.0` tag and its `b6a277d` target.
@@ -387,3 +453,8 @@ or release-workflow behavior change. M060 activates no
 automatic successor; any patch release, new feature tranche,
 language-registry publication, or EggServe compatibility-line
 migration requires a fresh evidence-backed plan.
+
+One M060 obligation was not met: hosted CI never ran on the
+exact implementation candidate `e897cc4` (see Erratum 1
+above). That gap — not M060's implementation — is reconciled
+additively by M061.
