@@ -1,6 +1,6 @@
 # M047 — Performance Artifact Provenance Capture and Dirty-Worktree Guard Corrective
 
-Status: ready  
+Status: closed (header reconciled to the registry status by M061; as written at registration: `ready`; evidence in `plans/closure/M047-performance-artifact-provenance-capture-and-dirty-worktree-guard-corrective-closure.md`)
 Depends on: M046 closed at `f569a0a36f99c103ce62852a3aa89584005442d9` / closure commit `33b5c087723da5a1eafd9b9d2f17875c5e31442c`  
 Role: root-cause corrective for future performance evidence provenance  
 Baseline: `33b5c087723da5a1eafd9b9d2f17875c5e31442c`

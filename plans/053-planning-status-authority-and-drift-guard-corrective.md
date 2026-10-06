@@ -1,6 +1,6 @@
 # M053 — Planning Status Authority and Drift-Guard Corrective
 
-Status: blocked
+Status: closed (header reconciled to the registry status by M061; as written at registration: `blocked`; evidence in `plans/closure/M053-planning-status-authority-and-drift-guard-corrective-closure.md`)
 Depends on: M052 closed
 Role: repository-governance corrective; plans/registry.md remains the sole milestone-status authority
 Activation baseline: exact M052 closure candidate

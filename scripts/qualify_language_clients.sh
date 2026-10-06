@@ -41,13 +41,17 @@ SERVER_PID=$!
 AUTH_PID=$!
 ADMIN=""
 for _ in $(seq 1 100); do
-  ADMIN="$(grep -o 'admin=[^ ]*' "$WORK/server.log" | tail -1 | cut -c7- || true)"
+  # M059: require a complete admin=IP:PORT match. The server log is
+  # read while the server is still writing it, so a bare `admin=`
+  # prefix match could capture a torn line without port digits; the
+  # loop then keeps polling instead of locking in a portless address.
+  ADMIN="$(grep -oE 'admin=127\.0\.0\.1:[0-9]+' "$WORK/server.log" | tail -1 | cut -c7- || true)"
   if [ -n "$ADMIN" ]; then break; fi
   sleep 0.1
 done
 AUTH=""
 for _ in $(seq 1 100); do
-  AUTH="$(grep -o 'admin=[^ ]*' "$WORK/auth-server.log" | tail -1 | cut -c7- || true)"
+  AUTH="$(grep -oE 'admin=127\.0\.0\.1:[0-9]+' "$WORK/auth-server.log" | tail -1 | cut -c7- || true)"
   if [ -n "$AUTH" ]; then break; fi
   sleep 0.1
 done

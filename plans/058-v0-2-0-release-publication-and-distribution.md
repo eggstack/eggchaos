@@ -1,7 +1,7 @@
 # M058 — v0.2.0 Release Publication and Distribution
 
-Status: blocked
-Depends on: M057 closed; M059 closure
+Status: closed (v0.2.0 published 2026-10-01; evidence in `plans/closure/M058-v0-2-0-release-publication-and-distribution-closure.md`)
+Depends on: M057 closed; M059 closed
 Role: owner-controlled release publication / distribution milestone
 Registration baseline: eb46b5fd416d2d76f5732301f739904fc8eb7d5e
 

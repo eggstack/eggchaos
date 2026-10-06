@@ -1,6 +1,6 @@
 # M037 — Stream-Loss Native Contract and Cross-Language Propagation
 
-Status: blocked  
+Status: closed (header reconciled to the registry status by M061; as written at registration: `blocked`; evidence in `plans/closure/M037-stream-loss-native-contract-and-cross-language-propagation-closure.md`)
 Depends on: M036  
 Role: native control/config/scenario/SDK/embed propagation
 

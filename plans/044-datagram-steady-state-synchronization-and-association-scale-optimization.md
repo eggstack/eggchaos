@@ -1,6 +1,6 @@
 # M044 — Datagram Steady-State Synchronization and Association-Scale Optimization
 
-Status: blocked
+Status: closed (header reconciled to the registry status by M061; as written at registration: `blocked`; evidence in `plans/closure/M044-datagram-steady-state-synchronization-and-association-scale-optimization-closure.md`)
 
 Role: semantics-preserving ADR 003 runtime scaling optimization
 

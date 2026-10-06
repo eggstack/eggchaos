@@ -1,6 +1,6 @@
 # M057 — M056 Closure-Evidence Reconciliation and Exact-Head Requalification
 
-Status: ready
+Status: closed (header reconciled to the registry status by M061; as written at registration: `ready`; evidence in `plans/closure/M057-m056-closure-evidence-reconciliation-and-exact-head-requalification-closure.md`)
 Depends on: M056 closed
 Role: qualification/evidence corrective
 Registration baseline: c2a721cd35b4383be99d4ba744a59d810ebcafe1

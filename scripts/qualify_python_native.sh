@@ -45,7 +45,10 @@ EOF
 SERVER_PID=$!
 ADMIN=""
 for _ in $(seq 1 100); do
-  ADMIN="$(grep -o 'admin=[^ ]*' "$WORK/server.log" | tail -1 | cut -c7- || true)"
+  # M059: require a complete admin=IP:PORT match; a bare `admin=`
+  # prefix could capture a torn log line without port digits (see
+  # qualify_language_clients.sh).
+  ADMIN="$(grep -oE 'admin=127\.0\.0\.1:[0-9]+' "$WORK/server.log" | tail -1 | cut -c7- || true)"
   if [ -n "$ADMIN" ]; then break; fi
   sleep 0.1
 done
