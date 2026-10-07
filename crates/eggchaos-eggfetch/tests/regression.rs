@@ -138,7 +138,7 @@ async fn https_valid_added_ca_is_trusted() {
                 certificate.cert.der().to_vec(),
             )],
             rustls::pki_types::PrivateKeyDer::from(rustls::pki_types::PrivatePkcs8KeyDer::from(
-                certificate.key_pair.serialize_der(),
+                certificate.signing_key.serialize_der(),
             )),
         )
         .unwrap();
@@ -184,7 +184,7 @@ async fn https_invalid_certificate_is_rejected() {
                 certificate.cert.der().to_vec(),
             )],
             rustls::pki_types::PrivateKeyDer::from(rustls::pki_types::PrivatePkcs8KeyDer::from(
-                certificate.key_pair.serialize_der(),
+                certificate.signing_key.serialize_der(),
             )),
         )
         .unwrap();
@@ -232,7 +232,7 @@ async fn h2_concurrent_streams_share_one_chaos_connection() {
                 certificate.cert.der().to_vec(),
             )],
             rustls::pki_types::PrivateKeyDer::from(rustls::pki_types::PrivatePkcs8KeyDer::from(
-                certificate.key_pair.serialize_der(),
+                certificate.signing_key.serialize_der(),
             )),
         )
         .unwrap();
