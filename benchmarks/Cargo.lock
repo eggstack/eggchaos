@@ -234,9 +234,9 @@ dependencies = [
 
 [[package]]
 name = "eggress-relay"
-version = "1.0.11"
+version = "1.0.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eeb10cbadba07828554a42bd82492432a1d56929c2b55a225265f7db3cc6f930"
+checksum = "bb9bbfe311ba1bacd7033fa69a7caa524e0c0d807296cb577c39abee09ef6ea0"
 dependencies = [
  "tokio",
 ]
