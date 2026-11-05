@@ -11,5 +11,5 @@
 # latest, so the Python-native gate keeps its proven toolchain.
 build==1.6.1
 maturin==1.15.0
-pytest==9.1.1
+pytest==9.2.0
 pyyaml==6.0.3
