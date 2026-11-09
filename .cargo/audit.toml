@@ -1,0 +1,8 @@
+# cargo-audit policy (see CI `cargo audit --deny warnings`).
+# serde_yaml is a protocol-crate dev-dependency for OpenAPI drift tests only;
+# it pulls unmaintained unsafe-libyaml with no serde-maintained replacement yet.
+
+[advisories]
+ignore = [
+    "RUSTSEC-2024-0449",
+]

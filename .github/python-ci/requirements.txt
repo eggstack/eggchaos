@@ -6,10 +6,9 @@
 # directory `.github/python-ci`) proposes updates; CI installs with
 # `pip install -r .github/python-ci/requirements.txt`.
 #
-# maturin stays exact (native-wheel builds must be reproducible); it is
-# intentionally held at the previously qualified 1.9.5, not floated to
-# latest, so the Python-native gate keeps its proven toolchain.
+# maturin stays exact (native-wheel builds must be reproducible); bumps
+# flow through Dependabot and must stay green on the python-native job.
 build==1.6.1
-maturin==1.15.0
-pytest==9.1.1
+maturin==1.16.0
+pytest==9.2.0
 pyyaml==6.0.3

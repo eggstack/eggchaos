@@ -8,7 +8,7 @@ rust-version = "1.89"
 publish = false
 
 [dependencies]
-eggress-relay = { package = "eggress-relay", version = "1.0.11" }
+eggress-relay = { package = "eggress-relay", version = "1.0.12" }
 eggchaos-core = { path = "../crates/eggchaos-core", version = "0.2.0" }
 eggchaos-eggfetch = { path = "../crates/eggchaos-eggfetch", version = "0.2.0" }
 eggchaos-server = { path = "../crates/eggchaos-server", version = "0.2.0" }
