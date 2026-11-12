@@ -40,7 +40,7 @@ bytes = "1"
 arc-swap = "1"
 clap = { version = "4", features = ["derive", "env"] }
 egress-relay = { package = "eggress-relay", version = "1.0.12" }
-eggfetch-core = { version = "0.2.1", default-features = false, features = ["native-http1", "high-level-url", "json", "tls-rustls", "tls-native-roots"] }
+eggfetch-core = { version = "0.3.0", default-features = false, features = ["native-http1", "high-level-url", "json", "tls-rustls", "tls-native-roots"] }
 h2 = "0.4"
 eggserve-primitives = { version = "0.2.2" }
 eggserve-server = { version = "0.4.0" }
