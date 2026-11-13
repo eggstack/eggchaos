@@ -36,6 +36,9 @@ In scope:
   `0.2.1`; update all first-party local dependency requirements and lockfiles.
 - Keep the four used Eggstack dependencies at their current versions and make
   the EggServe primitives floor explicit at `0.2.3`.
+- Update the release artifact workflow from GitHub's retired `macos-14`
+  label to `macos-15`, keeping the same Apple target triples and artifact
+  contracts.
 - Add `v0.2.1` release notes and update current documentation after publication
   with the actual candidate, CI, tag, registry, binary, and checksum evidence.
 - Push the candidate, require ordinary hosted CI green on its exact SHA, push
@@ -47,8 +50,10 @@ In scope:
 
 Non-goals:
 
-- Runtime, wire/API, configuration schema, RNG, deterministic semantics,
-  OpenAPI, or release-workflow behavior changes.
+- Runtime, wire/API, configuration schema, RNG, deterministic semantics, or
+  OpenAPI changes. The release workflow's DAG, publication permissions,
+  target triples, artifact names, checksum format, and attestation contract
+  remain unchanged.
 - PyPI, npm, or `eggchaos-native` publication; those remain deferred under the
   M058 package-specific release decision.
 - Moving or recreating any existing release tag, or rebuilding release assets
@@ -61,8 +66,9 @@ Non-goals:
   `eggchaos-toxiproxy`, `eggchaos-eggfetch`, and `eggchaos-embed`.
 - `benchmarks/`, `fuzz/`, and standalone `bindings/python-native/` manifests
   and lockfiles; aligned Python and TypeScript client package metadata.
-- `Cargo.toml`, `Cargo.lock`, release notes, `SECURITY.md`, architecture and
-  planning current-state documents, and the release closure record.
+- `Cargo.toml`, `Cargo.lock`, release notes, `SECURITY.md`, release workflow,
+  architecture and planning current-state documents, and the release closure
+  record.
 
 ## Ordered work packages
 
@@ -80,14 +86,17 @@ guards locally. Push the candidate and require the ordinary CI workflow to
 finish green with the run's `head_sha` exactly equal to the candidate. Do not
 tag on a red, incomplete, or mismatched run.
 
-### WP3 — Tag and qualify release artifacts
+### WP3 — Dispatch pre-tag qualification, tag, and qualify release artifacts
 
-Confirm `v0.2.1` is absent locally and remotely, then create and push an
-annotated tag directly on the green candidate. Require `release-contract`,
-`qualify`, and all five binary artifact targets to pass on that exact commit.
-Download the workflow artifacts and verify each binary/checksum pair and
-filename. Do not create a GitHub Release or publish crates while the run is
-red or incomplete.
+Dispatch the release workflow on the green `main` candidate and require
+`release-contract`, `qualify`, and all five binary artifact targets to pass
+with the exact candidate SHA. These pre-tag artifacts are qualification
+evidence and will not be attached to the release. Then confirm `v0.2.1` is
+absent locally and remotely, create and push an annotated tag directly on the
+green candidate, and require the tag-triggered workflow's `release-contract`,
+`qualify`, and all five artifact legs to pass. Download only the tag-run
+artifacts and verify each binary/checksum pair and filename. Do not create a
+GitHub Release or publish crates while either release run is red or incomplete.
 
 ### WP4 — Publish the Rust crate graph
 
@@ -184,8 +193,9 @@ incomplete evidence and do not count as passes.
 3. Release notes and current docs accurately distinguish the published
    `v0.2.1` release, its immutable `v0.2.0` predecessor, and deferred language
    registries.
-4. Exact-candidate hosted CI and tag-triggered release workflow are green;
-   five binary/checksum pairs verify and are attached to the GitHub Release.
+4. Exact-candidate hosted CI, pre-tag dispatch, and tag-triggered release
+   workflow are green; five tag-run binary/checksum pairs verify and are
+   attached to the GitHub Release.
 5. All eight Rust crates are visible at `0.2.1` on crates.io in dependency
    order, and a clean-cache CLI install/version smoke succeeds.
 6. M062 has a closure record with exact candidate/tag SHAs, hosted evidence,
@@ -195,6 +205,7 @@ incomplete evidence and do not count as passes.
 ## Stop conditions
 
 - Ordinary CI is not green on the exact candidate.
+- Pre-tag release dispatch is not green on the exact candidate.
 - The tag already exists, has a mismatched target, or tag qualification is
   red/incomplete.
 - Any checksum, attestation, package graph, API, dependency, or fresh-install

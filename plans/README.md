@@ -169,7 +169,7 @@ M060 is closed as a bounded post-release documentation/status and drift-guard cl
 
 M061 is closed as the additive closure-evidence/plan-status consistency corrective for M060, on exact candidate `9791375` with hosted run `37366364200` green 15/15. It did not reopen M060 implementation: it records that `e897cc4` had no hosted CI, prevents descendant runs from being misrepresented as exact-SHA evidence, reconciles the 24 registered plan headers that had diverged from their registry row, makes registry↔numbered-plan status agreement mechanical in the M053 guard, and obtained hosted CI on the exact M061 candidate.
 
-M062 is active for the `v0.2.1` patch release. It requires exact-head hosted CI, tagged release qualification and five binary targets, ordered publication of all eight Rust workspace crates, a GitHub Release assembled from workflow artifacts, fresh-install verification, and final documentation/closure evidence. PyPI, npm, and native Python publication remain deferred under M058.
+M062 is active for the `v0.2.1` patch release. It requires exact-head hosted CI, a green pre-tag release dispatch, tagged release qualification and five binary targets, ordered publication of all eight Rust workspace crates, a GitHub Release assembled from workflow artifacts, fresh-install verification, and final documentation/closure evidence. It also updates the Apple release runner label after GitHub retired macOS 14. PyPI, npm, and native Python publication remain deferred under M058.
 
 ## Status rules
 

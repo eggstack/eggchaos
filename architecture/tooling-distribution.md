@@ -259,9 +259,9 @@ candidate (see §3).
     `gcc-aarch64-linux-gnu`; sets
     `CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc`
     because the host linker cannot link aarch64 objects);
-  - `macos-14 / x86_64-apple-darwin` (cross from ARM64 host via Xcode
-    clang; Intel `macos-13` runners are retired);
-  - `macos-14 / aarch64-apple-darwin`;
+  - `macos-15 / x86_64-apple-darwin` (cross from ARM64 host via Xcode
+    clang; GitHub retired macOS 14 runners on November 2, 2026);
+  - `macos-15 / aarch64-apple-darwin`;
   - `windows-2022 / x86_64-pc-windows-msvc`.
 - Each artifact job: `cargo build --release --locked --package
   eggchaos-cli --target <triple>`; copies the binary to

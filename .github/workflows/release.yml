@@ -94,8 +94,9 @@ jobs:
     # The aarch64 Linux cross build must use the cross linker installed
     # below; the host /usr/bin/ld cannot link aarch64 objects (observed:
     # "file in wrong format"). macOS x86_64 builds cross-compile from an
-    # ARM64 host (macos-13 Intel runners are retired); rustc + Xcode clang
-    # handle -arch x86_64 for the --target build.
+    # ARM64 host; rustc + Xcode clang handle -arch x86_64 for the
+    # --target build. Use macos-15 because GitHub retired macos-14 on
+    # November 2, 2026.
     env:
       CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
     # M056: the artifact matrix must not start unless the
@@ -110,9 +111,9 @@ jobs:
             target: x86_64-unknown-linux-gnu
           - os: ubuntu-22.04
             target: aarch64-unknown-linux-gnu
-          - os: macos-14
+          - os: macos-15
             target: x86_64-apple-darwin
-          - os: macos-14
+          - os: macos-15
             target: aarch64-apple-darwin
           - os: windows-2022
             target: x86_64-pc-windows-msvc

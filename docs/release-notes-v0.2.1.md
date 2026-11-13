@@ -18,7 +18,10 @@ Toxiproxy compatibility profiles.
   documentation to match the shipped workflow and current dependency graph.
 
 No Rust runtime source, native wire operation, configuration schema, RNG
-contract, OpenAPI surface, or release-workflow behavior changed for this patch.
+contract, OpenAPI surface, artifact target, or release publication control
+changed for this patch. The Apple release builds move from GitHub's retired
+macOS 14 runners to macOS 15 without changing their targets or artifact
+contracts.
 
 ## Distribution
 

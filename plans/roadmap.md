@@ -839,11 +839,13 @@ None of these may weaken the fixed-target, protocol-neutral core boundary.
 ## 15. Current patch release
 
 M062 owns preparation and publication of v0.2.1. Its gates are exact-candidate
-hosted CI, tag-triggered release qualification and five artifact targets,
+hosted CI, a green pre-tag release dispatch, tag-triggered release
+qualification and five artifact targets,
 ordered crates.io publication of the eight Rust workspace crates, GitHub
 Release creation from those qualified artifacts, fresh-install verification,
-and current-documentation/closure reconciliation. PyPI, npm, and native
-Python publication remain deferred under M058.
+and current-documentation/closure reconciliation. It also moves the Apple
+artifact jobs to GitHub's supported macOS 15 runner label. PyPI, npm, and
+native Python publication remain deferred under M058.
 
 <!-- BEGIN eggchaos:planning-state -->
 <!--
