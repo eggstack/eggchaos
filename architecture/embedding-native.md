@@ -12,8 +12,8 @@ Authority layers are:
   the embed facade and PyO3 binding.
 - M051 owns `operations.rs` typed delegation (`eggchaos-server`); M052
   owns the `runtime/control_datagram.rs` textual split; M050 owns the
-  per-family `ScenarioRegistry` consolidation. None of them is the
-  post-`v0.2.0` release authority — M058 on `b6a277d` is.
+  per-family `ScenarioRegistry` consolidation. M058 records the `v0.2.0`
+  release, and M062 is the current published `v0.2.1` release authority.
 
 `docs/control-plane.md:210-217` and `bindings/python-native/README.md`
 are summaries, not the spec. All paths below are relative to the
@@ -76,10 +76,10 @@ Blocking contract (`lib.rs:15-27`):
 `crates/eggchaos-embed/Cargo.toml:15-23`:
 
 ```toml
-eggchaos-core = { path = "../eggchaos-core", version = "0.2.0" }
-eggchaos-experiment = { path = "../eggchaos-experiment", version = "0.2.0" }
-eggchaos-protocol = { path = "../eggchaos-protocol", version = "0.2.0" }
-eggchaos-server = { path = "../eggchaos-server", version = "0.2.0" }
+eggchaos-core = { path = "../eggchaos-core", version = "0.2.1" }
+eggchaos-experiment = { path = "../eggchaos-experiment", version = "0.2.1" }
+eggchaos-protocol = { path = "../eggchaos-protocol", version = "0.2.1" }
+eggchaos-server = { path = "../eggchaos-server", version = "0.2.1" }
 serde, serde_json, thiserror, tokio
 ```
 
@@ -251,8 +251,8 @@ the link step):
 
 ```toml
 [lib] name = "eggchaos_native" crate-type = ["cdylib"]
-eggchaos-embed = { path = "../../crates/eggchaos-embed", version = "0.2.0" }
-eggchaos-protocol = { path = "../../crates/eggchaos-protocol", version = "0.2.0" }
+eggchaos-embed = { path = "../../crates/eggchaos-embed", version = "0.2.1" }
+eggchaos-protocol = { path = "../../crates/eggchaos-protocol", version = "0.2.1" }
 pyo3 = { version = "0.29", features = ["extension-module", "abi3-py311"] }
 serde 1 (derive), serde_json 1
 ```

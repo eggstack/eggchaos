@@ -4,6 +4,12 @@ Part of [Eggchaos architecture overview](overview.md) (item 9). Evidence-first
 review handoff for how eggchaos proves correctness at HEAD. Authority layers
 are:
 
+- **Current published release authority:** M062 candidate `b0bc9b1`
+  (annotated `v0.2.1`, ordinary CI run `43516207980` 15/15, pre-tag release
+  dispatch `43517314319` 7/7, tag release run `43520281822` 7/7, eight
+  crates.io publishes, GitHub Release with five binaries and SHA-256
+  sidecars, clean-cache CLI install). Full evidence is in
+  `plans/closure/M062-v0-2-1-patch-release-closure.md`.
 - **Published release authority:** M058 `b6a277d` (annotated `v0.2.0`,
   tag CI `15/15` + tag release `7/7`, eight crates.io publishes,
   GitHub Release `eggchaos v0.2.0`).
@@ -24,7 +30,7 @@ are:
 Canonical contracts live in `plans/reference/verification-matrix.md`
 and `qualification/toxiproxy-v2-12/oracle-baseline-v2.12.0.md`;
 canonical status lives in `plans/registry.md` and `plans/closure/`
-(latest `M060-…-closure.md`; M058/M059/M057/M041/M048 evidence is
+(latest `M062-…-closure.md`; M058/M059/M057/M041/M048 evidence is
 preserved as historical authority layers). Do not assert by
 inspection: if a gate was not run, record it as incomplete (see §8).
 
@@ -368,7 +374,7 @@ inspection: if a gate was not run, record it as incomplete (see §8).
   `eggchaos_empty_plan`, `latency_1ms`, `bandwidth_16mib_s`, `slice_16k`,
   `combined_latency_slice`, `eggfetch_adapter_empty_policy`; 64 KiB buffers,
   `EGGCHAOS_BENCH_BYTES`/`EGGCHAOS_BENCH_ROUNDS` knobs),
-  `benchmarks/Cargo.toml` (excluded workspace, pinned `eggress-relay 1.0.7`,
+  `benchmarks/Cargo.toml` (excluded workspace, pinned `eggress-relay 1.0.12`,
   `eggfetch-core`, `tokio`), runner `scripts/benchmark.sh`
   (fmt-check + `cargo run --release --quiet`).
 - Snapshots: `qualification/performance/README.md` (method + caveats),

@@ -1,6 +1,6 @@
 # Eggchaos Long-Term Roadmap
 
-Status: M000–M061 are closed. M058 closed the v0.2.0 publication (tag `v0.2.0` on `b6a277d`, eight crates.io publishes, GitHub Release with five binaries + checksums, fresh-install verification green). M055 owns the historical 0.2.0 development-version baseline, M056 the release-contract implementation, M057 the historical exact-head qualification authority for the M056 DAG, and M059 the pre-publication hardening corrective. M060 remains the historical post-release documentation/status cleanup closure, with its hosted exact-head evidence gap reconciled additively by M061. M061 is closed as the M060 closure-evidence/plan-status consistency corrective on exact candidate `9791375` (hosted run `37366364200`, 15/15). M062 is active for the v0.2.1 patch release; v0.2.0 remains current until M062's tagged qualification and publication complete.
+Status: M000–M062 are closed. M058 closed the historical v0.2.0 publication (tag `v0.2.0` on `b6a277d`, eight crates.io publishes, GitHub Release with five binaries + checksums, fresh-install verification green). M055 owns the historical 0.2.0 development-version baseline, M056 the release-contract implementation, M057 the historical exact-head qualification authority for the M056 DAG, and M059 the pre-publication hardening corrective. M060 remains the historical post-release documentation/status cleanup closure, with its hosted exact-head evidence gap reconciled additively by M061. M061 is closed as the M060 closure-evidence/plan-status consistency corrective on exact candidate `9791375` (hosted run `37366364200`, 15/15). M062 closed the current v0.2.1 publication on exact candidate `b0bc9b1` (ordinary CI `43516207980`, 15/15; pre-tag dispatch `43517314319`, 7/7; tag release `43520281822`, 7/7), with all eight Rust crates and five qualified binaries published. `v0.2.1` is current; there are no active or ready milestones.
 
 ## 1. Mission
 
@@ -838,14 +838,16 @@ None of these may weaken the fixed-target, protocol-neutral core boundary.
 
 ## 15. Current patch release
 
-M062 owns preparation and publication of v0.2.1. Its gates are exact-candidate
-hosted CI, a green pre-tag release dispatch, tag-triggered release
-qualification and five artifact targets,
-ordered crates.io publication of the eight Rust workspace crates, GitHub
-Release creation from those qualified artifacts, fresh-install verification,
-and current-documentation/closure reconciliation. It also moves the Apple
-artifact jobs to GitHub's supported macOS 15 runner label. PyPI, npm, and
-native Python publication remain deferred under M058.
+M062 closed with publication of v0.2.1. Exact candidate
+`b0bc9b1c3aeac6855ea4b82ea71a78f141197828` passed ordinary hosted CI, the
+pre-tag release dispatch, and tag-triggered release qualification with all
+five artifact targets. The eight Rust crates were published in dependency
+order, and the GitHub Release was assembled from those qualified workflow
+artifacts. A clean-cache install of the published CLI returned version
+`0.2.1`; current docs and closure evidence are recorded in
+`plans/closure/M062-v0-2-1-patch-release-closure.md`. The Apple artifact jobs
+use GitHub's supported macOS 15 runner label. PyPI, npm, and native Python
+publication remain deferred under M058.
 
 <!-- BEGIN eggchaos:planning-state -->
 <!--
@@ -857,11 +859,8 @@ native Python publication remain deferred under M058.
 
 ## Current planning state
 
-**Active (in flight):**
-- `M062` (active; plan `062-v0-2-1-patch-release.md`)
+**Highest closed milestone:** `M062` (see registry for closure evidence).
 
-**Highest closed milestone:** `M061` (see registry for closure evidence).
-
-**Execution order:** `M062`
+**Execution order:** no active or ready milestones.
 
 <!-- END eggchaos:planning-state -->

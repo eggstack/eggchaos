@@ -35,12 +35,14 @@ Three properties shape every design decision:
 
 ## Release status
 
-Published `v0.2.0` is the current release while M062 prepares the next patch:
-annotated tag `v0.2.0`
-(`15746dc…` peeling to `b6a277d`) with all eight Rust workspace crates at
-`0.2.0` on crates.io. Published `v0.1.0` is preserved as immutable history.
-The native `/v1` contract, config schema v1, RNG v1, and provenance schema v1
-are unchanged by the release.
+Published `v0.2.1` is the current release: annotated tag `v0.2.1`
+(`27e7af53f78abdc08489bb2681e4b31f93af6b25` peeling to candidate
+`b0bc9b1c3aeac6855ea4b82ea71a78f141197828`) with all eight Rust workspace
+crates at `0.2.1` on crates.io and five qualified CLI binaries plus SHA-256
+sidecars on the [GitHub Release](https://github.com/eggstack/eggchaos/releases/tag/v0.2.1).
+Published `v0.2.0` and `v0.1.0` are preserved as immutable history. The native
+`/v1` contract, config schema v1, RNG v1, and provenance schema v1 are unchanged
+by the release.
 
 The authority layers below matter when reading the deep dives, because several
 milestones remain the named authority for a specific concern even after later
@@ -59,7 +61,8 @@ work supersedes them:
   14/14, dispatch `36630812771`). M056 remains the *implementation* authority
   for that DAG — it closed without hosted CI on its exact implementation SHA,
   which is exactly why M057 exists.
-- **M061 is closed** as the M060 closure-evidence/plan-status consistency corrective, on exact candidate `9791375` with hosted run `37366364200` green 15/15. It changed planning/evidence guards only and reconciled the M060 hosted-CI lineage plus 24 divergent plan headers; production and release surfaces stayed frozen. M000–M061 are closed; M062 is active for the v0.2.1 patch release.
+- **M061 is closed** as the M060 closure-evidence/plan-status consistency corrective, on exact candidate `9791375` with hosted run `37366364200` green 15/15. It changed planning/evidence guards only and reconciled the M060 hosted-CI lineage plus 24 divergent plan headers; production and release surfaces stayed frozen.
+- **M062 closed** the `v0.2.1` patch release on exact candidate `b0bc9b1` (ordinary CI `43516207980`, 15/15; pre-tag dispatch `43517314319`, 7/7; tag release `43520281822`, 7/7). It published the eight Rust crates, attached the five tag-run binaries and checksums, verified a clean-cache CLI install, and reconciled current release documentation. M000–M062 are closed; no milestone is active or ready.
 - **M060 closed** the post-release documentation/status and drift-guard cleanup
   corrective (candidate `e897cc4`). It changed no Rust source, manifest,
   lockfile, OpenAPI, generated contract, or package version; it added
@@ -326,11 +329,8 @@ python3 scripts/check_version_coherence.py --check  # M055 version coherence (ch
 
 ## Current planning state
 
-**Active (in flight):**
-- `M062` (active; plan `062-v0-2-1-patch-release.md`)
+**Highest closed milestone:** `M062` (see registry for closure evidence).
 
-**Highest closed milestone:** `M061` (see registry for closure evidence).
-
-**Execution order:** `M062`
+**Execution order:** no active or ready milestones.
 
 <!-- END eggchaos:planning-state -->

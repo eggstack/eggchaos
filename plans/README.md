@@ -169,7 +169,7 @@ M060 is closed as a bounded post-release documentation/status and drift-guard cl
 
 M061 is closed as the additive closure-evidence/plan-status consistency corrective for M060, on exact candidate `9791375` with hosted run `37366364200` green 15/15. It did not reopen M060 implementation: it records that `e897cc4` had no hosted CI, prevents descendant runs from being misrepresented as exact-SHA evidence, reconciles the 24 registered plan headers that had diverged from their registry row, makes registry↔numbered-plan status agreement mechanical in the M053 guard, and obtained hosted CI on the exact M061 candidate.
 
-M062 is active for the `v0.2.1` patch release. It requires exact-head hosted CI, a green pre-tag release dispatch, tagged release qualification and five binary targets, ordered publication of all eight Rust workspace crates, a GitHub Release assembled from workflow artifacts, fresh-install verification, and final documentation/closure evidence. It also updates the Apple release runner label after GitHub retired macOS 14. PyPI, npm, and native Python publication remain deferred under M058.
+M062 is closed with the `v0.2.1` patch release. Exact candidate `b0bc9b1` passed ordinary hosted CI (`43516207980`, 15/15), pre-tag dispatch (`43517314319`, 7/7), and tag release qualification (`43520281822`, 7/7). All eight Rust workspace crates were published in dependency order, the GitHub Release uses the five tag-run binaries and checksum sidecars, and clean-cache CLI install verification succeeded. The Apple release runner moved to macOS 15 after GitHub retired macOS 14. PyPI, npm, and native Python publication remain deferred under M058. See `plans/closure/M062-v0-2-1-patch-release-closure.md`.
 
 ## Status rules
 
@@ -252,11 +252,8 @@ pinned snapshot oracle rather than moving `main`.
 
 ## Current planning state
 
-**Active (in flight):**
-- `M062` (active; plan `062-v0-2-1-patch-release.md`)
+**Highest closed milestone:** `M062` (see registry for closure evidence).
 
-**Highest closed milestone:** `M061` (see registry for closure evidence).
-
-**Execution order:** `M062`
+**Execution order:** no active or ready milestones.
 
 <!-- END eggchaos:planning-state -->

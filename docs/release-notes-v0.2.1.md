@@ -1,5 +1,9 @@
 # Eggchaos v0.2.1 release notes
 
+Status: **published**. `v0.2.1` is the current Eggchaos release (annotated
+tag `v0.2.1` on candidate `b0bc9b1c3aeac6855ea4b82ea71a78f141197828`, GitHub
+Release [eggchaos v0.2.1](https://github.com/eggstack/eggchaos/releases/tag/v0.2.1)).
+
 `v0.2.1` is a patch release in the v0.2 series. It updates aligned
 first-party package metadata and dependency maintenance while preserving the
 published v0.2 native API, configuration schema, deterministic contracts, and

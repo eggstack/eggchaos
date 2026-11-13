@@ -1,9 +1,10 @@
 # Eggchaos v0.2.0 release notes
 
-Status: **published**. `v0.2.0` is the current Eggchaos release
-(annotated tag `v0.2.0` peeling to frozen candidate
-`b6a277d5ad4267bd602bc15a4333b14322057b90`, GitHub Release
-`eggchaos v0.2.0`). M058 closed the publication on `b6a277d` with
+Status: **published and superseded**. `v0.2.0` was the current Eggchaos
+release until `v0.2.1` was published on 2026-11-13. Annotated tag `v0.2.0`
+peels to frozen candidate
+`b6a277d5ad4267bd602bc15a4333b14322057b90`; its GitHub Release is
+`eggchaos v0.2.0`. M058 closed the publication on `b6a277d` with
 eight crates.io publishes, a tag-triggered release workflow (tag CI
 `15/15` + tag release `7/7`), a GitHub Release with five binaries +
 SHA-256 sidecars, and fresh-install verification. M059 closed the

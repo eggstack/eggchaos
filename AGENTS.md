@@ -57,7 +57,7 @@ Qualification (release workflow): `release-smoke.sh` (fmt/clippy/test/doc/audit/
 - Toxiproxy differential needs the pinned oracle: `TOXIPROXY_SERVER="$(./scripts/fetch_toxiproxy_v2_12.sh)" EGGCHAOS_REQUIRE_TOXIPROXY_ORACLE=1 ./scripts/qualify_toxiproxy_v2_12.sh`. Developer mode without a verified oracle reports `differential:incomplete` (exit 0) — that is not a pass. Compat server: `cargo run -p eggchaos-toxiproxy --example compat_server -- 127.0.0.1:8474`. Strict v2.12 is default/frozen; post-v2.12 `packet_loss` is opt-in pinned to `40f7fd31`.
 - Post-v2.12 fetcher stdout contract: default and `--path-only` print exactly one executable path; `--json` prints one metadata record. `TOXIPROXY_POST_V2_12_SERVER="$(./scripts/fetch_toxiproxy_post_v2_12.sh)"` works as command substitution. Mandatory mode: `EGGCHAOS_REQUIRE_POST_V2_12_ORACLE=1 ./scripts/qualify_toxiproxy_post_v2_12.sh`.
 - Fuzz: `cargo-fuzz 0.13.2` cannot build under pinned 1.89 (transitive `cargo-platform` needs rustc 1.91). Release workflow installs it with `RUSTUP_TOOLCHAIN=stable`; the fuzz target itself still builds under 1.89 with `--sanitizer none`. See `release.yml`.
-- Publish order matters (intra-workspace deps use `version = "0.2.0"` registry reqs): `core -> experiment/eggfetch -> protocol -> server/toxiproxy/cli -> embed`. `scripts/release-smoke.sh` asserts this order-proof. `eggchaos-native` stands outside the workspace; maturin owns its build.
+- Publish order matters (intra-workspace deps use `version = "0.2.1"` registry reqs): `core -> experiment/eggfetch -> protocol -> server/toxiproxy/cli -> embed`. `scripts/release-smoke.sh` asserts this order-proof. `eggchaos-native` stands outside the workspace; maturin owns its build.
 - Directions are `upstream` (client→target) and `downstream` (target→client). Faults wrap destination writes; reads stay pass-through.
 - Native control is versioned under `/v1` except `GET /metrics` (Prometheus text, no prefix). Request bodies capped at 1 MiB. CLI: `eggchaos --admin <url> [--json] <command>`; every command emits one JSON doc with `--json` and exits nonzero on failure. Route/CLI inventory: `docs/control-plane.md`.
 - Admin binds loopback by default. Non-loopback requires explicit public-admin opt-in + bearer token; failures return bounded JSON without echoing the token.
@@ -69,7 +69,7 @@ Qualification (release workflow): `release-smoke.sh` (fmt/clippy/test/doc/audit/
 
 ## Planning state
 
-M000–M061 are closed with no active, ready, or blocked milestone. M061 closed the M060 closure-evidence/plan-status consistency gap: it reconciled the M060 plan-header/registry mismatch, recorded the true hosted-evidence lineage (no Actions run exists for the M060 candidate `e897cc4`; later runs are descendant evidence only), made registry ↔ numbered-plan `Status:` agreement mechanical in the M053 planning guard, and obtained green hosted CI on its own exact candidate `9791375` (run `37366364200`, 15/15). M058 remains the published `v0.2.0` authority and M059 the pre-publication hardening authority. Language-registry publication remains separately gated per package; `eggchaos-native` is deferred by the v0.2.0 release decision.
+M000–M062 are closed with no active, ready, or blocked milestone. M062 closed the v0.2.1 release from exact candidate `b0bc9b1c3aeac6855ea4b82ea71a78f141197828` with ordinary hosted CI `43516207980` (15/15), pre-tag release dispatch `43517314319` (7/7), and tag-triggered release `43520281822` (7/7). All eight Rust workspace crates and five qualified binary/checksum pairs are published, and a clean-cache CLI install reports `0.2.1`. M058 remains the historical v0.2.0 publication authority and M059 the pre-publication hardening authority. Language-registry publication remains separately gated per package; `eggchaos-native` remains deferred under M058. Full release evidence is in `plans/closure/M062-v0-2-1-patch-release-closure.md`.
 
 If the owner asks for new work: `plans/roadmap.md` is the architecture authority, `plans/reference/` holds parity/verification contracts (not status), ADRs live in `plans/adrs/`. Any new numbered plan needs objective, baseline/deps, scope + non-goals, affected crates, ordered work packages, invariants/failure semantics, test commands, acceptance criteria, stop conditions, closure evidence, and follow-on rules — and must update `plans/registry.md` in the same change. `plans/registry.md` is the sole hand-maintained milestone-status authority (vocabulary: `active`, `blocked`, `closed`, `ready`); the `Current planning state` blocks in AGENTS.md / `plans/README.md` / `plans/roadmap.md` / `architecture/overview.md` are generated projections, never independent authorities, and each numbered plan's own top-level `Status:` header is a checked projection that must agree with its registry row (M061). After any registry edit: 1. add/update the numbered plan; 2. update `registry.md`; 3. run `python3 scripts/check_planning_state.py --write`; 4. run `sh scripts/tests/test_planning_state.sh`. Never mark `closed` from source inspection; closure requires running the plan's tests on the exact candidate plus external/differential evidence where declared.
 
@@ -87,11 +87,8 @@ Prefer deterministic Tokio-time tests; wall-clock assertions need justified tole
 
 ## Current planning state
 
-**Active (in flight):**
-- `M062` (active; plan `062-v0-2-1-patch-release.md`)
+**Highest closed milestone:** `M062` (see registry for closure evidence).
 
-**Highest closed milestone:** `M061` (see registry for closure evidence).
-
-**Execution order:** `M062`
+**Execution order:** no active or ready milestones.
 
 <!-- END eggchaos:planning-state -->

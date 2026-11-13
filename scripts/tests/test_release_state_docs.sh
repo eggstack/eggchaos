@@ -1,13 +1,13 @@
 #!/usr/bin/env sh
-# M060 regression: release-state / current-doc drift guard.
+# M060/M062 regression: release-state / current-doc drift guard.
 #
 # Proves `scripts/check_release_state_docs.py` still detects the named
 # drift classes while keeping the live repository clean:
 # - inline fixture passes (clean tree, every drift class fails when
 #   its specific phrase is reintroduced, unclosed registry produces
 #   a registry-state failure);
-# - real-tree --check passes (M058/M059 closed in registry and every
-#   named live document records the published/historical authority
+# - real-tree --check passes (M058/M059/M062 closed in registry and every
+#   named live document records the current/historical release authority
 #   without pre-publication prose);
 # - deliberate drift fails on a temp copy, without touching the real
 #   checkout (one named drift class per case);
@@ -29,8 +29,8 @@ CHECK_SH="$REPO_ROOT/scripts/check.sh"
 # 1. Inline fixture: clean tree passes, every drift class fails.
 python3 "$GUARD" --fixture || fail "fixture self-test failed"
 
-# 2. Real-tree check: registry closed for M058/M059 and every named
-#    live document records the published/historical authority.
+# 2. Real-tree check: registry closed for M058/M059/M062 and every named
+#    live document records the current/historical authority.
 python3 "$GUARD" --check || fail "real-tree --check failed"
 
 # 3. Deliberate drift fails on a temp copy: corrupt one named
@@ -50,8 +50,10 @@ def run_with(text_overrides):
         # Mirror the docs the guard reads.
         for rel in (
             "plans/registry.md",
+            "README.md",
             "SECURITY.md",
             "docs/release-notes-v0.2.0.md",
+            "docs/release-notes-v0.2.1.md",
             "architecture/overview.md",
             "architecture/tooling-distribution.md",
             ".github/workflows/release.yml",
@@ -96,6 +98,14 @@ cases = [
      lambda text: text.__setitem__(".github/workflows/release.yml",
         "name: release\n# M058 stays blocked until M059 closes\npermissions: contents: read\n"),
      ".github/workflows/release.yml"),
+    ("v0.2.0 notes still claim to be current",
+     lambda text: text.__setitem__("docs/release-notes-v0.2.0.md",
+        "Status: **published**. `v0.2.0` is the current Eggchaos release. M058 closed the publication on `b6a277d`.\n"),
+     "docs/release-notes-v0.2.0.md"),
+    ("README install command uses a superseded crate version",
+     lambda text: text.__setitem__("README.md",
+        "cargo install eggchaos-cli --version 0.2.0 --locked\n"),
+     "README.md"),
 ]
 
 for label, mutate_fn, doc in cases:

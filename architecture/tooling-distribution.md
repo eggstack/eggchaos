@@ -6,15 +6,14 @@ workflows (`.github/workflows/`), dependency/supply-chain policy
 (`Cargo.toml`, `deny.toml`, `rust-toolchain.toml`), shipped artifacts
 (`dist/`), and the `plans/` governance authority that gates any release.
 
-Published `v0.2.0` (annotated tag object `15746dc2f12e3ddc5557c7afc43d19289fd32472`,
-peeling to candidate `b6a277d5ad4267bd602bc15a4333b14322057b90`; GitHub
-Release `eggchaos v0.2.0`) is the current release. Published `v0.1.0`
-(tag target `81994dbc427365f1dfdaabfa39bdf077850e69ec`, published
-2026-09-24) is preserved as immutable history. Workspace crates are
-`0.2.0` on crates.io; native `/v1`, config schema
-v1, RNG v1, and provenance schema v1 are unchanged. Milestones M000–M061 are
-closed and M062 is active for the v0.2.1 patch release
-(`plans/registry.md` is the status authority). M019
+Published `v0.2.1` (annotated tag object
+`27e7af53f78abdc08489bb2681e4b31f93af6b25`, peeling to candidate
+`b0bc9b1c3aeac6855ea4b82ea71a78f141197828`; GitHub Release
+`eggchaos v0.2.1`) is the current release. All eight Rust workspace crates
+are `0.2.1` on crates.io. Published `v0.2.0` and `v0.1.0` are preserved as
+immutable history. Native `/v1`, config schema v1, RNG v1, and provenance
+schema v1 are unchanged. M000–M062 are closed and no milestone is active or
+ready (`plans/registry.md` is the status authority). M019
 closed at `ca527db` and remains the final v0.1.0 pre-tag release-candidate
 authority; later tranches do not rewrite it. M041 closed at
 `724b967da04579282dd8bfc7a81dc4fe55d034a2` (hosted run `36219464594`,
@@ -27,10 +26,14 @@ the M047 provenance tooling. M055 closed at `b0ecbf1` and remains the historical
 `0.2.0` baseline at the time; that baseline is now the published
 `v0.2.0` lineage); M056 closed at `b6f0095` and owns the
 `release-contract` DAG implementation; M057 closed at `818e567` (hosted run
-`36490497114` 14/14 + dispatch `36630812771` green) and is the final hosted
-qualification authority for that DAG; M059 closed at `1409d0f` as the
-pre-publication hardening corrective and M058 closed the `v0.2.0`
-publication on `b6a277d`. Complete: ADR 003 datagram tranche
+  `36490497114` 14/14 + dispatch `36630812771` green) and is the final hosted
+  qualification authority for that DAG; M059 closed at `1409d0f` as the
+  pre-publication hardening corrective and M058 closed the historical
+  `v0.2.0` publication on `b6a277d`. M062 closed the current `v0.2.1`
+  publication on `b0bc9b1` (ordinary CI `43516207980`, pre-tag dispatch
+  `43517314319`, tag release `43520281822`; see
+  `plans/closure/M062-v0-2-1-patch-release-closure.md`). Complete: ADR 003
+  datagram tranche
 (M020–M023 plus M024 performance and M025 setup/closure hygiene), ADR
 004 schedule tranche (M026–M028), ADR 005 integration-boundary tranche
 (M029–M031), ADR 006 cross-language tranche (M032–M034 plus corrective
@@ -370,9 +373,10 @@ candidate (see §3).
   rerun every affected gate. Planning-only closure-note commits may
   follow only if explicitly distinguished from the qualified code
   candidate.
-- Even after clean qualification: **tag, crates.io publish (in verified order),
-  and GitHub release creation remain explicit owner actions.** Do not
-  automate them off `main` pushes.
+- Tagging, crates.io publication (in verified order), and GitHub Release
+  creation remain explicit owner actions; they were completed for `v0.2.1`
+  only after exact-candidate qualification. Do not automate them off `main`
+  pushes.
 
 ## 4. Dependency and supply-chain discipline
 
@@ -433,8 +437,8 @@ Canonical surface is `plans/` (`AGENTS.md`, `plans/README.md`):
 
 | Path | Authority |
 | --- | --- |
-| `plans/roadmap.md` | Long-term architecture, sequencing, invariants, non-goals, release gates. Status line names M019 final v0.1.0 pre-tag authority, M041 latest ADR 007 corrective authority, M048 hosted qualification/CI-ownership authority, M055 0.2.0 baseline, M056 release-contract implementation, M057 final hosted qualification authority for that DAG, M059 pre-publication hardening corrective, and M058 closed v0.2.0 publication. |
-| `plans/registry.md` | Compact source of truth for milestone status, dependencies, activation, closure. Update it in the same change that activates/blocks/closes/supersedes a milestone. M041 row is `closed` at `724b967da04579282dd8bfc7a81dc4fe55d034a2` with hosted run `36219464594` (13/13); M048 row is `closed` at `ab61ac7809b9260e44a827567065e1479445f2f7` with hosted run `36331806587` (14/14); M055 row is `closed` at `b0ecbf1` (historical 0.2.0 development baseline); M056 row is `closed` at `b6f0095` (release-contract DAG implementation, hosted-CI gap recorded); M057 row is `closed` at `818e567` (hosted run `36490497114` 14/14 + dispatch `36630812771` green, final hosted authority for that DAG); M058 row is `closed` at `b6a277d` (`v0.2.0` publication); M059 row is `closed` at `1409d0f` (pre-publication hardening). |
+| `plans/roadmap.md` | Long-term architecture, sequencing, invariants, non-goals, release gates. Status line names M019 final v0.1.0 pre-tag authority, M041 latest ADR 007 corrective authority, M048 hosted qualification/CI-ownership authority, M055 historical 0.2.0 baseline, M056 release-contract implementation, M057 final hosted qualification authority for that DAG, M059 pre-publication hardening corrective, M058 historical v0.2.0 publication, and M062 current v0.2.1 publication. |
+| `plans/registry.md` | Compact source of truth for milestone status, dependencies, activation, closure. Update it in the same change that activates/blocks/closes/supersedes a milestone. M041 row is `closed` at `724b967da04579282dd8bfc7a81dc4fe55d034a2` with hosted run `36219464594` (13/13); M048 row is `closed` at `ab61ac7809b9260e44a827567065e1479445f2f7` with hosted run `36331806587` (14/14); M055 row is `closed` at `b0ecbf1` (historical 0.2.0 development baseline); M056 row is `closed` at `b6f0095` (release-contract DAG implementation, hosted-CI gap recorded); M057 row is `closed` at `818e567` (hosted run `36490497114` 14/14 + dispatch `36630812771` green, final hosted authority for that DAG); M058 row is `closed` at `b6a277d` (`v0.2.0` publication); M059 row is `closed` at `1409d0f` (pre-publication hardening); M062 row is `closed` at `b0bc9b1` (current `v0.2.1` publication).
 | `plans/000-architecture-and-scope-baseline.md` | Investigated baseline and boundaries. |
 | `plans/001-*.md` … `plans/048-*.md` | Executable handoffs; filename prefix is the milestone sequence number and must not be reused. |
 | `plans/adrs/` | Durable decisions (`001-stream-fault-engine-boundary.md`, `002-determinism-and-live-mutation.md`, `003-datagram-impairment-boundary-and-semantics.md`, `004-deterministic-scenario-schedules-and-replay-identity.md`, `005-cross-project-integration-boundary-and-experiment-identity.md`, `006-cross-language-control-contracts-and-native-binding-boundary.md`, `007-post-v2-12-toxiproxy-stream-loss-compatibility.md`); implementation must not silently change them. |
@@ -503,8 +507,11 @@ closure; neither may claim unsupported behavior.
    baseline at the time; that baseline is now the published `v0.2.0`
    lineage), M056 the release-contract implementation, M057 at
    `818e567` the final hosted qualification authority for that DAG,
-   M059 at `1409d0f` the pre-publication hardening authority, and
-   M058 at `b6a277d` the published `v0.2.0` authority).
+   M059 at `1409d0f` the pre-publication hardening authority, M058 at
+   `b6a277d` the historical published `v0.2.0` authority, and M062 at
+   `b0bc9b1` the current published `v0.2.1` authority (ordinary CI
+   `43516207980`, pre-tag dispatch `43517314319`, tag release
+   `43520281822`, all green).
    The 14/14 hosted matrix must remain green (3 `check` + 1
    `performance-provenance` + 8 `language-clients` + 2
    `python-native`, per M057's recorded hosted run `36490497114`).

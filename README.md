@@ -15,7 +15,7 @@ datagrams.
 Requires Rust 1.89+.
 
 ```sh
-cargo install eggchaos-cli --version 0.2.0 --locked
+cargo install eggchaos-cli --version 0.2.1 --locked
 ```
 
 Or run from source with `cargo run -p eggchaos-cli -- serve --config eggchaos.toml`.

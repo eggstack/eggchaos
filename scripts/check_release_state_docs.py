@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""M060 release-state/current-documentation drift guard.
+"""M060/M062 release-state/current-documentation drift guard.
 
 `plans/registry.md` remains the sole hand-maintained milestone-status
 authority. This guard does not create a second one: it derives
@@ -7,8 +7,9 @@ whether the published release milestone is `closed` from the registry
 table and then checks a small, named set of live documents for
 concrete claims that contradict that derivation.
 
-The guard is intentionally narrow (per the M060 plan WP5 guard
-design). It checks explicit positive/negative fixtures so a stale
+The guard remains narrowly scoped to named release-state documents
+(first added under M060, extended for the v0.2.1 release under M062). It
+checks explicit positive/negative fixtures so a stale
 phrase fails and historical context does not. It scans only the named
 current-state documents, never historical numbered plans, ADRs,
 closures, or retained evidence. It is stdlib-only, no network access,
@@ -32,10 +33,11 @@ from typing import Iterable, List, Tuple
 REPO_ROOT = Path(__file__).resolve().parent.parent
 REGISTRY_PATH = REPO_ROOT / "plans" / "registry.md"
 
-# Milestones whose `closed` claim is asserted by this guard. Other
-# closed milestones are still authoritative (per registry), but they
-# are not part of the named drift-detector set.
+# Published-release milestones whose `closed` claims are asserted by
+# this guard. M058 remains the v0.2.0 historical publication authority;
+# M062 is the current v0.2.1 publication authority.
 PUBLISHED_RELEASE_MILESTONES = ("M058",)
+CURRENT_RELEASE_MILESTONES = ("M062",)
 PRE_PUBLICATION_HARDENING_MILESTONES = ("M059",)
 POST_RELEASE_CLEANUP_MILESTONES = ("M060",)
 
@@ -82,7 +84,7 @@ def parse_registry_milestone_status(text: str) -> dict:
 # Each claim is paired with a `kind` of condition. The guard fails if
 # the condition is violated on the live documents.
 CLAIMS = [
-    # --- M058 is closed (v0.2.0 is the current published release) ---
+    # --- M058 is closed (v0.2.0 is a historical published release) ---
     # SECURITY.md must show v0.2.x as the current supported line and
     # must NOT treat v0.2.0 as future publication.
     (
@@ -106,7 +108,7 @@ CLAIMS = [
         "SECURITY.md",
         "SECURITY.md must not describe v0.2.x as pre-release",
     ),
-    # Release notes for v0.2.0 must say M058 closed / v0.2.0 published.
+    # Release notes for v0.2.0 must record its publication, not current status.
     (
         "must_be_present",
         "M058",
@@ -120,6 +122,13 @@ CLAIMS = [
         re.compile(r"M058 is ready\. Publication requires an"),
         "docs/release-notes-v0.2.0.md",
         "v0.2.0 release notes must not claim publication is still future",
+    ),
+    (
+        "must_be_absent",
+        "M058",
+        re.compile(r"`v0\.2\.0` is the current Eggchaos release"),
+        "docs/release-notes-v0.2.0.md",
+        "v0.2.0 release notes must identify the release as superseded",
     ),
     # architecture/overview.md: must NOT describe M058 as blocked on M059
     # or M059 as the pre-publication hardening that still gates publication.
@@ -206,6 +215,56 @@ CLAIMS = [
         "architecture/tooling-distribution.md",
         "tooling-distribution must describe the deny boundary",
     ),
+    # --- M062 is closed and v0.2.1 is the current published release ---
+    (
+        "must_be_present",
+        "M062",
+        re.compile(r"v0\.2\.1` is the current Eggchaos release"),
+        "docs/release-notes-v0.2.1.md",
+        "v0.2.1 release notes must record current published status",
+    ),
+    (
+        "must_be_present",
+        "M062",
+        re.compile(r"cargo install eggchaos-cli --version 0\.2\.1 --locked"),
+        "README.md",
+        "README install command must use the current published CLI version",
+    ),
+    (
+        "must_be_present",
+        "M062",
+        re.compile(r"v0\.2\.1` published 2026-11-13"),
+        "SECURITY.md",
+        "SECURITY.md must show the current published version and date",
+    ),
+    (
+        "must_be_present",
+        "M062",
+        re.compile(r"Published `v0\.2\.1` is the current release"),
+        "architecture/overview.md",
+        "overview must identify v0.2.1 as the current release",
+    ),
+    (
+        "must_be_present",
+        "M062",
+        re.compile(r"M062 closed"),
+        "architecture/overview.md",
+        "overview must record M062 closed",
+    ),
+    (
+        "must_be_present",
+        "M062",
+        re.compile(r"(?s)Published `v0\.2\.1`.*?is the current release"),
+        "architecture/tooling-distribution.md",
+        "tooling-distribution must identify v0.2.1 as current",
+    ),
+    (
+        "must_be_present",
+        "M062",
+        re.compile(r"M062 closed"),
+        "architecture/tooling-distribution.md",
+        "tooling-distribution must record M062 closed",
+    ),
 ]
 
 
@@ -221,6 +280,15 @@ def evaluate(statuses: dict, *, root: Path = REPO_ROOT) -> List[Tuple[str, str, 
                     "registry-state",
                     "plans/registry.md",
                     f"registry must list {ms} as closed (got {statuses.get(ms)!r}); drift guard requires the published release milestone to be closed",
+                )
+            )
+    for ms in CURRENT_RELEASE_MILESTONES:
+        if statuses.get(ms) != "closed":
+            failures.append(
+                (
+                    "registry-state",
+                    "plans/registry.md",
+                    f"registry must list {ms} as closed (got {statuses.get(ms)!r}); current published-release status depends on its closure",
                 )
             )
     for ms in PRE_PUBLICATION_HARDENING_MILESTONES:
@@ -240,7 +308,7 @@ def evaluate(statuses: dict, *, root: Path = REPO_ROOT) -> List[Tuple[str, str, 
         # claimed state. If the registry has not closed that milestone
         # yet, the claim is dormant — its textual assertions are not
         # applicable. (The registry-state failures above still trip.)
-        if milestone in PUBLISHED_RELEASE_MILESTONES + PRE_PUBLICATION_HARDENING_MILESTONES:
+        if milestone in PUBLISHED_RELEASE_MILESTONES + CURRENT_RELEASE_MILESTONES + PRE_PUBLICATION_HARDENING_MILESTONES:
             if ms_status != "closed":
                 continue
 
@@ -281,28 +349,40 @@ def run_fixture() -> bool:
             "| --- | --- | --- | --- | --- |\n"
             "| M058 | `058-publication.md` | closed | — | done |\n"
             "| M059 | `059-hardening.md` | closed | — | done |\n"
+            "| M062 | `062-v0-2-1-patch-release.md` | closed | — | published |\n"
             "| M060 | `060-cleanup.md` | ready | — | next |\n"
         )
         write_doc("plans/registry.md", registry, base)
         write_doc(
+            "README.md",
+            "cargo install eggchaos-cli --version 0.2.1 --locked\n",
+            base,
+        )
+        write_doc(
             "SECURITY.md",
             "| Line    | Status                                              |\n"
             "| ------- | --------------------------------------------------- |\n"
-            "| v0.2.x  | Supported (current published release line; `v0.2.0` published 2026-10-02) |\n",
+            "| v0.2.x  | Supported (current published release line; `v0.2.1` published 2026-11-13) |\n",
             base,
         )
         write_doc(
             "docs/release-notes-v0.2.0.md",
-            "Status: **published**. `v0.2.0` is the current Eggchaos release; M058 closed the v0.2.0 publication on `b6a277d`.\n",
+            "Status: **published and superseded**. `v0.2.0` was the prior release; M058 closed the v0.2.0 publication on `b6a277d`.\n",
+            base,
+        )
+        write_doc(
+            "docs/release-notes-v0.2.1.md",
+            "Status: **published**. `v0.2.1` is the current Eggchaos release.\n",
             base,
         )
         write_doc(
             "architecture/overview.md",
-            "M059 closed on `1409d0f` (hosted CI 15/15). M058 closed the v0.2.0 publication on `b6a277d`.\n",
+            "Published `v0.2.1` is the current release. M059 closed on `1409d0f`; M058 closed the v0.2.0 publication on `b6a277d`; M062 closed.\n",
             base,
         )
         write_doc(
             "architecture/tooling-distribution.md",
+            "Published `v0.2.1` is the current release. M062 closed. "
             "Unconditional lockfile install: npm ci --ignore-scripts --no-audit --no-fund. "
             "Python-native crate root deny(unsafe_code) plus item-scoped allow only on the macro-facing bridge.\n",
             base,
@@ -522,7 +602,7 @@ def run_fixture() -> bool:
 
 def main(argv: List[str]) -> int:
     parser = argparse.ArgumentParser(
-        description="M060 release-state/current-doc drift guard."
+        description="Release-state/current-documentation drift guard."
     )
     group = parser.add_mutually_exclusive_group()
     group.add_argument(

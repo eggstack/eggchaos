@@ -1,6 +1,8 @@
 # M062 — v0.2.1 Patch Release
 
-Status: active (release preparation and publication in progress)
+Status: closed (published as `v0.2.1`)
+
+Closure evidence: `plans/closure/M062-v0-2-1-patch-release-closure.md`.
 
 ## Objective
 
@@ -67,8 +69,8 @@ Non-goals:
 - `benchmarks/`, `fuzz/`, and standalone `bindings/python-native/` manifests
   and lockfiles; aligned Python and TypeScript client package metadata.
 - `Cargo.toml`, `Cargo.lock`, release notes, `SECURITY.md`, release workflow,
-  architecture and planning current-state documents, and the release closure
-  record.
+  architecture and planning current-state documents, the release-state docs
+  drift guard and regression test, and the release closure record.
 
 ## Ordered work packages
 
