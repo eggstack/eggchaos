@@ -12,8 +12,9 @@ Release `eggchaos v0.2.0`) is the current release. Published `v0.1.0`
 (tag target `81994dbc427365f1dfdaabfa39bdf077850e69ec`, published
 2026-09-24) is preserved as immutable history. Workspace crates are
 `0.2.0` on crates.io; native `/v1`, config schema
-v1, RNG v1, and provenance schema v1 are unchanged. Milestones M000–M059 are
-closed (`plans/registry.md` is the status authority). M019
+v1, RNG v1, and provenance schema v1 are unchanged. Milestones M000–M061 are
+closed and M062 is active for the v0.2.1 patch release
+(`plans/registry.md` is the status authority). M019
 closed at `ca527db` and remains the final v0.1.0 pre-tag release-candidate
 authority; later tranches do not rewrite it. M041 closed at
 `724b967da04579282dd8bfc7a81dc4fe55d034a2` (hosted run `36219464594`,
@@ -381,11 +382,11 @@ direct Eggstack dependency that provides the needed primitive; never
 copy sibling implementation code when a stable published crate surface
 exists.
 
-| Choice | Policy | Pinned surface (`Cargo.toml`) |
+| Choice | Policy | Current `Cargo.toml` requirement (Cargo.lock records exact resolution) |
 | --- | --- | --- |
-| `eggress-relay` (not `eggress-embed`) | Bidirectional relay authority; eggchaos must not fork its half-close/copy semantics (`plans/adrs/001-stream-fault-engine-boundary.md`). | `eggress-relay 1.0.7` (package `eggress-relay`). |
-| `eggserve-server` + `eggserve-primitives` (not `eggserve-core`, never `eggress-admin`) | Generic H1 admin substrate; `eggress-admin` owns Eggress-specific routing/UDP/metrics state. | `eggserve-server 0.2.0`, `eggserve-primitives 0.2.0`. |
-| `eggfetch-core` minimal | CLI control client + public `Dialer` seam for in-process HTTP chaos; narrowest feature set that compiles. | `eggfetch-core 0.2.0`, `default-features = false`, features `native-http1 high-level-url json tls-rustls tls-native-roots`. |
+| `eggress-relay` (not `eggress-embed`) | Bidirectional relay authority; eggchaos must not fork its half-close/copy semantics (`plans/adrs/001-stream-fault-engine-boundary.md`). | `eggress-relay 1.0.12` (package `eggress-relay`). |
+| `eggserve-server` + `eggserve-primitives` (not `eggserve-core`, never `eggress-admin`) | Generic H1 admin substrate; `eggress-admin` owns Eggress-specific routing/UDP/metrics state. | `eggserve-server 0.5.0`, `eggserve-primitives 0.2.3`. |
+| `eggfetch-core` minimal | CLI control client + public `Dialer` seam for in-process HTTP chaos; narrowest feature set that compiles. | `eggfetch-core 0.3.0`, `default-features = false`, features `native-http1 high-level-url json tls-rustls tls-native-roots`. |
 | `eggress-outbound` | Optional/future only, behind an explicit optional feature, for chained upstream routes; not an MVP dependency. | Not in the current graph. |
 | `eggress-testkit` | Reuse for echo / half-close / fragmentation / transport fixtures where practical (dev). | Per-crate dev-dependencies; add eggchaos-specific fixtures only when semantics differ. |
 

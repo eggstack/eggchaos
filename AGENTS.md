@@ -87,8 +87,11 @@ Prefer deterministic Tokio-time tests; wall-clock assertions need justified tole
 
 ## Current planning state
 
+**Active (in flight):**
+- `M062` (active; plan `062-v0-2-1-patch-release.md`)
+
 **Highest closed milestone:** `M061` (see registry for closure evidence).
 
-**Execution order:** no active or ready milestones.
+**Execution order:** `M062`
 
 <!-- END eggchaos:planning-state -->

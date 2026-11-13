@@ -169,6 +169,8 @@ M060 is closed as a bounded post-release documentation/status and drift-guard cl
 
 M061 is closed as the additive closure-evidence/plan-status consistency corrective for M060, on exact candidate `9791375` with hosted run `37366364200` green 15/15. It did not reopen M060 implementation: it records that `e897cc4` had no hosted CI, prevents descendant runs from being misrepresented as exact-SHA evidence, reconciles the 24 registered plan headers that had diverged from their registry row, makes registry↔numbered-plan status agreement mechanical in the M053 guard, and obtained hosted CI on the exact M061 candidate.
 
+M062 is active for the `v0.2.1` patch release. It requires exact-head hosted CI, tagged release qualification and five binary targets, ordered publication of all eight Rust workspace crates, a GitHub Release assembled from workflow artifacts, fresh-install verification, and final documentation/closure evidence. PyPI, npm, and native Python publication remain deferred under M058.
+
 ## Status rules
 
 The registry uses the following states: `active`, `blocked`, `closed`, and `ready`. `plans/registry.md` is the sole hand-maintained status authority; the `Current planning state` blocks in AGENTS.md, `plans/README.md`, `plans/roadmap.md`, and `architecture/overview.md` are generated projections rewritten by `python3 scripts/check_planning_state.py --write` and checked by `sh scripts/tests/test_planning_state.sh`.
@@ -206,11 +208,16 @@ Initial planning was researched on 2026-09-22 against:
 - Shopify Toxiproxy latest release v2.12.0 and current `main`;
 - Toxiproxy REST API and toxic implementation guidance;
 - `eggstack/eggress` current workspace, especially `eggress-relay`, `eggress-testkit`, and `eggress-outbound`;
-- `eggstack/eggfetch` `eggfetch-core` 0.2.0 and its public `Dialer` API;
-- `eggstack/eggserve` 0.2.0 leaf generic H1 server/primitives;
+- `eggstack/eggfetch` `eggfetch-core` 0.3.0 and its public `Dialer` API;
+- `eggstack/eggserve` `eggserve-server` 0.5.0 and `eggserve-primitives` 0.2.3 leaf generic H1 server/primitives;
 - contemporary Rust stream-adapter chaos designs such as Trixter/tokio-netem for comparison, not as dependencies.
 
 See the baseline and reference documents for exact conclusions.
+
+The Eggstack dependency versions were rechecked against the crates.io index on
+2026-11-13 for M062. Eggchaos uses `eggress-relay 1.0.12`, `eggfetch-core
+0.3.0`, `eggserve-server 0.5.0`, and `eggserve-primitives 0.2.3`. It does not
+depend on Eggress' broader proxy runtime or outbound-routing crates.
 
 
 ## Datagram research update
@@ -245,8 +252,11 @@ pinned snapshot oracle rather than moving `main`.
 
 ## Current planning state
 
+**Active (in flight):**
+- `M062` (active; plan `062-v0-2-1-patch-release.md`)
+
 **Highest closed milestone:** `M061` (see registry for closure evidence).
 
-**Execution order:** no active or ready milestones.
+**Execution order:** `M062`
 
 <!-- END eggchaos:planning-state -->

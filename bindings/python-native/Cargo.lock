@@ -75,7 +75,7 @@ dependencies = [
 
 [[package]]
 name = "eggchaos-core"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "arc-swap",
  "bytes",
@@ -86,7 +86,7 @@ dependencies = [
 
 [[package]]
 name = "eggchaos-embed"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "eggchaos-core",
  "eggchaos-experiment",
@@ -100,7 +100,7 @@ dependencies = [
 
 [[package]]
 name = "eggchaos-experiment"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "eggchaos-core",
  "serde",
@@ -112,7 +112,7 @@ dependencies = [
 
 [[package]]
 name = "eggchaos-native"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "eggchaos-embed",
  "eggchaos-protocol",
@@ -123,7 +123,7 @@ dependencies = [
 
 [[package]]
 name = "eggchaos-protocol"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "eggchaos-core",
  "eggchaos-experiment",
@@ -134,7 +134,7 @@ dependencies = [
 
 [[package]]
 name = "eggchaos-server"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "bytes",
  "eggchaos-core",
