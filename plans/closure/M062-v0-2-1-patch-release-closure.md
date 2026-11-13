@@ -12,6 +12,11 @@ qualified candidate. All acceptance criteria in
   `b0bc9b1c3aeac6855ea4b82ea71a78f141197828`
 - Annotated tag: `v0.2.1`
 - Tag object: `27e7af53f78abdc08489bb2681e4b31f93af6b25`
+- Documentation/status closure commit:
+  `d94e30335903639620d28aaf3822d505516d8cf3`
+- Hosted CI for that closure commit:
+  [run 43526078850](https://github.com/eggstack/eggchaos/actions/runs/43526078850),
+  green 15/15 on the exact commit.
 - Tag-triggered release workflow:
   [run 43520281822](https://github.com/eggstack/eggchaos/actions/runs/43520281822)
 - GitHub Release, published `2026-11-13T22:56:59Z`:
@@ -96,6 +101,8 @@ five target binaries and five sidecars.
 - Current release, security support, dependency, planning, and architecture
   documentation have been reconciled. `v0.2.0` remains historical, and
   PyPI, npm, and native Python publication remain deferred under M058.
+- The published GitHub Release notes were synchronized with
+  `docs/release-notes-v0.2.1.md` after adding its current-publication status.
 
 ## Follow-on
 
