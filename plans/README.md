@@ -1,246 +1,18 @@
 # Eggchaos Planning
 
-This directory is the canonical planning record for eggchaos.
+This directory holds the project's architecture decisions, milestone plans, status, and closure evidence.
 
-Eggchaos is intended to be a small Rust-native successor to the useful core of Toxiproxy: a fixed-target TCP fault-injection proxy with deterministic, directional stream impairment. Its differentiator inside Eggstack is not another proxy stack. It is a reusable fault engine that composes with existing Eggstack networking substrates.
-
-## Planning layout
+## Authority and layout
 
 | Path | Purpose |
 | --- | --- |
-| `roadmap.md` | Long-term architecture, sequencing, release stages, and future extensions. |
-| `registry.md` | Current milestone status and dependency source of truth. |
-| `000-architecture-and-scope-baseline.md` | Investigated baseline, reuse decisions, scope boundaries, and initial dependency graph. |
-| `001-*.md` ... `055-*.md` | Bounded implementation, corrective, cleanup, feature, qualification, maintenance, richer-scenario, integration-boundary, language-binding, post-v2.12 compatibility, performance, hosted qualification/CI integration, release-state/version-coherence, and closure handoffs in execution order. |
-| `adrs/` | Durable architecture decisions that should not be silently changed by implementation. |
-| `reference/toxiproxy-parity.md` | Compatibility target and semantic mapping. |
-| `reference/verification-matrix.md` | Required evidence across faults, platforms, APIs, and performance. |
-| `closure/` | Closure evidence created after milestones are implemented. |
-| `archive/` | Superseded plans retained for historical traceability. |
-
-## Current execution order
-
-M000–M015 and M008 remain closed historical work. A 2026-09-23 post-M015 repository audit found additional correctness, secure-control, contract-maintenance, and qualification gaps, so a new release-blocking chain is registered:
-
-`M016 correctness/security -> M017 native contract/operator surface -> M018 runtime modularization -> M019 final corrective requalification`
-
-M016–M019 are closed. M019 completed the pinned Toxiproxy oracle gate and is the final v0.1.0 pre-tag qualification authority. The v0.1.0 tag, crates.io publication, and GitHub release have since been published by the owner as separate release actions (tag `v0.1.0` -> `81994dbc427365f1dfdaabfa39bdf077850e69ec`, published 2026-09-24); that lineage is immutable history.
-
-The first activated post-release feature tranche was UDP/datagram impairment under ADR 003: `M020 -> M021 -> M022 -> M023`. All four plans are formally closed with exact-candidate evidence in `plans/closure/`; M023 qualified candidate `ae2ab733b2be199d7693e40cdc558df01ee9a9de`. This does not alter M019's historical v0.1.0 authority.
-
-M024 is closed after a semantics-preserving datagram hot-path performance and runtime-maintainability pass. It added the topology-matched bare relay benchmark, heap scheduler, immediate empty-plan emission, association setup outside the registry lock, and internal datagram runtime decomposition.
-
-M025 is closed on exact candidate `55911f6`; evidence is in
-`plans/closure/M025-datagram-association-setup-waiter-and-closure-hygiene-closure.md`.
-It replaced the `Starting` association path's bounded `yield_now()` retry loop
-with retained/event-driven waiting, proved setup/drain/capacity races with
-controlled tests, and reconciled closure/status wording.
-
-ADR 004's richer deterministic-scenario/time-varying schedule tranche is
-complete: `M026 (closed) -> M027 (closed) -> M028 (closed)`. M026 froze the
-bounded scenario-v2 source/compiler and portable replay identity; M027 wired it
-to the existing owned scenario/ControlState runtime; M028 qualified the
-combined surface on an exact candidate. ScenarioV1 remains a compatibility
-surface, and no schedule logic was moved into the stream/datagram fault
-engines. Later schedule work (ramps, predicates, lifecycle actions, cron)
-requires separate planning and must compile to or compose with this bounded
-model rather than bypass it.
-
-ADR 005's cross-project integration-boundary/harness tranche is complete:
-`M029 (closed) -> M030 (closed) -> M031 (closed)`. M031 qualified exact
-candidate `fa189b9` and recorded the closure-backed EggReplay/EggProbe
-handoff seams. No EggReplay/EggProbe production dependency belongs in
-eggchaos.
-
-ADR 006's language-binding feature tranche is complete:
-`M032 (closed at ed05f68) -> M033 (closed at 429d459) -> M034 (closed at
-991818b)`. The protocol/OpenAPI authority, Python + TypeScript remote SDKs,
-safe `eggchaos-embed` facade, and PyO3/maturin Python-native pilot are
-implemented. A generic C ABI remains explicitly deferred.
-
-A post-closure audit registered one bounded corrective successor, now closed:
-`M035 (closed at a710cd6)`. It fixed the hosted
-language-client false-red cleanup exit, added portable hosted native-Python
-qualification, consolidated duplicated datagram fault mutation semantics between
-HTTP and embed, reconciled current-state planning, and obtained a green exact-head
-hosted qualification result. M035 does not rewrite M032–M034 history.
-
-ADR 007's M036–M041 implementation chain and M040 corrective
-qualification are historical. M040 closed on exact candidate
-`48fe0dd8dfc1f995c53a3b1661fe704dbdc5bce0` with green local/oracle/hosted
-evidence. A post-closure audit found one narrow operator-facing regression
-in the M040 metrics renderer (duplicate stream-loss series plus a literal
-`\\n` separator), along with oracle-fetch stdout-contract and planning
-hygiene drift. M041 closed on exact candidate
-`724b967da04579282dd8bfc7a81dc4fe55d034a2` with green local/oracle/hosted
-evidence (hosted run `36219464594`, 13/13 jobs).
-
-M041 fixes only those metrics/tooling/closure issues and is the latest ADR
-007 repository-level authority. M040 remains preserved as historical evidence.
-M015 remains valid qualification evidence for `cd88b22`; M019 is the final
-pre-tag release-candidate authority at `ca527db`.
-
-A new evidence-first performance tranche is registered from the current
-post-M041 tree:
-
-`M042 measurement authority -> M043 stream hot path + M044 datagram scale -> M045 exact-head qualification`
-
-M042 is `closed`. It corrected the destructive stream-loss benchmark
-contract, added production-representative live-policy stream baselines, and
-extended pre-warmed datagram association-scale measurement. M043 and M044
-are `closed` (at `67ce4ab` and `7a6dbb8`); M045 is `closed` (evidence
-candidate `a27a67a`, hosted run `36255454409` 13/13). These plans authorize
-no public API, wire, RNG, fault-semantic, fixed-target, or compatibility
-regression.
-
-A narrow post-closure evidence-provenance corrective is now closed:
-
-`M046 performance evidence provenance / closure lineage`
-
-M046 is `closed`. It does not reopen M042–M045 implementation or performance
-thresholds. Its scope is to reconstruct the exact M042/M045 artifact lineage,
-replace non-resolving or ambiguous exact-candidate wording with evidence-backed
-production/execution/evidence revisions, preserve historical raw data
-additively, and reconcile the performance documentation. Evidence is in
-`plans/closure/M046-performance-evidence-provenance-and-closure-lineage-corrective-closure.md`;
-the M042–M045 provenance map is in `qualification/performance/README.md`.
-M046 activates no optimization successor; further performance work requires a new measured
-finding rather than another open-ended optimization milestone.
-
-A post-M046 audit found one remaining **mechanism** defect rather than another
-historical-evidence defect: newly generated benchmark artifacts can still repeat
-the same ambiguity. Datagram evidence stamps only `git rev-parse HEAD`, so a
-dirty run names its base commit; stream/probe JSON carries no Git provenance.
-
-M047 is therefore closed as the root-cause corrective. It adds a
-shared provenance schema across stream/probe/datagram evidence, mechanically
-distinguishes clean authoritative runs from dirty exploratory runs, fingerprints
-dirty source state, and prevents dirty canonical evidence from being called an
-exact candidate. It changed no benchmark workloads, thresholds, production
-behavior, or historical artifacts. Evidence is in
-`plans/closure/M047-performance-artifact-provenance-capture-and-dirty-worktree-guard-corrective-closure.md`;
-the M042–M045 provenance map plus the M047 schema/policy section are in
-`qualification/performance/README.md`. M047 activates no successor; it is the
-authority for provenance in newly generated evidence while M046 remains the
-authority for historical artifacts.
-
-A narrow hosted qualification/integration successor is now closed:
-
-`M048 hosted performance-provenance qualification / CI integration`
-
-M048 is `closed` on exact candidate `ab61ac7809b9260e44a827567065e1479445f2f7`
-(hosted run `36331806587`, 14/14 jobs green). It does not change provenance
-schema v1 or benchmark semantics. Its job was to move the two M047 provenance
-regressions into ordinary hosted protection with bounded CI cost: the cheap
-disposable-Git contract on Ubuntu + macOS (Tier A, gated
-`runner.os != 'Windows'`), one shortened artifact-level stream/probe/datagram
-qualification on Linux in a dedicated `performance-provenance` job (Tier B),
-a structural guard against accidental workflow removal running in
-`language-clients`, exact-head hosted evidence, and before/after CI-duration
-review. Tier A also lives in `scripts/check.sh` because it is cheap (Git +
-stdlib Python only); Tier B stays CI-only because it would otherwise
-compile/run release benchmarks on every local full check. Evidence is in
-`plans/closure/M048-hosted-performance-provenance-qualification-and-ci-integration-closure.md`.
-
-The performance execution order now reads
-`M042 -> M043 -> M044 -> M045 -> M046 -> M047 -> M048 (all closed)`.
-M048 is the hosted qualification/CI-ownership authority for the M047
-provenance tooling; M047 remains the schema/tooling authority for newly
-generated artifacts; M046 remains the historical-evidence provenance
-authority for M042–M045. Further performance work begins from new measured
-findings, not from another provenance corrective unless hosted regression
-evidence identifies one.
-
-A post-M048 repository audit registered the next bounded corrective tranche:
-
-M049 core deserialization/invariant hardening -> M050 scenario lifecycle authority consolidation -> M051 native operation authority consolidation -> M052 private module-boundary maintainability -> M053 planning-status drift guard -> M054 exact-head qualification
-
-M049-M054 are closed. M054 qualified the combined tranche on exact head `3b4fd9f` (hosted run `36461914295`, 14/14) and activates no successor. The tranche preserves all existing APIs/capabilities; in particular it preserves Scenario V1/V2 semantic separation and the current effective 32-record/active-run allowance per family. Scenario enumeration, egress chaining, additional bindings, and other additive feature work remain outside this chain.
-
-M055 is closed as the release-state reconciliation milestone. It preserved the published v0.1.0 lineage, established 0.2.0 as the unreleased development package baseline for current `main`, aligned first-party manifest versions, and added release tag/package-version coherence guards. M055 performed no tag, registry publication, or GitHub release action, and activates no successor.
-
-M056 is closed as the narrow release-workflow contract-gate corrective. It introduced one cheap `release-contract` prerequisite job that owns `scripts/check_release_tag_version.sh` and made both `qualify` and the five-target `artifacts` matrix declare `needs: [release-contract]`; the structural regression in `scripts/tests/test_release_tag_version.sh` was strengthened with negative tests so the M055 bypass cannot silently return. No package/version/publication change.
-
-M057 is closed as the qualification-only successor for the M056 closure-evidence gap. It preserved the M056 workflow implementation and closure record, obtained hosted CI on exact candidate `818e567` (run `36490497114`, 14/14) plus a green release `workflow_dispatch` run `36630812771` on the same SHA, and is the final hosted qualification authority for the shared release-contract DAG. M057 activates no successor.
-
-M059 is closed on exact hardening candidate `1409d0f`; M058 subsequently closed the `v0.2.0` publication on frozen candidate `b6a277d` with all eight Rust crates, the annotated tag, five binary/checksum artifacts, Sigstore attestations, and fresh-install verification. Language registries were explicitly deferred, including the alpha `eggchaos-native` pilot.
-
-M060 is closed as a bounded post-release documentation/status and drift-guard cleanup corrective. It reconciled stale pre-publication prose and source-backed tooling descriptions, corrected `SECURITY.md` and `docs/release-notes-v0.2.0.md` to reflect the published `v0.2.0`, reconciled architecture deep-dives (M058 published / M059 pre-publication hardening / M057 historical hosted qualification authority layers, the narrowed PyO3 unsafe boundary, the unconditional `npm ci --ignore-scripts --no-audit --no-fund` install path), and added a stdlib-only `scripts/check_release_state_docs.py` guard with six named deliberate-drift negative tests wired into `scripts/check.sh` and the `language-clients` CI job; production/runtime/package/release behavior is out of scope and unchanged.
-
-M061 is closed as the additive closure-evidence/plan-status consistency corrective for M060, on exact candidate `9791375` with hosted run `37366364200` green 15/15. It did not reopen M060 implementation: it records that `e897cc4` had no hosted CI, prevents descendant runs from being misrepresented as exact-SHA evidence, reconciles the 24 registered plan headers that had diverged from their registry row, makes registry↔numbered-plan status agreement mechanical in the M053 guard, and obtained hosted CI on the exact M061 candidate.
-
-M062 is closed with the `v0.2.1` patch release. Exact candidate `b0bc9b1` passed ordinary hosted CI (`43516207980`, 15/15), pre-tag dispatch (`43517314319`, 7/7), and tag release qualification (`43520281822`, 7/7). All eight Rust workspace crates were published in dependency order, the GitHub Release uses the five tag-run binaries and checksum sidecars, and clean-cache CLI install verification succeeded. The Apple release runner moved to macOS 15 after GitHub retired macOS 14. PyPI, npm, and native Python publication remain deferred under M058. See `plans/closure/M062-v0-2-1-patch-release-closure.md`.
-
-## Status rules
-
-The registry uses the following states: `active`, `blocked`, `closed`, and `ready`. `plans/registry.md` is the sole hand-maintained status authority; the `Current planning state` blocks in AGENTS.md, `plans/README.md`, `plans/roadmap.md`, and `architecture/overview.md` are generated projections rewritten by `python3 scripts/check_planning_state.py --write` and checked by `sh scripts/tests/test_planning_state.sh`.
-
-Each numbered plan's own top-level `Status:` header is likewise a checked projection, not an authority. Since M061 the guard requires it to equal its registry row (a parenthesised explanatory suffix after a valid token is accepted) and fails closed with `plan-status-missing`, `plan-status-duplicate`, `plan-status-unparseable`, or `plan-status-mismatch`. Change the registry first, then the plan header; never the reverse.
-
-Only `ready` work should be handed to an implementation agent unless the purpose of the handoff is explicitly diagnostic. A blocked plan must remain blocked until its named prerequisites are evidenced.
-
-Implementation does not close a milestone. Closure requires the plan's acceptance criteria plus reproducible evidence. Create a closure record under `plans/closure/` and update `registry.md`.
-
-## Plan-writing conventions
-
-Numbered plans are executable handoffs. Each plan must specify objective, baseline, dependencies, scope/non-goals, affected surfaces, ordered work packages, semantics, tests, acceptance criteria, rejection conditions, closure evidence, and successor activation.
-
-Plans should prefer exact public crate seams and named behavior over speculative internal implementation. If a dependency surface changes before implementation, update the plan and registry rather than silently adapting and leaving stale planning behind.
-
-## Baseline decisions
-
-The initial architecture is deliberately narrow:
-
-- `eggchaos-core`: reusable protocol-neutral directional fault engine over Tokio `AsyncRead + AsyncWrite`.
-- `eggchaos-server`: fixed-target TCP listener/runtime and registry, using `eggress-relay` for bidirectional relay semantics.
-- `eggchaos-cli`: operator CLI with JSON-first output and a local HTTP control client.
-- `eggchaos-toxiproxy`: optional Toxiproxy v2.12.0 compatibility adapter.
-- `eggchaos-eggfetch`: optional `eggfetch_core::Dialer` adapter for in-process HTTP fault injection.
-
-The native admin plane should use the leaf `eggserve-server` + `eggserve-primitives` H1 substrate. The CLI should use a minimal `eggfetch-core` HTTP profile to call it. `eggress-admin` is not used because its state model is specific to Eggress routing, UDP, metrics, and reverse-proxy administration.
-
-The first release is TCP byte-stream focused. UDP/datagram chaos is implemented as the post-release tranche under ADR 003 (M020–M023), with M024/M025 performance and setup-hygiene successors closed, and remains outside the first-release/M019 historical scope. Richer deterministic scenarios are complete under ADR 004 + M026–M028. The consumer-neutral cross-project integration substrate is complete under ADR 005 + M029–M031; EggReplay/EggProbe product-specific adoption remains downstream work. Cross-language control/embedding is implemented under ADR 006 + M032–M034 and correctively qualified under M035 (closed at `a710cd6`: hosted SDK/native-Python qualification, shared datagram mutation authority, exact-head closure). ADR 007 + M036–M039 implement the post-v2.12 deterministic stream-loss/`packet_loss` line; M040 closed at `48fe0dd` as its corrective qualification authority. Native stream loss remains distinct from ADR 003 datagram loss and strict v2.12 remains frozen. A generic C ABI remains deferred. Arbitrary outbound proxy chains remain a later roadmap item.
-
-## Research baseline
-
-Initial planning was researched on 2026-09-22 against:
-
-- Shopify Toxiproxy latest release v2.12.0 and current `main`;
-- Toxiproxy REST API and toxic implementation guidance;
-- `eggstack/eggress` current workspace, especially `eggress-relay`, `eggress-testkit`, and `eggress-outbound`;
-- `eggstack/eggfetch` `eggfetch-core` 0.3.0 and its public `Dialer` API;
-- `eggstack/eggserve` `eggserve-server` 0.5.0 and `eggserve-primitives` 0.2.3 leaf generic H1 server/primitives;
-- contemporary Rust stream-adapter chaos designs such as Trixter/tokio-netem for comparison, not as dependencies.
-
-See the baseline and reference documents for exact conclusions.
-
-The Eggstack dependency versions were rechecked against the crates.io index on
-2026-11-13 for M062. Eggchaos uses `eggress-relay 1.0.12`, `eggfetch-core
-0.3.0`, `eggserve-server 0.5.0`, and `eggserve-primitives 0.2.3`. It does not
-depend on Eggress' broader proxy runtime or outbound-routing crates.
-
-
-## Datagram research update
-
-On 2026-09-24 the UDP/datagram roadmap item was re-researched against current eggchaos `main`, current Eggress UDP/runtime surfaces (especially `eggress-udp` and its fixed-target compatibility behavior), Tokio UDP receive semantics, and Linux `tc netem` as a semantic reference rather than an implementation dependency. ADR 003 and M020–M023 encode the resulting boundary and execution order.
-
-## Language binding research update
-
-On 2026-09-25 the post-v1 language-binding direction was reviewed against the closure-backed M017/M026–M031 boundaries and current Rust/Python binding tooling. ADR 006 + M032–M034 encode the resulting order: native `/v1` protocol/OpenAPI authority first, Python + TypeScript remote SDKs second, and a coarse safe Rust facade + PyO3/maturin Python embedding pilot third. Direct binding of Tokio stream internals and a generic C ABI are intentionally deferred.
-
-
-## Post-v2.12 Toxiproxy research update
-
-On 2026-09-25 the post-v2.12 roadmap item was re-researched against
-Shopify/Toxiproxy v2.12.0 and current `main` at
-`40f7fd31bee529d824116bd2a11a9e3425e904ec`. The compared branch is 86
-commits ahead of v2.12.0; the substantive new server data-plane toxic is
-`packet_loss`, introduced at
-`7c01129a8c232bf01aaebaca8a87429fd16f69b2`. ADR 007 freezes the
-Eggchaos boundary: deterministic userspace stream loss is a native core
-primitive, not real TCP/IP packet loss and not ADR 003 datagram loss; strict
-v2.12 remains a distinct default profile; post-v2.12 compatibility uses a
-pinned snapshot oracle rather than moving `main`.
+| `roadmap.md` | Architecture, invariants, non-goals, and future directions. |
+| `registry.md` | Sole hand-maintained source of milestone status and dependencies. |
+| `000-*.md`–`062-*.md` | Scoped milestone plans. All milestones through M062 are closed; retain their plans as historical handoffs. |
+| `adrs/` | Durable architecture decisions. |
+| `reference/` | Parity and verification contracts, not status. |
+| `closure/` | Exact-candidate milestone closure evidence. |
+| `archive/` | Superseded, unregistered planning notes; not numbered plans or closure records. |
 
 <!-- BEGIN eggchaos:planning-state -->
 <!--
@@ -257,3 +29,17 @@ pinned snapshot oracle rather than moving `main`.
 **Execution order:** no active or ready milestones.
 
 <!-- END eggchaos:planning-state -->
+
+## Status and closure rules
+
+- `registry.md` is the only status authority. Its `active`, `blocked`, `closed`, and `ready` states are projected into the generated blocks in `AGENTS.md`, this file, `roadmap.md`, and `architecture/overview.md`.
+- Numbered plan `Status:` headers are checked projections and must match the registry. Update the registry first, then the plan header; run `python3 scripts/check_planning_state.py --write` and `sh scripts/tests/test_planning_state.sh` after registry edits.
+- Only `ready` work should be handed off for implementation, except for diagnostic work. A blocked plan stays blocked until its prerequisites are evidenced.
+- Code completion alone does not close a milestone. Closure requires its acceptance evidence, a record under `closure/`, and a registry update. Do not rewrite failed or incomplete qualification as a pass.
+- Numbered plans define objective, baseline and dependencies, scope and non-goals, affected surfaces, ordered work, invariants, tests, acceptance criteria, stop conditions, closure evidence, and successor rules.
+
+Keep closed plans and closure records in place for traceability. Use `archive/` only for superseded notes that are not registered numbered plans or closure evidence; reconcile references and identify the successor before moving a note there.
+
+## Baseline references
+
+The architecture authority is `roadmap.md`; implementation boundaries are in `adrs/`. User-facing contracts live in `docs/architecture.md`, `docs/configuration.md`, `docs/control-plane.md`, `docs/toxiproxy.md`, and `docs/eggfetch.md`.

@@ -11,6 +11,42 @@ same single wrapping path over a small built-in direct TCP dialer.
 Eggfetch continues to own HTTP framing, pooling, destination TLS/SNI,
 certificate validation, and retry policy.
 
+## Basic setup
+
+Add `eggchaos-eggfetch`, `eggchaos-core`, and `eggfetch-core` to your Rust
+project. Build the adapter with an initial plan for each direction, then give
+it to the Eggfetch client. This example adds 200 ms of downstream latency:
+
+```rust
+use std::{num::NonZeroU64, time::Duration};
+
+use eggchaos_core::{
+    FaultId, FaultKind, FaultPlan, FaultSpec, LatencyConfig, Probability,
+};
+use eggchaos_eggfetch::ChaosDialer;
+use eggfetch_core::Client;
+
+let downstream = FaultPlan::new(vec![FaultSpec {
+    id: FaultId::new("lag")?,
+    probability: Probability::new(1.0)?,
+    kind: FaultKind::Latency(LatencyConfig {
+        delay: Duration::from_millis(200),
+        jitter: Duration::ZERO,
+        max_buffer_bytes: NonZeroU64::new(65_536).unwrap(),
+    }),
+}])?;
+let dialer = ChaosDialer::with_policies(
+    7,
+    "integration-test",
+    FaultPlan::empty(),
+    downstream,
+);
+let client = Client::builder().dialer(dialer).build();
+```
+
+`FaultPlan::new` validates the plan. The example uses `?` in a
+`Result`-returning setup function.
+
 Connection identity is caller-controlled and deterministic. Each adapter
 assigns an adapter-local physical connection ordinal starting at `1` for
 each successfully wrapped dial, then derives the connection key through a
@@ -35,11 +71,9 @@ Live policy publications engage pooled connections without reconnecting;
 resolved downstream terminations surface as EOF (graceful) or errors (hard
 reset) on the physical stream.
 
-Fault policy is physical-connection scoped. A pooled HTTP/2 connection can
-therefore expose one policy to multiple logical streams; per-request chaos is
-not claimed. The adapter never parses HTTP, inspects bodies, or performs TLS
-interception. Both directional policy handles are attached to the physical
-stream and are intentionally not described as per-request behavior.
+Policies attach to physical connections. One pooled HTTP/2 connection can
+carry several requests, so those requests share its policy and evidence. The
+adapter never parses HTTP or bodies and does not intercept TLS.
 
 The default crate feature keeps Eggfetch on its native HTTP/1.1 profile. Enable
 `eggchaos-eggfetch/http2` for the qualification profile; this adds Eggfetch's

@@ -1,12 +1,5 @@
-# Archived Planning Material
+# Archived Planning Notes
 
-Superseded plans and obsolete planning notes belong here so the active planning surface stays clear without deleting historical decisions.
+Use this directory only for superseded notes that are not registered numbered plans or closure evidence. Keep registered plans and closure records in place; their status and history remain in `plans/registry.md` and `plans/closure/`.
 
-When archiving a plan:
-
-1. mark it `superseded` in `plans/registry.md`;
-2. identify the successor plan;
-3. preserve the original text/evidence;
-4. move or copy it here only after references are reconciled.
-
-Archive status is not closure. A superseded plan may have been incomplete.
+Before moving an unregistered note here, preserve its text, identify its successor, and reconcile references. This archive does not represent milestone status or closure.

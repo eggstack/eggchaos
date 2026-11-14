@@ -1,36 +1,50 @@
 # Configuration
 
-Native configuration is schema-versioned TOML. The canonical runtime model
-is the typed `eggchaos-core::FaultPlan`; adapters must convert into it rather
-than implementing their own validation.
+Eggchaos reads schema-versioned TOML. Set `version = 1`; omitted optional fields use the documented defaults. The same validation rules apply to file configuration and native API requests.
 
-The file/API surface is the schema-v1 TOML model plus the versioned native
-control API. The supported native
-contract is the Rust constructors in `eggchaos-core`: fault IDs are bounded,
-probabilities are finite and within `0..=1`, slice variation is smaller than
-average size, and required capacities/rates are non-zero.
+## Admin listener
 
-The schema-v1 compiler validates required non-zero values and reports the
-field name in a configuration error. Invalid values such as a zero bandwidth
-burst are rejected without panicking. Admin bearer tokens remain accepted as
-strings in TOML, but native configuration and admin debug formatting always
-redact their values.
+The default listener is `127.0.0.1:8475` and is unauthenticated unless you configure a token. To bind beyond loopback, set `public_admin = true` and a non-empty `auth_token`:
 
-The `Direction` names are `upstream` (client to target) and `downstream`
-(target to client). A plan is ordered, and a connection-local fault activation
-decision is derived from the policy seed namespace, proxy identity, connection key,
-direction, and fault identity. No process-global RNG is used. Each published
-policy generation carries its own seed namespace: manual updates retain the
-current namespace, Scenario V1 runs publish namespaces derived from
-`(scenario seed, run id, event index)`, and Scenario V2 runs publish
-namespaces derived from `(scenario seed, execution key, schedule
-fingerprint, compiled event index)` with no run_id input; see
-`docs/control-plane.md` for the replay limits this implies.
+```toml
+[admin]
+bind = "0.0.0.0:8475"
+public_admin = true
+auth_token = "render-this-value-from-your-secret-store"
+```
+
+Eggchaos reads `auth_token` as a literal TOML string. It does not expand environment variables. Do not commit a real token. The admin listener uses HTTP, so protect non-loopback access with a trusted TLS terminator and network controls. The CLI's `--admin-token` option and `EGGCHAOS_ADMIN_TOKEN` variable supply credentials for client requests; they do not configure the server listener.
+
+## Stream proxy example
+
+```toml
+version = 1
+seed = 7
+
+[admin]
+bind = "127.0.0.1:8475"
+
+[[proxy]]
+name = "redis"
+listen = "127.0.0.1:16379"
+upstream = "127.0.0.1:6379"
+
+[[proxy.fault]]
+id = "lag"
+direction = "downstream"
+probability = 1.0
+type = "latency"
+delay = "200ms"
+jitter = "50ms"
+```
+
+The proxy listens on `listen` and forwards to the fixed `upstream`. Directions are `upstream` (client to target) and `downstream` (target to client). Faults run in the order listed. Stream probabilities are deterministic per connection and default to `1.0`.
+
+TOML duration strings use `ms`, `us`, or `s`. Native HTTP requests use unsigned integer nanoseconds. Both surfaces compile into the same validated fault model. See [control-plane schemas](control-plane.md#native-v1-request-and-response-schemas) for fault types and API defaults.
 
 ## Runtime and proxy bounds
 
-The optional `[runtime]` table controls existing service bounds. Defaults
-preserve the previous builder values:
+The optional `[runtime]` table controls service-wide limits. Defaults preserve the service builder values.
 
 | TOML key | Unit | Default | Accepted range |
 | --- | --- | --- | --- |
@@ -39,29 +53,13 @@ preserve the previous builder values:
 | `relay_buffer_bytes` | bytes | `65536` | `1..=16777216` |
 | `termination_grace_ms` | milliseconds | `5000` | `0..=300000` |
 
-Each `[[proxy]]` may set `connect_timeout_ms` (default `5000`, range
-`1..=300000`) and `seed` (default `0`). `max_connections` remains optional;
-the service-wide connection limit bounds active sockets. Latency faults may set `max_buffer_bytes` from
-1 through 67108864. Invalid or out-of-range values fail with a field-specific
-configuration error. Omitting these keys keeps the defaults in the tables above.
+Each `[[proxy]]` may set `connect_timeout_ms` (default `5000`, range `1..=300000`), `seed` (default `0`), `enabled` (default `true`), and `max_connections` (optional). The global connection limit still applies. Latency faults may set `max_buffer_bytes` from `1` through `67108864` bytes. Invalid values fail configuration with a field-specific error.
 
-Native HTTP fault duration attributes use integer nanoseconds. TOML retains
-duration strings (`ms`, `us`, or `s`) because configuration files are the
-human-authored surface; both inputs compile through the same typed
-`FaultKindV1` conversion and then the core model.
-
-The service half-close policy is intentionally not configurable in schema v1;
-the runtime keeps its existing `Drain` default until the policy has a stable
-operator-facing spelling and semantics.
+The service half-close policy is not configurable in schema v1. The runtime uses its `Drain` policy.
 
 ## Datagram proxies
 
-Schema v1 accepts an optional `[[datagram_proxies]]` collection. Its absence
-preserves existing configuration behavior; adding it is backward-compatible
-within schema v1. Each entry has a fixed UDP target and bounded association,
-idle, datagram-size, scheduler-count/byte, and directional fault settings.
-The optional `[runtime.datagram]` table sets global proxy, association,
-history, per-association ingress-slot, and total ingress-byte limits.
+Use `[[datagram_proxies]]` to configure fixed-target UDP proxies. The collection is optional. The optional `[runtime.datagram]` table sets global proxy, association, history, ingress-slot, and ingress-byte limits.
 
 ```toml
 [runtime.datagram]
@@ -84,9 +82,17 @@ seed = 0
 upstream_faults = [{ id = "loss", probability = 0.05, kind = { type = "loss" } }]
 ```
 
-Datagram fault `type` values and fields match the separate native datagram
-DTO schema: `delay` (`delay_ns`, optional `jitter_ns`), `loss`, `duplicate`
-(`additional_copies`), `reorder` (`hold_ns`), `payload-corrupt` (`bytes`), and
-`bandwidth` (`bytes_per_second`, `burst_bytes`). All bounds are compiled
-before listener activation, and unknown fields are rejected in the native
-fault DTOs. Existing stream proxy/fault TOML fields are unchanged.
+Each client address has a bounded association with its own connected upstream socket. The listener address may use port `0` to request an available port; the actual bound address is returned by the control API.
+
+Datagram fault types are separate from stream faults:
+
+| Type | Fields |
+| --- | --- |
+| `delay` | `delay_ns`, optional `jitter_ns` |
+| `loss` | none |
+| `duplicate` | `additional_copies` |
+| `reorder` | `hold_ns` |
+| `payload-corrupt` | `bytes` |
+| `bandwidth` | `bytes_per_second`, `burst_bytes` |
+
+Datagram probability is evaluated per datagram. Durations use integer nanoseconds in the fault object. Bounds are validated before listener startup, and invalid values fail with a field-specific error. Existing stream proxy settings remain unchanged.

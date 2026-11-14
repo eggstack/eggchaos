@@ -61,37 +61,7 @@ Run a standalone compat server with the strict profile with
 `cargo run -p eggchaos-toxiproxy --example compat_server -- 127.0.0.1:8474`
 (loopback by default). The example accepts an explicit profile as the
 second positional argument (`strict-v2.12` or `post-v2.12-2026-09-25`).
-Qualification:
-
-- Strict: `scripts/fetch_toxiproxy_v2_12.sh` acquires the official
-  architecture-matched binary and verifies its pinned SHA-256; for a
-  mandatory run, set `TOXIPROXY_SERVER` to that path and run
-  `EGGCHAOS_REQUIRE_TOXIPROXY_ORACLE=1
-  ./scripts/qualify_toxiproxy_v2_12.sh`.
-- Post-v2.12: `scripts/fetch_toxiproxy_post_v2_12.sh` fetches the
-  pinned `40f7fd31` source archive, verifies its committed SHA-256, and
-  builds the oracle from source with the recorded Go toolchain. The
-  fetcher stdout contract (M041):
-
-  ```sh
-  # default and --path-only: prints the executable path on stdout so
-  # documented command substitution keeps working.
-  TOXIPROXY_POST_V2_12_SERVER="$(./scripts/fetch_toxiproxy_post_v2_12.sh)"
-  TOXIPROXY_POST_V2_12_SERVER="$(./scripts/fetch_toxiproxy_post_v2_12.sh --path-only)"
-
-  # --json prints one metadata record on stdout (requested/resolved
-  # toolchain, source commit, source SHA-256, oracle path, -version).
-  ./scripts/fetch_toxiproxy_post_v2_12.sh --json
-  ```
-
-  For a mandatory run, set `TOXIPROXY_POST_V2_12_SERVER` to that path
-  and run `EGGCHAOS_REQUIRE_POST_V2_12_ORACLE=1
-  ./scripts/qualify_toxiproxy_post_v2_12.sh` (which consumes the path
-  via an explicit `--path-only` fetch mode). Recorded divergences from
-  the live oracle (verbatim out-of-range `loss_rate`/`correlation`
-  storage, mixed int/float JSON acceptance, `{"version":"git"}` instead
-  of a numbered release tag) are classified in
-  `plans/closure/M038-pinned-post-v2-12-toxiproxy-packet-loss-profile-closure.md`.
-
 Native fixed-target UDP datagram resources are a separate API and do not extend
-Toxiproxy v2.12; the compatibility adapter remains stream/TCP-only.
+Toxiproxy v2.12; the compatibility adapter remains stream/TCP-only. Contributor
+oracle setup and qualification commands are documented in
+[verification and qualification](../architecture/verification-qualification.md).

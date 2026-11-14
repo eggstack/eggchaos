@@ -783,14 +783,16 @@ fn phase_name_empty_string_is_rejected() {
 
 #[test]
 fn isolated_fingerprint_variants_pinned_by_golden_corpus() {
-    // Mini corpus: each variant fingerprint is locked. A fingerprint
-    // regression requires an explicit version bump and golden-regen.
+    // Fingerprint changes require a version bump and updated golden.
     let cases: Vec<(&str, &str)> = vec![
         (
             "minimal_one_phase_stream",
             "2d97f48febf9340b14c3ebdebeae2150820feb130dceda486c33d141cb7959b2",
         ),
-        ("minimal_one_phase_datagram", "TBD"),
+        (
+            "minimal_one_phase_datagram",
+            "20c681745c90f0e777ba23fbf468f9f39b03ab6a1c0176d863cb856cf35edc16",
+        ),
     ];
     for (label, expected) in cases {
         let source = match label {
@@ -816,11 +818,6 @@ fn isolated_fingerprint_variants_pinned_by_golden_corpus() {
         };
         let compiled = compile_schedule(&source).expect("compile");
         let hex = fingerprint_hex(&compiled_fingerprint(&compiled));
-        if expected == "TBD" {
-            // Recorded for visibility; M028 freezes this value.
-            eprintln!("corpus[{label}] fingerprint={hex}");
-            continue;
-        }
         assert_eq!(hex, expected, "corpus[{label}] fingerprint regression");
     }
 }

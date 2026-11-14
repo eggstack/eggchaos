@@ -1,19 +1,18 @@
 # Native control plane
 
-The native API is versioned under `/v1` and defaults to loopback. A
-non-loopback bind requires both an explicit public-admin opt-in and a bearer
-token; failed authentication returns a bounded JSON error without echoing the
-token. Request bodies are capped at 1 MiB and route state is changed through
-`ControlState` generation publication.
+The native API uses `/v1` and binds to loopback by default. A non-loopback
+bind requires `public_admin = true` and a non-empty bearer token in the TOML
+`[admin]` table. See [configuration](configuration.md#admin-listener). Failed
+authentication returns a bounded JSON error without echoing the token. Request
+bodies are limited to 1 MiB.
 
-The CLI accepts `--admin-token <token>` or `EGGCHAOS_ADMIN_TOKEN`; the command
-line option takes precedence. The header is omitted when neither is set.
-Tokens are redacted from native configuration/admin `Debug` output.
+For CLI requests to a secured admin endpoint, pass `--admin-token <token>` or
+set `EGGCHAOS_ADMIN_TOKEN`. The command-line value takes precedence. The CLI
+omits the authorization header when neither is set. Tokens are redacted from
+native configuration debug output.
 
-The EggServe leaf H1 runtime owns parsing, request-body bounds, and connection
-lifecycle. Eggchaos owns only route dispatch and typed JSON conversion. The
-CLI uses Eggfetch for control requests, including JSON mode and nonzero error
-exit status.
+The CLI is an HTTP client for the native API. It supports JSON output and
+returns a nonzero exit status when a command fails.
 
 ## Route inventory
 
@@ -47,7 +46,7 @@ Stable fault `type` values and attributes are: `latency` (`delay_ns` required,
 `variation` and `delay_ns` to 0), `disconnect` (`after_ns` defaults to 0,
 `hard_reset` to false), and `stream-loss` (`loss_rate` and `correlation`
 both required, finite in `0..=1`; deterministic userspace stream-chunk
-loss in fixed 32 KiB logical grains — explicitly not IP/TCP packet loss).
+loss in fixed 32 KiB logical grains. It is not IP/TCP packet loss).
 Required sizes/rates must be non-zero; probability defaults to 1 and must
 be finite in `0..=1`. Unknown properties are rejected. Direction values
 are `upstream` and `downstream`.
@@ -63,12 +62,9 @@ Proxy response views contain explicit native fault views instead of core
 `FaultKind` Serde output. Scenario documents use version 1, millisecond
 `at_ms` scheduling, and nested `action` objects tagged by `type` (`set-plan`
 or `remove-fault`); faults in `set-plan` use the same kind schema. Scenario run
-status values are lowercase. These DTOs define the native v1 contract
-independently of internal Rust enum layout. The DTO authority is the
-`eggchaos-protocol` crate (re-exported by `eggchaos-server` for source
-compatibility); the machine-readable contract is
-`api/openapi/eggchaos-v1.yaml`, drift-checked by
-`./scripts/check_openapi.sh` and the `NATIVE_OPERATIONS` inventory.
+status values are lowercase. These DTOs define the native v1 wire format independently of internal Rust
+enum layouts. See the [OpenAPI specification](../api/openapi/eggchaos-v1.yaml)
+for the complete contract.
 
 ## CLI command inventory
 
@@ -84,8 +80,8 @@ on failure. Metrics are Prometheus text in human mode and are wrapped as
 `fault set` requires `--probability` and/or `--kind` and rejects anything else
 (`fault set requires --probability and/or --kind`). Supplying `--kind` rebuilds
 the whole kind object from the supplied fault attributes rather than merging
-into the stored one, so omitted attributes fall back to their schema defaults —
-`--kind latency --delay-ms 400` alone also resets `jitter_ns` to 0. Repeat every
+into the stored one. Omitted attributes use their schema defaults. For example,
+`--kind latency --delay-ms 400` also resets `jitter_ns` to 0. Repeat every
 attribute you want to keep.
 
 Proxy create requests accept `connect_timeout_ms` and `seed`; add faults via
@@ -127,8 +123,9 @@ anywhere in evidence, metrics, or history.
 `{run_id, seed, status}`; `GET /v1/scenarios/{run_id}` reports status,
 applied count, failure detail, and a per-event generation trail;
 `DELETE /v1/scenarios/{run_id}` cancels a running run. Runs are supervised
-by the service and cancelled on shutdown; at most 32 run records are
-retained. Events apply fail-fast against the live plans at fire time.
+by the service and cancelled on shutdown; up to 32 run records are retained
+for each scenario family. Events apply fail-fast against the live plans at fire
+time.
 
 A scenario seed participates in deterministic engine decisions through the
 published seed namespace, derived from `(scenario seed, run id, event
@@ -141,9 +138,8 @@ applies to; a conflicting concurrent publication fails the run instead of
 rolling state back.
 
 Scenario v1 (`POST /v1/scenarios/apply` with `version: 1`) keeps this
-contract and remains the compatibility surface. Scenario v2 wires the
-M026 bounded source-language, compiler, and replay identity into the
-owned run supervisor:
+contract and remains supported. Scenario v2 uses a bounded schedule language,
+a compiler, and a stable fingerprint under the same owned run supervisor:
 
 - `POST /v1/scenarios/apply` is version-aware: a `version: 2`
   schedule compiles server-side and starts an owned v2 run through
@@ -167,15 +163,15 @@ the run and fails fast on external conflict; live isolation rebuilds
 from the live plan at fire time with an expected-generation guard. The
 default `restore-initial` cleanup republishes each touched
 resource's initial plan only while the run still owns its
-generation — an externally moved resource records a cleanup conflict
-and keeps its external state. Run evidence carries the schedule
+generation. An externally moved resource records a cleanup conflict and
+keeps its external state. Run evidence carries the schedule
 fingerprint, execution key, compiler version, isolation/cleanup
 policy, per-event scheduled/applied timing with lateness, resulting
 generations, and the cleanup outcome; no payload bytes.
 
 Deterministic policy/event identity is exact: the same schedule
 replays identical seed namespaces regardless of daemon run order.
-Live connection/datagram arrival timing is not replayed — connection
+Live connection and datagram arrival timing is not replayed. Connection
 keys depend on accept order, and scheduler lateness is diagnostic
 evidence, never an RNG input.
 
@@ -204,21 +200,16 @@ The `datagram` CLI namespace includes `proxy list|get|add|enable|disable|remove`
 
 ## Remote control SDKs
 
-Python (`bindings/python-client`, `from eggchaos_client import Client,
-AsyncClient`) and TypeScript (`bindings/typescript-client`,
-`@eggstack/eggchaos-client`, `EggchaosClient`) remote clients drive the
-complete native surface above — stream and datagram resources, Scenario
-V1/V2, evidence/history/reset/metrics, bearer auth, and typed native
-errors — without embedding Rust. Both derive from the exact M032
-OpenAPI/protocol authority (`scripts/sync_sdk_contract.py`; drift
-fails CI on regeneration diffs). They never manage the daemon
-lifecycle: start `eggchaos serve` (or embed it) and pass the admin URL.
+Python (`bindings/python-client`, `Client` / `AsyncClient`) and TypeScript
+(`bindings/typescript-client`, `EggchaosClient`) clients control the native
+API, including stream and datagram resources, Scenario V1/V2, evidence,
+history, reset, metrics, bearer authentication, and typed errors. They do not
+start or stop the service. Start it separately and configure the client with
+the admin URL. See the package READMEs for source-install instructions; neither
+remote client is currently published to its language registry.
 
-This is distinct from Toxiproxy compatibility (`docs/toxiproxy.md`),
-which serves the legacy TCP subset for existing Toxiproxy clients, and
-from in-process embedding: `eggchaos-native` (`bindings/python-native`)
-runs the same service in the Python test process via the safe
-`eggchaos-embed` facade — fixture-local startup/control with no admin
-HTTP hop, but the same validation, defaults, bounds, and error
-semantics. Remote clients remain the portability-first option; the
-native module is for harnesses that must own lifecycle in-process.
+These clients differ from [Toxiproxy compatibility](toxiproxy.md), which
+serves the legacy TCP API, and from in-process embedding. The native Python
+module (`bindings/python-native`) starts the service inside the test process
+through `eggchaos-embed`, without an admin HTTP hop. It uses the same
+validation, defaults, bounds, and error semantics.

@@ -190,7 +190,6 @@ impl DatagramProxySpec {
 
 /// Current runtime status for one datagram proxy.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-// M059: runtime-internal snapshot; field invariants documented on the struct.
 #[allow(missing_docs)]
 pub struct DatagramProxyView {
     pub name: String,
@@ -215,7 +214,6 @@ pub struct DatagramProxyView {
 
 /// Retained or live association evidence. No payload is stored.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-// M059: runtime-internal snapshot; field invariants documented on the struct.
 #[allow(missing_docs)]
 pub struct DatagramAssociationSnapshot {
     pub id: u64,

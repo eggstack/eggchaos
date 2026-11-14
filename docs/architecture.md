@@ -30,11 +30,10 @@ adapters over the server/core authority, never alternate state stores.
 `Dialer` with deterministic connection identity and bounded transport
 evidence.
 
-The initial release is intentionally bounded: latency queues, connection
-counts, request bodies, histories, and control-plane resources have explicit
-limits. An abstract hard-reset request is separate from a concrete platform
-capability; ordinary `AsyncWrite::poll_shutdown` is never advertised as TCP
-RST.
+Runtime resources are bounded, including latency queues, connections, request
+bodies, histories, and control-plane state. A hard-reset request is distinct
+from a platform capability; ordinary `AsyncWrite::poll_shutdown` is never
+advertised as TCP RST.
 
 The initial contracts were recorded in [ADR 001](../plans/adrs/001-stream-fault-engine-boundary.md)
 and [ADR 002](../plans/adrs/002-determinism-and-live-mutation.md).

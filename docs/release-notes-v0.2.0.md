@@ -153,9 +153,9 @@ fixes):
 
 | Package | Registry | M058 disposition |
 | --- | --- | --- |
-| `eggchaos-client` (Python remote) | PyPI | **defer** — owner decision 2026-10-01: the name is unclaimed on PyPI (404) and M058 does not allocate a new public namespace implicitly; source at the `v0.2.0` tag stays versioned `0.2.0` |
-| `@eggstack/eggchaos-client` (TypeScript remote) | npm | **defer** — source at the `v0.2.0` tag stays versioned `0.2.0`; no npm upload absent explicit scope/ownership/provenance go |
-| `eggchaos-native` (Python native pilot) | PyPI | **defer by default** — alpha pilot without a release-grade cross-platform wheel matrix; host-native build evidence does not imply broad wheel support |
+| `eggchaos-client` (Python remote) | PyPI | **defer**: owner decision 2026-10-01. The name is unclaimed on PyPI (404), and M058 does not allocate a new public namespace implicitly. Source at the `v0.2.0` tag stays versioned `0.2.0`. |
+| `@eggstack/eggchaos-client` (TypeScript remote) | npm | **defer**: source at the `v0.2.0` tag stays versioned `0.2.0`. No npm upload without explicit scope, ownership, and provenance approval. |
+| `eggchaos-native` (Python native pilot) | PyPI | **defer by default**: alpha pilot without a release-grade cross-platform wheel matrix. Host-native build evidence does not imply broad wheel support. |
 
 Deferral does not block the required Rust/GitHub release and does
 not change aligned `0.2.0` source metadata. Do not install these
