@@ -11,7 +11,8 @@
 # non-authoritative unavailable provenance.
 #
 # Workloads are shortened via the existing size knobs without changing case
-# semantics; no throughput values are asserted.
+# semantics. The datagram budget gate remains active; multiple rounds reduce
+# sensitivity to hosted-runner timing noise.
 set -eu
 
 fail() { echo "FAIL: $1" >&2; exit 1; }
@@ -90,10 +91,13 @@ echo "bypass unavailable-provenance ok"
 
 # --- datagram: short full run through the wrapper -------------------------------
 DATAGRAM_OUT="$WORK/datagram.json"
-EGGCHAOS_DATAGRAM_BENCH_DATAGRAMS=50 EGGCHAOS_DATAGRAM_BENCH_ROUNDS=1 \
+if ! EGGCHAOS_DATAGRAM_BENCH_DATAGRAMS=100 EGGCHAOS_DATAGRAM_BENCH_ROUNDS=3 \
   EGGCHAOS_DATAGRAM_BENCH_OUTPUT="$DATAGRAM_OUT" \
-  sh "$REPO_ROOT/scripts/benchmark_datagram.sh" >/dev/null 2>"$WORK/datagram.stderr" \
-  || fail "wrapped short datagram run failed (budget or harness)"
+  sh "$REPO_ROOT/scripts/benchmark_datagram.sh" >"$WORK/datagram.stdout" 2>"$WORK/datagram.stderr"; then
+  cat "$WORK/datagram.stdout" >&2
+  cat "$WORK/datagram.stderr" >&2
+  fail "wrapped short datagram run failed (budget or harness)"
+fi
 python3 - "$DATAGRAM_OUT" "$HEAD_SHA" "$EXPECT_AUTH" <<'PY'
 import json, sys
 path, head_sha, expect_auth = sys.argv[1:4]
