@@ -257,7 +257,7 @@ pyo3 = { version = "0.29", features = ["extension-module", "abi3-py311"] }
 serde 1 (derive), serde_json 1
 ```
 
-`pyproject.toml`: `maturin==1.9.5`, `bindings = "pyo3"`,
+`pyproject.toml`: `maturin==1.16.0`, `bindings = "pyo3"`,
 `module-name = "eggchaos_native"`, `python-source = "python"`,
 `requires-python = ">=3.11"`. `python/eggchaos_native/__init__.py`
 re-exports `Fault`, `Service`, and the 7 typed errors with remote-vs-native
@@ -445,7 +445,7 @@ sh scripts/build_python_native_artifacts.sh  # host abi3 wheel + sdist (+ Apple 
 `{"python_native_artifacts":"pass"}`. Wall-clock bench figures are recorded
 observations, not frozen budgets. Hosted qualification is the `python-native`
 CI job (`[ubuntu-latest, macos-latest] × python 3.12`, pinned
-`maturin==1.9.5`); local runs additionally need the workspace gate
+`maturin==1.16.0`); local runs additionally need the workspace gate
 (`scripts/check.sh`). Record un-runnable interpreters/platforms as
 incomplete evidence, never as passes.
 

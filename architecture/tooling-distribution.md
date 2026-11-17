@@ -122,16 +122,16 @@ is a full 40-char commit SHA (enforced by `scripts/check_action_pins.py`).
   `[ubuntu-latest, macos-latest, windows-latest]`.
 - Toolchain: pinned `dtolnay/rust-toolchain` (project jobs request
   `1.89.0` with `rustfmt, clippy`; the M059 `api-gate` job requests
-  `stable`); `Swatinem/rust-cache` (pinned v2.9.2). M059 pins every
+  `stable`); `Swatinem/rust-cache` (pinned v2.9.3). M059 pins every
   external action to a full 40-character commit SHA with the reviewed
   release as a trailing comment (see `scripts/check_action_pins.py`
   for the enforced inventory); workflows default to
   `permissions: contents: read` with `persist-credentials: false` on
   every checkout.
-- Pinned scanners: `cargo-audit --locked --version 0.22.2`,
-  `cargo-deny --locked --version 0.20.2` (installed from source each run).
-- Steps in order: `cargo install cargo-audit --locked --version 0.22.2`;
-  `cargo install cargo-deny --locked --version 0.20.2`;
+- Pinned scanners: `cargo-audit --locked --version 0.23.0`,
+  `cargo-deny --locked --version 0.21.0` (installed from source each run).
+- Steps in order: `cargo install cargo-audit --locked --version 0.23.0`;
+  `cargo install cargo-deny --locked --version 0.21.0`;
   `sh scripts/tests/test_bench_provenance.sh` (M048 Tier A: cheap M047
   Git-state provenance contract on Linux + macOS only, gated with
   `runner.os != 'Windows'` since the script is POSIX `sh`);
@@ -188,8 +188,8 @@ candidate (see §3).
 - Job `python-native` (`timeout-minutes: 25`, matrix
   `[ubuntu-latest, macos-latest] × python ["3.12"]`,
   `pip install -r .github/python-ci/requirements.txt` (M059 exact pins;
-  maturin held at its qualified 1.9.5) plus
-  `cargo-audit 0.22.2` for the binding lockfile):
+  maturin pinned at 1.16.0) plus
+  `cargo-audit 0.23.0` for the binding lockfile):
   `./scripts/check_python_native.sh` then
   `./scripts/qualify_python_native.sh` on native-host wheels, kept
   separate so Rust and remote-SDK gates stay independent of Python
@@ -212,8 +212,8 @@ candidate (see §3).
   with `fail-on-severity: high` (license authority stays in
   cargo-deny); `.github/dependabot.yml` covers Cargo (root +
   python-native + benchmarks + fuzz), GitHub Actions, npm
-  (typescript-client), and pip (`.github/python-ci`) with grouped
-  weekly updates and bounded PR counts.
+  (typescript-client), and pip (`.github/python-ci`, python-native,
+  python-client) with weekly updates and bounded PR counts.
 
 ## 3. Release qualification (`.github/workflows/release.yml`)
 

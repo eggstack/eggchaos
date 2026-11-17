@@ -4,18 +4,18 @@
 set -eu
 OUT="${1:-dist wheels}"
 mkdir -p "$OUT"
-(cd bindings/python-native && python3 -m maturin build --out "$OUT")
+(cd bindings/python-native && maturin build --out "$OUT")
 # Cross-built Apple wheels are only produced on a Darwin host; on
 # Linux/Windows the host wheel above is the runtime-qualified artifact.
 if [ "$(uname -s)" = "Darwin" ]; then
   if rustup target list --installed 2>/dev/null | grep -q x86_64-apple-darwin; then
-    (cd bindings/python-native && python3 -m maturin build --target x86_64-apple-darwin --out "$OUT")
+    (cd bindings/python-native && maturin build --target x86_64-apple-darwin --out "$OUT")
   fi
   if rustup target list --installed 2>/dev/null | grep -q aarch64-apple-darwin; then
-    (cd bindings/python-native && python3 -m maturin build --target aarch64-apple-darwin --out "$OUT")
+    (cd bindings/python-native && maturin build --target aarch64-apple-darwin --out "$OUT")
   fi
 fi
-(cd bindings/python-native && python3 -m maturin sdist --out "$OUT")
+(cd bindings/python-native && maturin sdist --out "$OUT")
 for wheel in "$OUT"/*.whl "$OUT"/*.tar.gz; do
   echo "artifact: $(basename "$wheel")"
 done

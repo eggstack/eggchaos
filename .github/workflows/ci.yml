@@ -30,13 +30,13 @@ jobs:
           # No authenticated Git operation follows checkout in any
           # job, so do not persist the token in the local git config.
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # stable (master 2026-10-01)
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # stable (master 2026-11-15)
         with:
           toolchain: 1.89.0
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-      - run: cargo install cargo-audit --locked --version 0.22.2
-      - run: cargo install cargo-deny --locked --version 0.20.2
+      - run: cargo install cargo-audit --locked --version 0.23.0
+      - run: cargo install cargo-deny --locked --version 0.21.0
       # M048 Tier A: cheap M047 Git-state provenance contract on Linux and
       # macOS only. POSIX `sh` script; Windows runner is intentionally
       # skipped (M048 must not claim Windows POSIX-shell coverage).
@@ -74,7 +74,7 @@ jobs:
           # No authenticated Git operation follows checkout in any
           # job, so do not persist the token in the local git config.
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # stable (master 2026-10-01)
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # stable (master 2026-11-15)
         with:
           toolchain: 1.89.0
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
@@ -97,7 +97,7 @@ jobs:
           # No authenticated Git operation follows checkout in any
           # job, so do not persist the token in the local git config.
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # stable (master 2026-10-01)
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # stable (master 2026-11-15)
         with:
           toolchain: 1.89.0
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
@@ -177,7 +177,7 @@ jobs:
           # No authenticated Git operation follows checkout in any
           # job, so do not persist the token in the local git config.
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # stable (master 2026-10-01)
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # stable (master 2026-11-15)
         with:
           toolchain: 1.89.0
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
@@ -186,7 +186,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
       # M059: exact-version CI tooling (see .github/python-ci/requirements.txt).
       - run: pip install -r .github/python-ci/requirements.txt
-      - run: cargo install cargo-audit --locked --version 0.22.2
+      - run: cargo install cargo-audit --locked --version 0.23.0
       - run: ./scripts/check_python_native.sh
       - run: ./scripts/qualify_python_native.sh
   api-gate:
@@ -206,7 +206,7 @@ jobs:
           fetch-depth: 0
           # No authenticated Git operation follows checkout.
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # stable (master 2026-10-01)
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # stable (master 2026-11-15)
         with:
           toolchain: stable
       - run: cargo install cargo-semver-checks --locked --version 0.50.0

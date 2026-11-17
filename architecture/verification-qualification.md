@@ -490,7 +490,7 @@ inspection: if a gate was not run, record it as incomplete (see §8).
   CI-integration structural guard (`test_ci_provenance_integration.sh`),
   OpenAPI drift, Python/TS checks, live cross-language qualification)
   and job `python-native` (M035; `[ubuntu-latest, macos-latest] × python
-  3.12` with `maturin==1.9.5`: embed/binding checks plus
+  3.12` with `maturin==1.16.0`: embed/binding checks plus
   remote/native conformance on native-host wheels).
 - M048 hosted performance-provenance qualification
   (`.github/workflows/ci.yml`): the M047 provenance contract gets real

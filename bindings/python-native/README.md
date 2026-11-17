@@ -2,10 +2,10 @@
 
 In-process Eggchaos service for Python test harnesses. This alpha PyO3 package wraps the safe `eggchaos-embed` facade and exposes managed objects and value snapshots, not Rust streams, futures, borrows, or clock types.
 
-The package is not currently published to PyPI. Build it from a checkout with Python 3.11 or newer, Rust 1.89 or newer, and maturin 1.9.5:
+The package is not currently published to PyPI. Build it from a checkout with Python 3.11 or newer, Rust 1.89 or newer, and maturin 1.16.0:
 
 ```sh
-python -m pip install maturin==1.9.5
+python -m pip install maturin==1.16.0
 cd bindings/python-native
 maturin develop
 ```
