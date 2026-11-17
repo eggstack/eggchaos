@@ -45,7 +45,7 @@ if [ -n "${EGGCHAOS_NATIVE_TARGET:-}" ]; then
 fi
 # M059: --locked honors the committed python-native Cargo.lock
 # explicitly: lock drift fails instead of silently re-resolving.
-(cd bindings/python-native && python3 -m maturin build --locked $NATIVE_TARGET --out "$WORK/wheels")
+(cd bindings/python-native && maturin build --locked $NATIVE_TARGET --out "$WORK/wheels")
 WHEEL="$(ls "$WORK"/wheels/*.whl | head -1)"
 python3 -c "import zipfile,sys; names = zipfile.ZipFile('$WHEEL').namelist(); assert any(n.endswith('.abi3.so') for n in names), names; print('abi3 wheel ok')"
 pip install --quiet --target "$WORK/pylibs" --no-deps "$WHEEL"
