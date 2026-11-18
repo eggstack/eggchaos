@@ -1,4 +1,10 @@
-use std::{io, net::SocketAddr, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    io,
+    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
+    sync::{Arc, Mutex},
+    time::{Duration, Instant},
+};
 
 use eggserve_primitives::{Request, RequestBodyPolicy, Response, ResponseBody, StatusCode};
 use eggserve_server::{service_fn_with_policy, RuntimeConfig, Server, ServerHandle, ServiceError};
@@ -65,6 +71,214 @@ pub enum AdminError {
     Invalid(String),
 }
 
+const MAX_ALLOWED_HOSTS: usize = 64;
+const AUTH_FAILURE_BURST: u8 = 5;
+const AUTH_FAILURE_REFILL: Duration = Duration::from_secs(1);
+const AUTH_FAILURE_PEER_CAPACITY: usize = 1024;
+const AUTH_FAILURE_PEER_TTL: Duration = Duration::from_secs(300);
+const AUTH_FAILURE_FALLBACK_DELAY: Duration = Duration::from_millis(50);
+
+#[derive(Debug)]
+struct PeerFailureState {
+    tokens: u8,
+    last_refill: Instant,
+    last_seen: Instant,
+}
+
+#[derive(Debug, Default)]
+struct AuthFailureBudget {
+    peers: HashMap<IpAddr, PeerFailureState>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AuthFailureDisposition {
+    Reject,
+    Throttled,
+    FallbackDelay,
+}
+
+impl AuthFailureBudget {
+    fn record_failure(&mut self, peer: Option<IpAddr>) -> AuthFailureDisposition {
+        let Some(peer) = peer else {
+            return AuthFailureDisposition::FallbackDelay;
+        };
+        let now = Instant::now();
+        if !self.peers.contains_key(&peer) {
+            if self.peers.len() >= AUTH_FAILURE_PEER_CAPACITY {
+                self.peers.retain(|_, state| {
+                    now.saturating_duration_since(state.last_seen) < AUTH_FAILURE_PEER_TTL
+                });
+            }
+            if self.peers.len() >= AUTH_FAILURE_PEER_CAPACITY {
+                return AuthFailureDisposition::FallbackDelay;
+            }
+            self.peers.insert(
+                peer,
+                PeerFailureState {
+                    tokens: AUTH_FAILURE_BURST,
+                    last_refill: now,
+                    last_seen: now,
+                },
+            );
+        }
+        let state = self.peers.get_mut(&peer).expect("peer was inserted");
+        let elapsed = now.saturating_duration_since(state.last_refill);
+        let refill = u8::try_from(elapsed.as_secs().min(u64::from(AUTH_FAILURE_BURST)))
+            .unwrap_or(AUTH_FAILURE_BURST);
+        if refill > 0 {
+            state.tokens = state.tokens.saturating_add(refill).min(AUTH_FAILURE_BURST);
+            state.last_refill += AUTH_FAILURE_REFILL * u32::from(refill);
+        }
+        state.last_seen = now;
+        if state.tokens == 0 {
+            AuthFailureDisposition::Throttled
+        } else {
+            state.tokens -= 1;
+            AuthFailureDisposition::Reject
+        }
+    }
+}
+
+/// Returns whether a token contains at least 32 non-whitespace bytes.
+pub(crate) fn has_public_token_strength(token: &str) -> bool {
+    token
+        .bytes()
+        .filter(|byte| !byte.is_ascii_whitespace())
+        .count()
+        >= 32
+}
+
+/// Validate the optional explicit host allowlist at both config and startup boundaries.
+pub(crate) fn validate_allowed_hosts(hosts: Option<&[String]>) -> Result<(), String> {
+    let Some(hosts) = hosts else {
+        return Ok(());
+    };
+    if hosts.is_empty() {
+        return Err("must contain at least one authority when specified".into());
+    }
+    if hosts.len() > MAX_ALLOWED_HOSTS {
+        return Err(format!(
+            "must contain at most {MAX_ALLOWED_HOSTS} authorities"
+        ));
+    }
+    for host in hosts {
+        if normalize_authority(host).is_none() {
+            return Err(
+                "entries must be valid host authorities without wildcards, schemes, or paths"
+                    .into(),
+            );
+        }
+    }
+    Ok(())
+}
+
+fn normalize_authority(value: &str) -> Option<String> {
+    if value.is_empty()
+        || value.len() > 512
+        || !value.is_ascii()
+        || value.bytes().any(|byte| {
+            byte.is_ascii_whitespace()
+                || byte.is_ascii_control()
+                || matches!(byte, b'/' | b'\\' | b'?' | b'#' | b'@' | b'*' | b'%')
+        })
+    {
+        return None;
+    }
+
+    let (host, port) = if let Some(rest) = value.strip_prefix('[') {
+        let close = rest.find(']')?;
+        let address = rest[..close].parse::<Ipv6Addr>().ok()?;
+        let suffix = &rest[close + 1..];
+        let port = if suffix.is_empty() {
+            None
+        } else {
+            Some(parse_authority_port(suffix.strip_prefix(':')?)?)
+        };
+        (format!("[{address}]"), port)
+    } else {
+        if value.contains('[') || value.contains(']') {
+            return None;
+        }
+        let (host, port) = match value.rsplit_once(':') {
+            Some((host, port)) => {
+                if host.contains(':') {
+                    return None;
+                }
+                (host, Some(parse_authority_port(port)?))
+            }
+            None => (value, None),
+        };
+        if host.is_empty() {
+            return None;
+        }
+        let normalized_host = if let Ok(address) = host.parse::<Ipv4Addr>() {
+            address.to_string()
+        } else {
+            if host.len() > 253
+                || host.starts_with('.')
+                || host.ends_with('.')
+                || host
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || byte == b'.')
+            {
+                return None;
+            }
+            for label in host.split('.') {
+                if label.is_empty()
+                    || label.len() > 63
+                    || label.starts_with('-')
+                    || label.ends_with('-')
+                    || !label
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+                {
+                    return None;
+                }
+            }
+            host.to_ascii_lowercase()
+        };
+        (normalized_host, port)
+    };
+
+    Some(match port {
+        Some(port) => format!("{host}:{port}"),
+        None => host,
+    })
+}
+
+fn parse_authority_port(suffix: &str) -> Option<u16> {
+    let port = suffix.parse::<u16>().ok()?;
+    (port != 0).then_some(port)
+}
+
+fn socket_authority(address: SocketAddr) -> String {
+    match address.ip() {
+        IpAddr::V4(ip) => format!("{ip}:{}", address.port()),
+        IpAddr::V6(ip) => format!("[{ip}]:{}", address.port()),
+    }
+}
+
+fn default_allowed_hosts(address: SocketAddr) -> HashSet<String> {
+    let port = address.port();
+    let mut hosts = HashSet::from([socket_authority(address)]);
+    if address.ip().is_loopback() {
+        hosts.extend([
+            format!("localhost:{port}"),
+            format!("127.0.0.1:{port}"),
+            format!("[::1]:{port}"),
+        ]);
+    }
+    hosts
+}
+
+fn origin_authority(value: &str) -> Option<String> {
+    let (scheme, authority) = value.split_once("://")?;
+    if !scheme.eq_ignore_ascii_case("http") && !scheme.eq_ignore_ascii_case("https") {
+        return None;
+    }
+    normalize_authority(authority)
+}
+
 /// EggServe-backed native admin server.
 pub struct NativeAdmin;
 
@@ -99,14 +313,35 @@ impl NativeAdmin {
         config: AdminConfig,
         state: ControlState,
     ) -> Result<AdminHandle, AdminError> {
+        Self::start_with_allowed_hosts(config, state, None).await
+    }
+
+    /// Start the native admin API with additional accepted Host/Origin authorities.
+    ///
+    /// This additive entry point preserves the existing [`AdminConfig`] shape.
+    pub async fn start_with_allowed_hosts(
+        config: AdminConfig,
+        state: ControlState,
+        allowed_hosts: Option<Vec<String>>,
+    ) -> Result<AdminHandle, AdminError> {
+        validate_allowed_hosts(allowed_hosts.as_deref())
+            .map_err(|message| AdminError::Invalid(format!("admin.allowed_hosts {message}")))?;
         if !config.bind.ip().is_loopback()
             && (!config.public_admin
-                || config
+                || !config
                     .auth_token
-                    .as_ref()
-                    .is_none_or(std::string::String::is_empty))
+                    .as_deref()
+                    .is_some_and(has_public_token_strength))
         {
             return Err(AdminError::InsecurePublicBind);
+        }
+        if config.bind.ip().is_loopback()
+            && config
+                .auth_token
+                .as_deref()
+                .is_some_and(|token| !has_public_token_strength(token))
+        {
+            tracing::warn!("loopback admin bearer token is shorter than 32 non-whitespace bytes");
         }
         let listener = TcpListener::bind(config.bind).await?;
         let runtime = RuntimeConfig {
@@ -115,12 +350,20 @@ impl NativeAdmin {
             ..RuntimeConfig::default()
         };
         let local_addr = listener.local_addr()?;
+        let mut allowed_host_set = default_allowed_hosts(local_addr);
+        for host in allowed_hosts.as_deref().unwrap_or_default() {
+            allowed_host_set.insert(normalize_authority(host).expect("allowlist was validated"));
+        }
+        let allowed_hosts = Arc::new(allowed_host_set);
         let auth = config.auth_token.map(Arc::<str>::from);
+        let auth_failures = Arc::new(Mutex::new(AuthFailureBudget::default()));
         let service = service_fn_with_policy(
             move |request: Request| {
                 let state = state.clone();
                 let auth = auth.clone();
-                async move { handle_request(request, state, auth).await }
+                let allowed_hosts = allowed_hosts.clone();
+                let auth_failures = auth_failures.clone();
+                async move { handle_request(request, state, auth, allowed_hosts, auth_failures).await }
             },
             RequestBodyPolicy::Buffer {
                 max_bytes: 1024 * 1024,
@@ -165,30 +408,95 @@ fn control_error_response(error: &ControlError) -> Response {
     )
 }
 
+fn host_rejection(host: Option<&str>, allowed_hosts: &HashSet<String>) -> Option<Response> {
+    let host = host.and_then(normalize_authority);
+    host.as_ref()
+        .is_none_or(|host| !allowed_hosts.contains(host))
+        .then(|| {
+            json_response(
+                StatusCode::FORBIDDEN,
+                &envelope("invalid_host", "request host is not allowed"),
+            )
+        })
+}
+
+fn body_or_origin_rejection(
+    method: &str,
+    has_body: bool,
+    content_type: Option<&str>,
+    origin: Option<&str>,
+    origin_present: bool,
+    allowed_hosts: &HashSet<String>,
+) -> Option<Response> {
+    if has_body && !content_type.is_some_and(is_json_media_type) {
+        return Some(json_response(
+            StatusCode::new(415).expect("unsupported media type status"),
+            &envelope(
+                "unsupported_media_type",
+                "non-empty admin request bodies require application/json",
+            ),
+        ));
+    }
+    if !matches!(method, "GET" | "HEAD" | "OPTIONS") && origin_present {
+        let origin = origin.and_then(|origin| {
+            if origin.eq_ignore_ascii_case("null") {
+                None
+            } else {
+                origin_authority(origin)
+            }
+        });
+        if origin
+            .as_ref()
+            .is_none_or(|origin| !allowed_hosts.contains(origin))
+        {
+            return Some(json_response(
+                StatusCode::FORBIDDEN,
+                &envelope("invalid_origin", "request origin is not allowed"),
+            ));
+        }
+    }
+    None
+}
+
 async fn handle_request(
     request: Request,
     state: ControlState,
     auth: Option<Arc<str>>,
+    allowed_hosts: Arc<HashSet<String>>,
+    auth_failures: Arc<Mutex<AuthFailureBudget>>,
 ) -> Result<Response, ServiceError> {
-    let (head, body, _) = request.into_parts();
+    let (head, body, connection) = request.into_parts();
+    if let Some(response) = host_rejection(
+        head.headers()
+            .get_first("host")
+            .and_then(|value| value.to_str().ok()),
+        &allowed_hosts,
+    ) {
+        return Ok(response);
+    }
+
     if let Some(expected) = auth.as_deref() {
         let supplied = head
             .headers()
             .get_first("authorization")
             .and_then(|value| value.to_str().ok());
-        let Some(token) = supplied.and_then(|value| value.strip_prefix("Bearer ")) else {
-            return Ok(json_response(
-                StatusCode::FORBIDDEN,
-                &envelope("unauthorized", "authorization required"),
-            ));
-        };
-        if expected.is_empty() || !constant_time_equal(token.as_bytes(), expected.as_bytes()) {
-            return Ok(json_response(
-                StatusCode::FORBIDDEN,
-                &envelope("unauthorized", "authorization required"),
+        let token = supplied.and_then(parse_bearer_token);
+        if token.is_none_or(|token| {
+            expected.is_empty() || !constant_time_equal(token.as_bytes(), expected.as_bytes())
+        }) {
+            let disposition = auth_failures
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .record_failure(connection.remote_addr.map(|address| address.ip()));
+            if disposition == AuthFailureDisposition::FallbackDelay {
+                tokio::time::sleep(AUTH_FAILURE_FALLBACK_DELAY).await;
+            }
+            return Ok(authorization_failure_response(
+                disposition == AuthFailureDisposition::Throttled,
             ));
         }
     }
+
     let method = head.method().as_str().to_owned();
     let path = head.target().path().to_owned();
     let body = body.read_all().await.map_err(|error| {
@@ -200,6 +508,19 @@ async fn handle_request(
             ServiceError::rejected(400, error.to_string())
         }
     })?;
+    let origin_header = head.headers().get_first("origin");
+    if let Some(response) = body_or_origin_rejection(
+        &method,
+        !body.is_empty(),
+        head.headers()
+            .get_first("content-type")
+            .and_then(|value| value.to_str().ok()),
+        origin_header.and_then(|value| value.to_str().ok()),
+        origin_header.is_some(),
+        &allowed_hosts,
+    ) {
+        return Ok(response);
+    }
     let segments: Vec<&str> = path.split('/').filter(|part| !part.is_empty()).collect();
     let decoded_id = if segments.len() == 5
         && segments[0] == "v1"
@@ -241,6 +562,45 @@ async fn handle_request(
         ),
     };
     Ok(response)
+}
+
+fn parse_bearer_token(value: &str) -> Option<&str> {
+    let separator = value.find(' ')?;
+    if !value[..separator].eq_ignore_ascii_case("bearer") {
+        return None;
+    }
+    Some(&value[separator + 1..])
+}
+
+fn is_json_media_type(value: &str) -> bool {
+    value
+        .split(';')
+        .next()
+        .is_some_and(|essence| essence.trim().eq_ignore_ascii_case("application/json"))
+}
+
+fn authorization_failure_response(throttled: bool) -> Response {
+    let status = if throttled {
+        StatusCode::new(429).expect("too many requests status")
+    } else {
+        StatusCode::FORBIDDEN
+    };
+    let body = serde_json::to_vec(&envelope("unauthorized", "authorization required"))
+        .unwrap_or_else(|_| b"{\"error\":{\"code\":\"unauthorized\"}}".to_vec());
+    let builder = Response::builder()
+        .status(status)
+        .header("content-type", "application/json")
+        .expect("static header is valid");
+    let builder = if throttled {
+        builder
+            .header("retry-after", "1")
+            .expect("static retry header is valid")
+    } else {
+        builder
+    };
+    builder
+        .body(ResponseBody::Bytes(body))
+        .expect("status and body are valid")
 }
 
 fn decode_path_component(input: &str) -> Result<String, ()> {
@@ -733,6 +1093,99 @@ mod tests {
     use super::*;
     use eggfetch_core::Client;
     use std::time::Duration;
+
+    #[test]
+    fn host_authorities_are_normalized_and_reject_ambiguous_forms() {
+        assert_eq!(
+            normalize_authority("LOCALHOST:08475"),
+            Some("localhost:8475".into())
+        );
+        assert_eq!(
+            normalize_authority("[0:0:0:0:0:0:0:1]:8475"),
+            Some("[::1]:8475".into())
+        );
+        for invalid in [
+            "",
+            "*",
+            "https://localhost:8475",
+            "localhost/path",
+            "user@localhost:8475",
+            "localhost:0",
+            "[::1",
+            "127.0.0.999",
+        ] {
+            assert_eq!(
+                normalize_authority(invalid),
+                None,
+                "invalid authority {invalid:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn allowlist_validation_bounds_and_rejects_invalid_entries() {
+        assert!(validate_allowed_hosts(None).is_ok());
+        assert!(validate_allowed_hosts(Some(&["api.example:443".into()])).is_ok());
+        assert!(validate_allowed_hosts(Some(&[])).is_err());
+        assert!(validate_allowed_hosts(Some(&["https://api.example".into()])).is_err());
+        let too_many = vec!["api.example".to_owned(); MAX_ALLOWED_HOSTS + 1];
+        assert!(validate_allowed_hosts(Some(&too_many)).is_err());
+    }
+
+    #[test]
+    fn public_token_strength_counts_non_whitespace_bytes() {
+        assert!(!has_public_token_strength("short"));
+        assert!(!has_public_token_strength(
+            "                                "
+        ));
+        assert!(has_public_token_strength(
+            "12345678901234567890123456789012"
+        ));
+        assert!(has_public_token_strength(
+            "12345678901234567890123456789012 "
+        ));
+    }
+
+    #[test]
+    fn auth_failure_budget_is_per_ip_bounded_and_has_no_shared_fallback_lockout() {
+        let peer: IpAddr = "198.51.100.1".parse().unwrap();
+        let mut budget = AuthFailureBudget::default();
+        for _ in 0..AUTH_FAILURE_BURST {
+            assert_eq!(
+                budget.record_failure(Some(peer)),
+                AuthFailureDisposition::Reject
+            );
+        }
+        assert_eq!(
+            budget.record_failure(Some(peer)),
+            AuthFailureDisposition::Throttled
+        );
+        assert_eq!(
+            budget.record_failure(None),
+            AuthFailureDisposition::FallbackDelay
+        );
+        assert_eq!(
+            budget.record_failure(Some("198.51.100.2".parse().unwrap()),),
+            AuthFailureDisposition::Reject
+        );
+
+        let mut full = AuthFailureBudget::default();
+        for index in 1..=AUTH_FAILURE_PEER_CAPACITY {
+            let peer = IpAddr::V4(Ipv4Addr::from(
+                u32::try_from(index).expect("test index fits in an IPv4 address"),
+            ));
+            assert_eq!(
+                full.record_failure(Some(peer)),
+                AuthFailureDisposition::Reject
+            );
+        }
+        assert_eq!(full.peers.len(), AUTH_FAILURE_PEER_CAPACITY);
+        assert_eq!(
+            full.record_failure(Some("203.0.113.5".parse().unwrap())),
+            AuthFailureDisposition::FallbackDelay
+        );
+        assert_eq!(full.peers.len(), AUTH_FAILURE_PEER_CAPACITY);
+    }
 
     #[test]
     fn native_fault_path_components_decode_once_and_reject_malformed_input() {

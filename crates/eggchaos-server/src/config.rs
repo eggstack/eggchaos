@@ -188,29 +188,86 @@ pub enum NativeConfigError {
     },
 }
 
+fn take_admin_allowed_hosts(
+    value: &mut toml::Value,
+) -> Result<Option<Vec<String>>, NativeConfigError> {
+    value
+        .as_table_mut()
+        .and_then(|root| root.get_mut("admin"))
+        .and_then(toml::Value::as_table_mut)
+        .and_then(|admin| admin.remove("allowed_hosts"))
+        .map(|value| {
+            value
+                .try_into()
+                .map_err(|error: toml::de::Error| NativeConfigError::Field {
+                    field: "admin.allowed_hosts".into(),
+                    message: error.to_string(),
+                })
+        })
+        .transpose()
+}
+
+fn validate_admin_settings(
+    config: &NativeConfig,
+    allowed_hosts: Option<&[String]>,
+) -> Result<(), NativeConfigError> {
+    if config.version != 1 {
+        return Err(NativeConfigError::Version(config.version));
+    }
+    if !config.admin.bind.ip().is_loopback()
+        && (!config.admin.public_admin
+            || config
+                .admin
+                .auth_token
+                .as_ref()
+                .is_none_or(std::string::String::is_empty))
+    {
+        return Err(NativeConfigError::Field {
+            field: "admin".into(),
+            message: "non-loopback admin requires public_admin=true and a non-empty auth_token"
+                .into(),
+        });
+    }
+    crate::admin::validate_allowed_hosts(allowed_hosts).map_err(|message| {
+        NativeConfigError::Field {
+            field: "admin.allowed_hosts".into(),
+            message,
+        }
+    })?;
+    if !config.admin.bind.ip().is_loopback()
+        && !config
+            .admin
+            .auth_token
+            .as_deref()
+            .is_some_and(crate::admin::has_public_token_strength)
+    {
+        return Err(NativeConfigError::Field {
+            field: "admin.auth_token".into(),
+            message: "non-loopback admin tokens must contain at least 32 non-whitespace bytes"
+                .into(),
+        });
+    }
+    Ok(())
+}
+
 impl NativeConfig {
     /// Parse bounded TOML and compile all proxy plans through core validation.
     pub fn parse(text: &str) -> Result<Self, NativeConfigError> {
-        let config: Self = toml::from_str(text)?;
-        if config.version != 1 {
-            return Err(NativeConfigError::Version(config.version));
-        }
-        // Fail fast for insecure admin binds instead of only at serve time:
-        // non-loopback requires explicit opt-in plus a non-empty token.
-        if !config.admin.bind.ip().is_loopback()
-            && (!config.admin.public_admin
-                || config
-                    .admin
-                    .auth_token
-                    .as_ref()
-                    .is_none_or(std::string::String::is_empty))
-        {
-            return Err(NativeConfigError::Field {
-                field: "admin".into(),
-                message: "non-loopback admin requires public_admin=true and a non-empty auth_token"
-                    .into(),
-            });
-        }
+        Self::parse_with_admin_allowed_hosts(text).map(|(config, _)| config)
+    }
+
+    /// Parse config plus the optional native-admin Host/Origin allowlist.
+    ///
+    /// The allowlist is returned separately to preserve the existing public
+    /// configuration DTO shapes; callers starting the listener should pass it
+    /// to `NativeAdmin::start_with_allowed_hosts`.
+    pub fn parse_with_admin_allowed_hosts(
+        text: &str,
+    ) -> Result<(Self, Option<Vec<String>>), NativeConfigError> {
+        let mut value: toml::Value = toml::from_str(text)?;
+        let allowed_hosts = take_admin_allowed_hosts(&mut value)?;
+        let config: Self = value.try_into().map_err(NativeConfigError::Toml)?;
+        validate_admin_settings(&config, allowed_hosts.as_deref())?;
         if config.proxies.len() > 1024 {
             return Err(NativeConfigError::Field {
                 field: "proxy".into(),
@@ -287,10 +344,19 @@ impl NativeConfig {
                     message: error.to_string(),
                 })?;
         }
-        Ok(config)
+        Ok((config, allowed_hosts))
     }
     /// Load and parse a TOML file.
     pub async fn load(path: impl AsRef<Path>) -> Result<Self, NativeConfigError> {
+        Self::load_with_admin_allowed_hosts(path)
+            .await
+            .map(|(config, _)| config)
+    }
+
+    /// Load config plus the optional native-admin Host/Origin allowlist.
+    pub async fn load_with_admin_allowed_hosts(
+        path: impl AsRef<Path>,
+    ) -> Result<(Self, Option<Vec<String>>), NativeConfigError> {
         const MAX_CONFIG_BYTES: u64 = 1_048_576;
         let metadata = tokio::fs::metadata(path.as_ref()).await?;
         if metadata.len() > MAX_CONFIG_BYTES {
@@ -313,7 +379,7 @@ impl NativeConfig {
                 message: "config file exceeds the 1 MiB limit".into(),
             });
         }
-        Self::parse(&text)
+        Self::parse_with_admin_allowed_hosts(&text)
     }
     /// Compile service proxy definitions.
     pub fn compile_proxies(&self) -> Result<Vec<ProxySpec>, NativeConfigError> {
@@ -700,6 +766,29 @@ burst_bytes = 0
             NativeConfig::parse("version = 1\n[admin]\nauth_token = 'secret-token'\n").unwrap();
         assert!(!format!("{config:?}").contains("secret-token"));
         assert!(format!("{config:?}").contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn admin_allowed_hosts_parse_as_separate_runtime_options() {
+        let (config, allowed_hosts) = NativeConfig::parse_with_admin_allowed_hosts(
+            "version = 1\n[admin]\nallowed_hosts = ['api.example:443']\n",
+        )
+        .unwrap();
+        assert_eq!(config.admin.bind, "127.0.0.1:8475".parse().unwrap());
+        assert_eq!(
+            allowed_hosts.as_deref(),
+            Some(&["api.example:443".to_owned()][..])
+        );
+        assert!(NativeConfig::parse_with_admin_allowed_hosts(
+            "version = 1\n[admin]\nallowed_hosts = ['https://api.example']\n"
+        )
+        .is_err());
+        assert!(NativeConfig::parse_with_admin_allowed_hosts(
+            "version = 1\n[admin]\nallowed_hosts = 'api.example'\n"
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("admin.allowed_hosts"));
     }
 
     #[test]

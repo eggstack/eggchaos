@@ -8,7 +8,7 @@ This directory holds the project's architecture decisions, milestone plans, stat
 | --- | --- |
 | `roadmap.md` | Architecture, invariants, non-goals, and future directions. |
 | `registry.md` | Sole hand-maintained source of milestone status and dependencies. |
-| `000-*.md`–`062-*.md` | Scoped milestone plans. All milestones through M062 are closed; retain their plans as historical handoffs. |
+| `000-*.md`–`065-*.md` | Scoped milestone plans. M000–M062 are closed; M063 and M065 are active, while M064 is blocked by GitHub plan limitations. Retain closed plans as historical handoffs. |
 | `adrs/` | Durable architecture decisions. |
 | `reference/` | Parity and verification contracts, not status. |
 | `closure/` | Exact-candidate milestone closure evidence. |
@@ -24,12 +24,18 @@ This directory holds the project's architecture decisions, milestone plans, stat
 
 ## Current planning state
 
+**Active (in flight):**
+- `M063` (active; plan `063-control-plane-exposure-and-authentication-hardening.md`)
+- `M065` (active; plan `065-residual-runtime-and-qualification-tooling-hardening.md`)
+
+**Blocked (waiting on a predecessor closure):**
+- M064
+
 **Highest closed milestone:** `M062` (see registry for closure evidence).
 
-**Execution order:** no active or ready milestones.
+**Execution order:** `M063`, `M065`
 
 <!-- END eggchaos:planning-state -->
-
 ## Status and closure rules
 
 - `registry.md` is the only status authority. Its `active`, `blocked`, `closed`, and `ready` states are projected into the generated blocks in `AGENTS.md`, this file, `roadmap.md`, and `architecture/overview.md`.
