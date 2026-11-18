@@ -49,6 +49,53 @@ fi
 if ! grep -q 'mode="--path-only"' "$fetcher"; then
   fail "fetcher must default to --path-only"
 fi
+
+# 2. Both fetchers stage privately, enforce HTTPS across redirects, and
+# install only after verifying the committed checksum.
+v212_fetcher="$script_dir/../fetch_toxiproxy_v2_12.sh"
+assert_hardened_fetcher() {
+  script="$1"
+  label="$2"
+  grep -Fq 'work_dir="$(mktemp -d "${TMPDIR:-/tmp}/' "$script" \
+    || fail "$label fetcher must use a unique mktemp staging directory"
+  grep -Fq 'chmod 700 "$work_dir"' "$script" \
+    || fail "$label fetcher staging directory must be private"
+  grep -Fq 'install_dir="$(mktemp -d "$dest_parent/' "$script" \
+    || fail "$label fetcher must stage the final install beside its destination"
+  grep -Fq 'chmod 700 "$install_dir"' "$script" \
+    || fail "$label fetcher install staging directory must be private"
+  grep -Fq "curl --proto '=https' --proto-redir '=https' --fail --location" "$script" \
+    || fail "$label fetcher must restrict initial and redirected URLs to HTTPS"
+  grep -Fq 'trap cleanup EXIT' "$script" \
+    || fail "$label fetcher must clean staging on exit"
+  grep -Fq "trap 'exit 129' HUP" "$script" \
+    || fail "$label fetcher must clean staging on HUP"
+  grep -Fq "trap 'exit 130' INT" "$script" \
+    || fail "$label fetcher must clean staging on INT"
+  grep -Fq "trap 'exit 143' TERM" "$script" \
+    || fail "$label fetcher must clean staging on TERM"
+  checksum_line=$(grep -nF 'if [ "$actual" != "$expected" ]; then' "$script" | cut -d: -f1 | head -n 1)
+  install_line=$(grep -nF 'mv -f "$install_binary" "$dest"' "$script" | cut -d: -f1 | head -n 1)
+  [ -n "$checksum_line" ] && [ -n "$install_line" ] \
+    || fail "$label fetcher checksum/install steps are missing"
+  [ "$checksum_line" -lt "$install_line" ] \
+    || fail "$label fetcher must verify its checksum before installation"
+}
+assert_hardened_fetcher "$v212_fetcher" "v2.12"
+assert_hardened_fetcher "$fetcher" "post-v2.12"
+if grep -Fq '/tmp/post-v212.log' "$qualifier"; then
+  fail "qualifier must not use the predictable /tmp/post-v212.log path"
+fi
+grep -Fq 'mktemp "${TMPDIR:-/tmp}/eggchaos-post-v212.XXXXXX"' "$qualifier" \
+  || fail "qualifier must use a unique temporary differential log"
+grep -Fq 'trap cleanup EXIT' "$qualifier" \
+  || fail "qualifier must clean its temporary log on exit"
+grep -Fq "trap 'exit 129' HUP" "$qualifier" \
+  || fail "qualifier must clean its temporary log on HUP"
+grep -Fq "trap 'exit 130' INT" "$qualifier" \
+  || fail "qualifier must clean its temporary log on INT"
+grep -Fq "trap 'exit 143' TERM" "$qualifier" \
+  || fail "qualifier must clean its temporary log on TERM"
 echo "pattern checks ok"
 
 # 2. --help prints usage to stderr and exits 0 (no oracle needed).

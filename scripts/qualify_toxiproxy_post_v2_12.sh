@@ -48,12 +48,19 @@ echo "$oracle_record"
 # read / update / remove, edge cases, statistical intent checks. The
 # strict v2.12 regression stays on its existing pinned oracle (M012 +
 # M013).
+log_file="$(mktemp "${TMPDIR:-/tmp}/eggchaos-post-v212.XXXXXX")"
+cleanup() { rm -f "$log_file"; }
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+chmod 600 "$log_file"
 TOXIPROXY_POST_V2_12_SERVER="$oracle" \
 TOXIPROXY_POST_V2_12_COMMIT="$commit" \
 EGGCHAOS_REQUIRE_POST_V2_12_ORACLE=1 \
 EGGCHAOS_POST_V2_12_GO_TOOLCHAIN="${EGGCHAOS_POST_V2_12_GO_TOOLCHAIN:-go1.23.0}" \
   cargo test -p eggchaos-toxiproxy --all-features --test post_v212_differential -- --nocapture \
-  > /tmp/post-v212.log 2>&1 || { tail -40 /tmp/post-v212.log >&2; exit 1; }
-grep -q 'DIFFERENTIAL_SUMMARY.*"failed":0' /tmp/post-v212.log \
-  || { echo "post-v2.12 differential failed" >&2; tail -20 /tmp/post-v212.log >&2; exit 1; }
+  > "$log_file" 2>&1 || { tail -40 "$log_file" >&2; exit 1; }
+grep -q 'DIFFERENTIAL_SUMMARY.*"failed":0' "$log_file" \
+  || { echo "post-v2.12 differential failed" >&2; tail -20 "$log_file" >&2; exit 1; }
 echo '{"translation":"pass","differential":"pass"}'

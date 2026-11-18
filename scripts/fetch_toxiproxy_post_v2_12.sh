@@ -64,23 +64,30 @@ if [ "$#" -gt 0 ]; then
 fi
 default_dest="${TMPDIR:-/tmp}/eggchaos-toxiproxy-post-v2-12-40f7fd31/toxiproxy-server"
 if [ -z "$dest" ]; then dest="$default_dest"; fi
-script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-archive_dir=$(dirname "$dest")
-archive="$archive_dir/toxiproxy-post-v2-12-${commit}.tar.gz"
-# The codeload archive unpacks as a single directory named after the
-# commit; use that explicit directory rather than relying on a glob.
-sources="$archive_dir/toxiproxy-${commit}"
 
 # Committed source archive checksum. Pinned via M038; any change is a
 # reproduction break, not a fixture refresh.
 expected="26351cc70792f1c3391bdd1d376974a79a756b349ec1abfa8b8f1524c042b13d"
+work_dir="$(mktemp -d "${TMPDIR:-/tmp}/eggchaos-toxiproxy-post-v2-12.XXXXXX")"
+install_dir=""
+cleanup() {
+  rm -rf "$work_dir"
+  if [ -n "$install_dir" ]; then rm -rf "$install_dir"; fi
+}
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+chmod 700 "$work_dir"
 
-mkdir -p "$archive_dir"
-if [ ! -f "$archive" ]; then
-  curl --fail --location --silent --show-error \
-    "https://codeload.github.com/Shopify/toxiproxy/tar.gz/$commit" \
-    --output "$archive"
-fi
+archive="$work_dir/toxiproxy-post-v2-12-${commit}.tar.gz"
+# The codeload archive unpacks as a single directory named after the
+# commit; use that explicit directory rather than relying on a glob.
+sources="$work_dir/toxiproxy-${commit}"
+staged_binary="$work_dir/toxiproxy-server"
+curl --proto '=https' --proto-redir '=https' --fail --location --silent --show-error \
+  "https://codeload.github.com/Shopify/toxiproxy/tar.gz/$commit" \
+  --output "$archive"
 if command -v sha256sum >/dev/null 2>&1; then
   actual="$(sha256sum "$archive" | cut -d ' ' -f 1)"
 else
@@ -90,9 +97,7 @@ if [ "$actual" != "$expected" ]; then
   echo "toxiproxy post-v2.12 source archive checksum mismatch: got $actual expected $expected" >&2
   exit 1
 fi
-if [ ! -d "$sources" ]; then
-  tar -xzf "$archive" -C "$archive_dir"
-fi
+tar -xzf "$archive" -C "$work_dir"
 build_dir="$sources"
 if [ ! -d "$build_dir/cmd/server" ]; then
   echo "post-v2.12 source tree missing cmd/server: $build_dir" >&2
@@ -106,15 +111,26 @@ resolved_toolchain="$(GOTOOLCHAIN="$requested_toolchain" go env GOTOOLCHAIN 2>/d
 }
 case "$resolved_go" in "go version $requested_toolchain"*) ;; *)
   echo "Go toolchain mismatch: requested=$requested_toolchain resolved=$resolved_go" >&2; exit 1;; esac
-( cd "$build_dir/cmd/server" && GOTOOLCHAIN="$requested_toolchain" go build -o "$dest" . )
-chmod +x "$dest"
+( cd "$build_dir/cmd/server" && GOTOOLCHAIN="$requested_toolchain" go build -o "$staged_binary" . )
+chmod +x "$staged_binary"
 # Source-built upstream reports `version git`; assert the oracle identity
 # rather than a real release tag.
-version_output="$("$dest" -version 2>&1 || true)"
+version_output="$("$staged_binary" -version 2>&1 || true)"
 if ! printf '%s' "$version_output" | grep -q 'toxiproxy-server version'; then
   echo "post-v2.12 oracle -version output unexpected: $version_output" >&2
   exit 1
 fi
+if [ -d "$dest" ]; then
+  echo "post-v2.12 oracle destination is a directory: $dest" >&2
+  exit 1
+fi
+dest_parent="$(dirname "$dest")"
+mkdir -p "$dest_parent"
+install_dir="$(mktemp -d "$dest_parent/.eggchaos-toxiproxy-post-v2-12.XXXXXX")"
+chmod 700 "$install_dir"
+install_binary="$install_dir/toxiproxy-server"
+mv -f "$staged_binary" "$install_binary"
+mv -f "$install_binary" "$dest"
 if [ "$mode" = "--json" ]; then
   # JSON output is the only metadata mode; the executable path must
   # never appear on stdout in this mode (M041).

@@ -5,6 +5,7 @@
 //! ```text
 //! cargo run -p eggchaos-toxiproxy --example compat_server -- 127.0.0.1:8474
 //! cargo run -p eggchaos-toxiproxy --example compat_server -- 127.0.0.1:8475 post-v2.12-2026-09-25
+//! cargo run -p eggchaos-toxiproxy --example compat_server -- --allow-public 0.0.0.0:8474
 //! ```
 //!
 //! The first positional argument is the bind address (default
@@ -17,28 +18,46 @@
 //!   profile. Adds `packet_loss` and reports `{"version":"git"}` from
 //!   the source-build oracle.
 //!
-//! Loopback only unless an explicit bind address is given.
+//! The compatibility API has no authentication or TLS. Non-loopback binding
+//! requires the explicit `--allow-public` flag and separate network/TLS controls.
 
 use eggchaos_server::ControlState;
 use eggchaos_toxiproxy::{CompatProfile, ToxiproxyAdapter, ToxiproxyHttp};
 
 #[tokio::main]
 async fn main() {
-    let bind: std::net::SocketAddr = std::env::args()
-        .nth(1)
-        .unwrap_or_else(|| "127.0.0.1:8474".into())
+    let mut args: Vec<String> = std::env::args().skip(1).collect();
+    let allow_public = args
+        .iter()
+        .position(|argument| argument == "--allow-public")
+        .is_some_and(|index| {
+            args.remove(index);
+            true
+        });
+    let bind: std::net::SocketAddr = args
+        .first()
+        .map_or("127.0.0.1:8474", String::as_str)
         .parse()
         .expect("bind address parses");
-    let profile = match std::env::args().nth(2).as_deref() {
+    let profile = match args.get(1).map(String::as_str) {
         None => CompatProfile::default(),
         Some("strict-v2.12") => CompatProfile::StrictV2_12,
         Some("post-v2.12-2026-09-25") => CompatProfile::PostV2_12_2026_09_25,
         Some(other) => panic!("unknown profile {other:?}: strict-v2.12 or post-v2.12-2026-09-25"),
     };
+    assert!(args.len() <= 2, "unexpected extra argument");
+    assert!(
+        bind.ip().is_loopback() || allow_public,
+        "non-loopback compatibility binds require --allow-public"
+    );
+
     let adapter = ToxiproxyAdapter::with_profile(ControlState::default(), profile.clone());
-    let handle = ToxiproxyHttp::start(bind, adapter)
-        .await
-        .expect("compat server starts");
+    let handle = if allow_public {
+        ToxiproxyHttp::start_with_public_bind(bind, adapter).await
+    } else {
+        ToxiproxyHttp::start(bind, adapter).await
+    }
+    .expect("compat server starts");
     println!(
         "compat server on {} (profile={})",
         handle.local_addr(),

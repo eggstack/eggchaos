@@ -44,6 +44,44 @@ unavailable on this repository, open a minimal public issue that
 describes only the affected area and asks for a private contact —
 never the vulnerability details themselves.
 
+## Repository safeguards and dependency triage
+
+The repository requires pull requests for `main`, current required CI and
+dependency-review checks, linear history, and resolved review conversations;
+force-push and branch deletion are blocked. A `v*.*.*` release-tag ruleset
+blocks creation, updates, and deletion except for the designated release
+maintainer. The repository currently has one returned admin collaborator, so
+an independent approval is not required or claimed. The maintainer's `main`
+bypass is limited to pull requests; the tag bypass is limited to the release
+maintainer.
+
+Dependabot vulnerability alerts and security updates are enabled. Secret
+scanning and push protection are enabled. The GitHub API readback still reports
+non-provider pattern scanning and validity checks as disabled after a
+repository-settings update request. The organization API reports a `Free` plan;
+GitHub documents non-provider pattern scanning for organization-owned
+repositories with GitHub Team and Secret Protection, and validity checks for
+GitHub Team or Enterprise accounts. These controls are not represented as
+active. See [GitHub's non-provider pattern availability](https://docs.github.com/en/code-security/secret-scanning/using-advanced-secret-scanning-and-push-protection-features/non-provider-patterns)
+and [supported secret-scanning patterns](https://docs.github.com/en/code-security/reference/secret-security/supported-secret-scanning-patterns).
+
+A pinned CodeQL workflow has been added to the current candidate, but has no
+hosted run or code-scanning result yet; do not treat CodeQL analysis as active
+until it runs successfully on the exact candidate SHA. The repository's
+current active rulesets and security settings can be checked with
+`scripts/check_repository_security_state.py` after that workflow is present on
+GitHub.
+
+Triage every open dependency alert against the named manifest and committed
+lockfile. Apply a compatible fix when available. If the dependency cannot be
+reproduced from the lockfile, keep the alert open while recording the evidence
+and investigating the GitHub alert metadata; do not dismiss an unreproduced
+alert merely to clear the count. Rust advisories are additionally checked
+against all four Cargo lockfiles by the scheduled audit workflow. The PR
+dependency-review threshold remains `high`; Python clients are stdlib-only,
+Python build/test tooling is exactly pinned, and the TypeScript client has no
+runtime dependencies.
+
 ## Scope notes
 
 Out-of-scope reports include: the documented developer-mode behavior

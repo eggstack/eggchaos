@@ -57,11 +57,22 @@ two opt-in compatibility profiles:
 Under both profiles the adapter remains stream/TCP-only; UDP datagram
 resources are a separate native API.
 
-Run a standalone compat server with the strict profile with
+Run a standalone compat server with the strict profile using
 `cargo run -p eggchaos-toxiproxy --example compat_server -- 127.0.0.1:8474`
-(loopback by default). The example accepts an explicit profile as the
-second positional argument (`strict-v2.12` or `post-v2.12-2026-09-25`).
-Native fixed-target UDP datagram resources are a separate API and do not extend
-Toxiproxy v2.12; the compatibility adapter remains stream/TCP-only. Contributor
-oracle setup and qualification commands are documented in
+(loopback by default). The example accepts an explicit profile as the second
+positional argument (`strict-v2.12` or `post-v2.12-2026-09-25`). The existing
+`ToxiproxyHttp::start` API refuses non-loopback binds; intentional exposure
+requires the additive `start_with_public_bind` API. The example likewise
+requires `--allow-public`, for example:
+
+```sh
+cargo run -p eggchaos-toxiproxy --example compat_server -- --allow-public 0.0.0.0:8474
+```
+
+This compatibility API has no authentication or TLS; the opt-in flag only
+records explicit exposure intent. Do not expose it publicly without separate
+network controls and a trusted TLS terminator. Native fixed-target UDP
+datagram resources are a separate API and do not extend Toxiproxy v2.12; the
+compatibility adapter remains stream/TCP-only. Contributor oracle setup and
+qualification commands are documented in
 [verification and qualification](../architecture/verification-qualification.md).

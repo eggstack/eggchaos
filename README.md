@@ -133,7 +133,11 @@ See [configuration](docs/configuration.md) for TOML fields, [control plane](docs
 | [Toxiproxy](docs/toxiproxy.md) | Compatibility profiles and differences |
 | [Eggfetch](docs/eggfetch.md) | In-process transport integration |
 
-The admin listener binds to loopback by default. For non-loopback access, configure `public_admin = true` and a non-empty `auth_token` in `[admin]`. The listener uses HTTP, so protect remote access with a trusted TLS terminator and network controls. The CLI's `--admin-token` option and `EGGCHAOS_ADMIN_TOKEN` environment variable send credentials to an existing admin service; they do not configure the service listener.
+## Security boundaries
+
+The native admin listener is unauthenticated on loopback by default; treat that as a same-user trust boundary. Non-loopback access requires `public_admin = true` and a bearer token with at least 32 non-whitespace bytes. Requests are checked against the bind-derived `Host` set or exact `[admin].allowed_hosts`; mutations also validate any present `Origin`, and non-empty bodies require JSON media type. The listener is cleartext HTTP, so protect remote access with a trusted TLS terminator and network controls. The CLI's `--admin-token` value may appear in local process listings; prefer `EGGCHAOS_ADMIN_TOKEN` or a protected secret mechanism and avoid shell history. The Toxiproxy compatibility API is unauthenticated and loopback-only unless the caller explicitly opts into public binding; that opt-in does not add TLS or authentication. See [admin configuration](docs/configuration.md#admin-listener), [control-plane security](docs/control-plane.md), and [Toxiproxy exposure](docs/toxiproxy.md).
+
+Repository governance uses active `main` and release-tag rulesets: `main` requires pull requests, current required checks, linear history, and resolved review threads, with a sole-maintainer bypass limited to pull requests; release tags are restricted to the release owner. Secret scanning, push protection, Dependabot alerts, and Dependabot security updates are enabled. Non-provider pattern scanning and validity checks are not available on the organization’s current GitHub Free plan. The pinned CodeQL workflow has been added to the candidate but still requires an exact-head hosted run before its analysis is considered verified. See [the security policy](SECURITY.md) for current readbacks and limitations.
 
 ## License
 

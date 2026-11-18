@@ -916,7 +916,7 @@ fn build_kind(
 }
 
 async fn serve(path: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
-    let config = NativeConfig::load(path).await?;
+    let (config, allowed_hosts) = NativeConfig::load_with_admin_allowed_hosts(path).await?;
     let proxies = config.compile_proxies()?;
     let datagram_proxies = config.compile_datagram_proxies()?;
     let runtime = config.runtime;
@@ -943,13 +943,14 @@ async fn serve(path: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
         )
         .build()?;
     let handle = service.start().await?;
-    let mut admin = NativeAdmin::start(
+    let mut admin = NativeAdmin::start_with_allowed_hosts(
         AdminConfig {
             bind: config.admin.bind,
             public_admin: config.admin.public_admin,
             auth_token: config.admin.auth_token,
         },
         handle.control_state(),
+        allowed_hosts,
     )
     .await?;
     eprintln!("eggchaos listening; admin={}", admin.local_addr());

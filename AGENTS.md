@@ -69,7 +69,7 @@ Qualification (release workflow): `release-smoke.sh` (fmt/clippy/test/doc/audit/
 
 ## Planning state
 
-M000–M062 are closed with no active, ready, or blocked milestone. M062 closed the v0.2.1 release from exact candidate `b0bc9b1c3aeac6855ea4b82ea71a78f141197828` with ordinary hosted CI `43516207980` (15/15), pre-tag release dispatch `43517314319` (7/7), and tag-triggered release `43520281822` (7/7). All eight Rust workspace crates and five qualified binary/checksum pairs are published, and a clean-cache CLI install reports `0.2.1`. M058 remains the historical v0.2.0 publication authority and M059 the pre-publication hardening authority. Language-registry publication remains separately gated per package; `eggchaos-native` remains deferred under M058. Full release evidence is in `plans/closure/M062-v0-2-1-patch-release-closure.md`.
+M000–M062 are closed; M063 and M065 are active, while M064 is blocked by unavailable GitHub Free-plan security features (see `plans/registry.md`). M062 closed the v0.2.1 release from exact candidate `b0bc9b1c3aeac6855ea4b82ea71a78f141197828` with ordinary hosted CI `43516207980` (15/15), pre-tag release dispatch `43517314319` (7/7), and tag-triggered release `43520281822` (7/7). All eight Rust workspace crates and five qualified binary/checksum pairs are published, and a clean-cache CLI install reports `0.2.1`. M058 remains the historical v0.2.0 publication authority and M059 the pre-publication hardening authority. Language-registry publication remains separately gated per package; `eggchaos-native` remains deferred under M058. Full release evidence is in `plans/closure/M062-v0-2-1-patch-release-closure.md`.
 
 If the owner asks for new work: `plans/roadmap.md` is the architecture authority, `plans/reference/` holds parity/verification contracts (not status), ADRs live in `plans/adrs/`. Any new numbered plan needs objective, baseline/deps, scope + non-goals, affected crates, ordered work packages, invariants/failure semantics, test commands, acceptance criteria, stop conditions, closure evidence, and follow-on rules — and must update `plans/registry.md` in the same change. `plans/registry.md` is the sole hand-maintained milestone-status authority (vocabulary: `active`, `blocked`, `closed`, `ready`); the `Current planning state` blocks in AGENTS.md / `plans/README.md` / `plans/roadmap.md` / `architecture/overview.md` are generated projections, never independent authorities, and each numbered plan's own top-level `Status:` header is a checked projection that must agree with its registry row (M061). After any registry edit: 1. add/update the numbered plan; 2. update `registry.md`; 3. run `python3 scripts/check_planning_state.py --write`; 4. run `sh scripts/tests/test_planning_state.sh`. Never mark `closed` from source inspection; closure requires running the plan's tests on the exact candidate plus external/differential evidence where declared.
 
@@ -87,8 +87,15 @@ Prefer deterministic Tokio-time tests; wall-clock assertions need justified tole
 
 ## Current planning state
 
+**Active (in flight):**
+- `M063` (active; plan `063-control-plane-exposure-and-authentication-hardening.md`)
+- `M065` (active; plan `065-residual-runtime-and-qualification-tooling-hardening.md`)
+
+**Blocked (waiting on a predecessor closure):**
+- M064
+
 **Highest closed milestone:** `M062` (see registry for closure evidence).
 
-**Execution order:** no active or ready milestones.
+**Execution order:** `M063`, `M065`
 
 <!-- END eggchaos:planning-state -->
