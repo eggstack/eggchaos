@@ -1,6 +1,6 @@
 # Eggchaos Long-Term Roadmap
 
-Status: M000–M062 are closed. M058 closed the historical v0.2.0 publication (tag `v0.2.0` on `b6a277d`, eight crates.io publishes, GitHub Release with five binaries + checksums, fresh-install verification green). M055 owns the historical 0.2.0 development-version baseline, M056 the release-contract implementation, M057 the historical exact-head qualification authority for the M056 DAG, and M059 the pre-publication hardening corrective. M060 remains the historical post-release documentation/status cleanup closure, with its hosted exact-head evidence gap reconciled additively by M061. M061 is closed as the M060 closure-evidence/plan-status consistency corrective on exact candidate `9791375` (hosted run `37366364200`, 15/15). M062 closed the current v0.2.1 publication on exact candidate `b0bc9b1` (ordinary CI `43516207980`, 15/15; pre-tag dispatch `43517314319`, 7/7; tag release `43520281822`, 7/7), with all eight Rust crates and five qualified binaries published. `v0.2.1` is current; there are no active or ready milestones.
+Status: M000–M062 are closed. M058 closed the historical v0.2.0 publication (tag `v0.2.0` on `b6a277d`, eight crates.io publishes, GitHub Release with five binaries + checksums, fresh-install verification green). M055 owns the historical 0.2.0 development-version baseline, M056 the release-contract implementation, M057 the historical exact-head qualification authority for the M056 DAG, and M059 the pre-publication hardening corrective. M060 remains the historical post-release documentation/status cleanup closure, with its hosted exact-head evidence gap reconciled additively by M061. M061 is closed as the M060 closure-evidence/plan-status consistency corrective on exact candidate `9791375` (hosted run `37366364200`, 15/15). M062 closed the current v0.2.1 publication on exact candidate `b0bc9b1` (ordinary CI `43516207980`, 15/15; pre-tag dispatch `43517314319`, 7/7; tag release `43520281822`, 7/7), with all eight Rust crates and five qualified binaries published. `v0.2.1` is current. M063 and M065 are active from the 2026-11-17 security audit at `62682d9`; M064 is blocked because the organization’s current GitHub Free plan does not expose required secret-scanning features. M063–M065 have no closure records.
 
 ## 1. Mission
 
@@ -859,8 +859,15 @@ publication remain deferred under M058.
 
 ## Current planning state
 
+**Active (in flight):**
+- `M063` (active; plan `063-control-plane-exposure-and-authentication-hardening.md`)
+- `M065` (active; plan `065-residual-runtime-and-qualification-tooling-hardening.md`)
+
+**Blocked (waiting on a predecessor closure):**
+- M064
+
 **Highest closed milestone:** `M062` (see registry for closure evidence).
 
-**Execution order:** no active or ready milestones.
+**Execution order:** `M063`, `M065`
 
 <!-- END eggchaos:planning-state -->

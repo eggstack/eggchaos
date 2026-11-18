@@ -727,7 +727,7 @@ components:
             code:
               type: string
               description: Stable machine code.
-              enum: [not_found, conflict, invalid, invalid_json, unauthorized, bind_failed, restart_failed, serialization]
+              enum: [not_found, conflict, invalid, invalid_json, unauthorized, invalid_host, invalid_origin, unsupported_media_type, bind_failed, restart_failed, serialization]
             message:
               type: string
               description: Bounded human detail; never echoes bearer tokens.

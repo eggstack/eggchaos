@@ -215,6 +215,55 @@ candidate (see §3).
   (typescript-client), and pip (`.github/python-ci`, python-native,
   python-client) with weekly updates and bounded PR counts.
 
+### M064 repository security controls
+
+The repository-scoped `main-protection` ruleset is active. It requires a PR,
+linear history, resolved review conversations, and the successful check
+contexts observed on the latest green `main` CI run plus the observed
+Dependency review job (`review`); it blocks force-push and deletion. The only
+returned admin collaborator is `dbowm91`, so the required approval count is
+zero rather than implying independent review. That user is the sole configured
+`main` bypass actor, restricted to pull requests. The active
+`release-tag-protection` ruleset covers `refs/tags/v*.*.*` and blocks creation,
+update, and deletion except for the same release maintainer.
+
+Repository API readbacks report secret scanning, push protection, Dependabot
+vulnerability alerts, and Dependabot security updates enabled. The
+vulnerability-alert endpoint returns `204`, GitHub's documented enabled
+response. The Dependabot open-alert list is empty; the four committed Cargo
+lockfiles passed `cargo audit --deny warnings` during M064 triage, so no alert
+was dismissed. The earlier three-vulnerability push-metadata count remains
+unreproduced by the committed lockfiles or the enabled open-alert list.
+
+Non-provider pattern scanning and validity checks remain disabled: the
+repository API left both disabled after repository-admin updates. GitHub
+currently gates non-provider scanning and validity checks on an organization
+Secret Protection entitlement (Team/Enterprise, depending on feature). No
+organization-wide setting was changed; these are an explicit plan/entitlement
+blocker, not enabled controls.
+
+`.github/workflows/codeql.yml` analyzes Rust and Actions workflow surfaces on
+`main` pushes, pull requests, and a weekly schedule. It pins
+`github/codeql-action` v4.39.3 (`33d7b85da1a04171e211befe2c739303b9a4c066`),
+uses only `contents: read` and `security-events: write`, checks out without
+persisted credentials, and separately runs the full workspace `cargo check`
+under Rust 1.89. CodeQL's Rust database uses its documented `none` build mode;
+GitHub-hosted analysis and the resulting check contexts have not yet run from
+this local uncommitted workflow. The ruleset therefore contains only observed
+check names; add the exact CodeQL contexts after the first hosted run rather
+than predicting them.
+
+The dependency-review threshold remains `high`: `cargo audit --deny warnings`
+and `cargo-deny` cover Rust advisory severities across committed lockfiles.
+No separate `pip-audit` tool was added: Python clients are stdlib-only and
+build/test requirements are pinned and Dependabot-managed; the TypeScript
+client has no runtime dependencies, and its lockfile/tooling changes remain
+covered by Dependabot and PR dependency review. The manual, read-only API
+readback is `python3 scripts/check_repository_security_state.py --repo
+eggstack/eggchaos`; run it with an authenticated `gh` session after the
+CodeQL workflow is present on GitHub. It is intentionally not wired into PR CI
+with a privileged token.
+
 ## 3. Release qualification (`.github/workflows/release.yml`)
 
 - Triggers: `workflow_dispatch` (manual) and `push` tags `v*.*.*`.

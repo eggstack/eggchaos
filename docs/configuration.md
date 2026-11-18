@@ -4,16 +4,19 @@ Eggchaos reads schema-versioned TOML. Set `version = 1`; omitted optional fields
 
 ## Admin listener
 
-The default listener is `127.0.0.1:8475` and is unauthenticated unless you configure a token. To bind beyond loopback, set `public_admin = true` and a non-empty `auth_token`:
+The default listener is `127.0.0.1:8475` and is unauthenticated. Treat loopback access as a same-user trust boundary. To bind beyond loopback, set `public_admin = true` and configure a bearer token containing at least 32 non-whitespace bytes:
 
 ```toml
 [admin]
 bind = "0.0.0.0:8475"
 public_admin = true
 auth_token = "render-this-value-from-your-secret-store"
+allowed_hosts = ["admin.example.com:8475"]
 ```
 
-Eggchaos reads `auth_token` as a literal TOML string. It does not expand environment variables. Do not commit a real token. The admin listener uses HTTP, so protect non-loopback access with a trusted TLS terminator and network controls. The CLI's `--admin-token` option and `EGGCHAOS_ADMIN_TOKEN` variable supply credentials for client requests; they do not configure the server listener.
+Eggchaos reads `auth_token` as a literal TOML string; it does not expand environment variables. Do not commit a real token. A short token on a loopback listener is allowed but emits a startup warning. `allowed_hosts` is optional, accepts at most 64 exact ASCII host authorities, and does not accept wildcards, schemes, or paths. With no explicit list, the listener accepts only its bound address and the documented loopback names/literals for that port. Configure the public hostname (and port, when present in requests) when a reverse proxy is used. Forwarded host headers are not trusted.
+
+The native API validates `Host` on every route. For state-changing methods, a present `Origin` must be `http` or `https` and match an allowed authority; `Origin: null` is rejected, while an absent Origin remains valid for non-browser clients. Non-empty request bodies require `Content-Type: application/json` (parameters are allowed). These checks do not encrypt the connection: the admin listener is cleartext HTTP, so protect non-loopback access with a trusted TLS terminator and network controls. The CLI's `--admin-token` and `EGGCHAOS_ADMIN_TOKEN` supply credentials for client requests; they do not configure the server listener.
 
 ## Stream proxy example
 
@@ -54,6 +57,12 @@ The optional `[runtime]` table controls service-wide limits. Defaults preserve t
 | `termination_grace_ms` | milliseconds | `5000` | `0..=300000` |
 
 Each `[[proxy]]` may set `connect_timeout_ms` (default `5000`, range `1..=300000`), `seed` (default `0`), `enabled` (default `true`), and `max_connections` (optional). The global connection limit still applies. Latency faults may set `max_buffer_bytes` from `1` through `67108864` bytes. Invalid values fail configuration with a field-specific error.
+
+### Connection memory and idle-timeout limits
+
+A latency buffer is a per-direction byte cap, not a preallocated reservation. For a conservative upper-bound estimate, multiply the configured latency-buffer cap by the number of active connections and by the number of directions that have latency buffering. At the maximum `64 MiB` cap in both directions and the default `1024` global connections, the possible buffered payload is about `128 GiB`; actual use depends on traffic and configured plans, and process memory also includes sockets, queues, and metadata. Lower `max_buffer_bytes` and set a per-proxy `max_connections` appropriate to the service; `global_connections` remains the workspace-wide ceiling.
+
+Stream connections have no idle timeout. Eggress `eggress-relay` 1.0.12 exposes no no-progress timeout option, and Eggchaos does not fork its copy/half-close behavior to add one. For long-lived or untrusted clients, limit exposure at the network layer and use `max_connections` (and, where appropriate, an external connection-lifetime policy) to bound resource occupancy. Datagram associations separately support `association_idle_timeout_ms`.
 
 The service half-close policy is not configurable in schema v1. The runtime uses its `Drain` policy.
 

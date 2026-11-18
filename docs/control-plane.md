@@ -1,15 +1,36 @@
 # Native control plane
 
-The native API uses `/v1` and binds to loopback by default. A non-loopback
-bind requires `public_admin = true` and a non-empty bearer token in the TOML
-`[admin]` table. See [configuration](configuration.md#admin-listener). Failed
-authentication returns a bounded JSON error without echoing the token. Request
-bodies are limited to 1 MiB.
+The native API uses `/v1` and binds to loopback by default. Unauthenticated
+loopback access is a same-user trust boundary. A non-loopback bind requires
+`public_admin = true` and a bearer token containing at least 32 non-whitespace
+bytes in the TOML `[admin]` table. See
+[configuration](configuration.md#admin-listener). The listener remains
+cleartext HTTP; use a trusted TLS terminator and network controls for remote
+access.
+
+Every request must use a `Host` authority matching the bind-derived defaults
+or the optional exact `[admin].allowed_hosts` list. Forwarded host headers are
+not trusted. State-changing methods reject `Origin: null` and any present
+origin that is not `http`/`https` with an allowed authority; non-browser
+clients may omit Origin. Non-empty request bodies require
+`Content-Type: application/json` (optional parameters such as `charset` are
+accepted). These checks run before route dispatch. Bodies remain capped at
+1 MiB.
+
+When authentication is configured, failed or missing credentials return a
+bounded JSON error without echoing token material. Bearer scheme casing is
+ignored, but credential bytes are compared exactly. Failures are budgeted per
+peer IP (five-failure burst, one token per second); exhausted peers receive
+`429` with `Retry-After: 1`. Missing peer metadata uses a small fixed delay,
+not a shared lockout. This throttle does not replace network-level controls.
 
 For CLI requests to a secured admin endpoint, pass `--admin-token <token>` or
 set `EGGCHAOS_ADMIN_TOKEN`. The command-line value takes precedence. The CLI
-omits the authorization header when neither is set. Tokens are redacted from
-native configuration debug output.
+omits the authorization header when neither is set. A token passed with
+`--admin-token` can be visible in local process listings; prefer the
+environment variable or a protected configuration/secret mechanism, and do
+not put tokens in shell history. Native configuration debug output redacts
+tokens.
 
 The CLI is an HTTP client for the native API. It supports JSON output and
 returns a nonzero exit status when a command fails.

@@ -1140,8 +1140,35 @@ impl ToxiproxyHttpHandle {
 }
 
 impl ToxiproxyHttp {
-    /// Start the compatibility route family on a loopback-by-default listener.
+    /// Start the unauthenticated compatibility API on a loopback listener.
+    ///
+    /// Non-loopback binds are refused; use [`Self::start_with_public_bind`]
+    /// only after explicitly deciding how this unauthenticated API is protected.
     pub async fn start(
+        bind: std::net::SocketAddr,
+        adapter: ToxiproxyAdapter,
+    ) -> Result<ToxiproxyHttpHandle, CompatError> {
+        if !bind.ip().is_loopback() {
+            return Err(CompatError::new(
+                500,
+                "non-loopback Toxiproxy binds require explicit start_with_public_bind opt-in",
+            ));
+        }
+        Self::start_inner(bind, adapter).await
+    }
+
+    /// Start the unauthenticated compatibility API with explicit public-bind intent.
+    ///
+    /// This API adds no authentication or encryption. Protect non-loopback
+    /// exposure with network controls and a trusted TLS terminator.
+    pub async fn start_with_public_bind(
+        bind: std::net::SocketAddr,
+        adapter: ToxiproxyAdapter,
+    ) -> Result<ToxiproxyHttpHandle, CompatError> {
+        Self::start_inner(bind, adapter).await
+    }
+
+    async fn start_inner(
         bind: std::net::SocketAddr,
         adapter: ToxiproxyAdapter,
     ) -> Result<ToxiproxyHttpHandle, CompatError> {

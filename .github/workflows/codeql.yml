@@ -1,0 +1,52 @@
+name: CodeQL
+
+# M064: weekly code scanning for Rust and GitHub Actions workflow surfaces.
+permissions:
+  contents: read
+  security-events: write
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "31 4 * * 1"
+
+concurrency:
+  group: codeql-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: CodeQL (${{ matrix.language }})
+    timeout-minutes: 35
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: rust
+            build_mode: none
+          - language: actions
+            build_mode: none
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # stable (master 2026-11-15)
+        if: matrix.language == 'rust'
+        with:
+          toolchain: 1.89.0
+          components: rust-analyzer
+      # Rust CodeQL uses its supported `none` build mode. This separate
+      # locked check still exercises the whole workspace with the pinned MSRV.
+      - name: Check Rust workspace with pinned toolchain
+        if: matrix.language == 'rust'
+        run: cargo check --workspace --all-targets --all-features --locked
+      - uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build_mode }}
+      - uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          category: /language:${{ matrix.language }}

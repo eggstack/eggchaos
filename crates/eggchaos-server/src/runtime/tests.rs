@@ -2019,6 +2019,42 @@ async fn stream_loss_prometheus_exposition_is_unique_and_well_formed() {
 }
 
 #[tokio::test]
+async fn prometheus_metrics_escape_synthetic_label_values() {
+    let control = test_control();
+    let label = "synthetic\"quote\nand\\slash";
+    {
+        let mut tables = control.runtime.metrics.tables.lock().expect("metrics lock");
+        tables.record_accept(label);
+        tables
+            .activations
+            .insert((label.to_owned(), label.to_owned(), label.to_owned()), 1);
+    }
+
+    let metrics = control.metrics_text().await;
+    let escaped_label = r#"synthetic\"quote\nand\\slash"#;
+    let accepted_sample =
+        format!(r#"eggchaos_proxy_connections_accepted_total{{proxy="{escaped_label}"}} 1"#);
+    let accepted_samples: Vec<_> = metrics
+        .lines()
+        .filter(|line| line.starts_with("eggchaos_proxy_connections_accepted_total{proxy="))
+        .collect();
+    assert_eq!(accepted_samples.len(), 1);
+    assert_eq!(accepted_samples[0], accepted_sample);
+
+    let activation_sample = format!(
+        r#"eggchaos_fault_activations_total{{proxy="{escaped_label}",direction="{escaped_label}",fault_type="{escaped_label}"}} 1"#
+    );
+    let activation_samples: Vec<_> = metrics
+        .lines()
+        .filter(|line| line.starts_with("eggchaos_fault_activations_total{proxy="))
+        .collect();
+    assert_eq!(activation_samples.len(), 1);
+    assert_eq!(activation_samples[0], activation_sample);
+
+    control.shutdown_and_join().await;
+}
+
+#[tokio::test]
 async fn connection_evidence_contains_no_payload_bytes() {
     let (origin_addr, origin_task) = echo_server().await;
     let control = test_control();
